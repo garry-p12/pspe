@@ -19,7 +19,21 @@ import torch
 Tensor = torch.Tensor
 
 AMP_STEP = 0.05
-CONFIDENCE_LEVELS = {"confident": 0.10, "likely": 0.20, "uncertain": 0.40}
+
+# Confidence buckets, as (upper std threshold, word, representative std). These
+# make the confidence<->std mapping *inverse-consistent*: `confidence_from_std`
+# picks the word whose threshold first exceeds the policy std, and the parser
+# maps that word back to a representative std close to the original. Finer,
+# wider-covering buckets than the original three (which capped at 0.40 and left
+# a typical policy std ~0.5 badly mismatched, tanking the faithfulness ceiling).
+STD_BUCKETS: list[tuple[float, str, float]] = [
+    (0.15, "confident", 0.10),
+    (0.30, "likely", 0.22),
+    (0.45, "moderate", 0.37),
+    (0.65, "uncertain", 0.55),
+    (float("inf"), "vague", 0.80),
+]
+CONFIDENCE_LEVELS = {word: std for _, word, std in STD_BUCKETS}
 
 
 def quantise(value: float, step: float = AMP_STEP) -> float:
@@ -42,16 +56,21 @@ class BriefContext:
     cost_limit: float
     predicted_reward: float
     log_std: Tensor | None = None   # (K,), the policy's own uncertainty
-    top_k: int = 3
+    # Describe EVERY actuator above the deadband, not just the loudest few. A
+    # brief that names only the top 3 of 9 actuators drops the rest to zero in
+    # the parser while the policy still acts on them — that incompleteness, not
+    # quantisation, was what capped the faithfulness ceiling near 0.33.
+    top_k: int = 64
 
 
 def confidence_from_std(log_std: Tensor | None) -> str:
     if log_std is None:
         return "likely"
     std = float(log_std.exp().mean())
-    if std <= 0.15:
-        return "confident"
-    return "likely" if std <= 0.30 else "uncertain"
+    for threshold, word, _ in STD_BUCKETS:
+        if std <= threshold:
+            return word
+    return STD_BUCKETS[-1][1]
 
 
 def render_brief(ctx: BriefContext) -> str:
