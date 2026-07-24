@@ -1,0 +1,19 @@
+# PDE testbed data generation.
+defaults:
+  - _self_
+
+testbed: dar          # dar | swe | rdf
+device: cpu
+seed: 0
+
+data:
+  n_trajectories: 256
+  steps: 24
+  grid: 64
+  n_actuators: 9
+  control_scale: 0.5
+  control_hold: 4     # steps an actuator setting is held before resampling
+
+hydra:
+  run:
+    dir: outputs/data/${now:%Y-%m-%d_%H-%M-%S}

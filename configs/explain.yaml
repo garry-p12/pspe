@@ -1,0 +1,45 @@
+# Phase 4: faithfulness-regularised explanation briefs.
+defaults:
+  - _self_
+
+testbed: dar
+device: auto
+seed: 0
+
+policy_checkpoint: runs/plan/policy.pt   # null -> use an untrained policy
+
+env:
+  grid: 64
+  horizon: 12
+  n_actuators: 9
+
+model:
+  # "tiny" runs offline on CPU. For the open-weight backbones:
+  #   Qwen/Qwen2.5-1.5B-Instruct  |  microsoft/Phi-3.5-mini-instruct
+  backbone: tiny
+  width: 128
+  depth: 4
+  heads: 4
+  max_len: 96
+  n_prefix: 4
+  lora_r: 8
+  lora_alpha: 16
+  quant: none
+  temperature: 0.8
+
+train:
+  iterations: 200
+  batch: 16
+  lr: 1.0e-3
+  weight_supervised: 1.0
+  weight_faithful: 1.0
+  use_faithfulness: true   # ablation switch: faithfulness loss on/off
+  eval_every: 25
+
+output:
+  log_dir: runs/explain
+  checkpoint: runs/explain/explain.pt
+
+hydra:
+  run:
+    dir: outputs/explain/${now:%Y-%m-%d_%H-%M-%S}

@@ -1,0 +1,27 @@
+# Core stack (free / open-source only, no paid API keys).
+torch>=2.2
+numpy>=1.26
+scipy>=1.11
+gymnasium>=0.29
+hydra-core>=1.3
+tensorboard>=2.15
+matplotlib>=3.8
+pandas>=2.1
+rich>=13.0
+pytest>=8.0
+pytest-timeout>=2.2
+
+# Phase 3 / Phase 4 open-weight backbones (optional; `pip install -e ".[llm]"`).
+transformers>=4.44
+peft>=0.11
+accelerate>=0.33
+pillow>=10.0
+
+# Deliberately NOT pinned here:
+#   bitsandbytes  -> CUDA-only, no macOS/arm64 wheels. Use `--quant none` on Apple
+#                    silicon; `--quant 4bit` is honoured automatically on CUDA hosts.
+#   omnisafe      -> unmaintained against Python 3.11+/gymnasium>=0.29 at time of
+#                    writing. The four proposal baselines (CPO, PID-Lagrangian,
+#                    Sauté RL, primal-dual NPG) are implemented in baselines/safe_rl.py.
+#   neuraloperator/py-pde -> optional (`pip install -e ".[extras]"`); the repo ships
+#                    equivalent in-tree implementations so neither is required.

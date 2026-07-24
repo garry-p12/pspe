@@ -1,0 +1,46 @@
+# Phase 5: end-to-end Perceive -> Simulate -> Plan -> Explain.
+defaults:
+  - _self_
+
+testbed: dar
+device: auto
+seed: 0
+
+# Each stage either trains here or loads a checkpoint from its own phase.
+stages:
+  simulate: true
+  perceive: true
+  plan: true
+  explain: true
+
+checkpoints:
+  surrogate: runs/simulate/surrogate.pt
+  perceive: runs/perceive/perceive.pt
+  policy: runs/plan/policy.pt
+  explain: runs/explain/explain.pt
+
+env:
+  grid: 64
+  horizon: 12
+  n_actuators: 9
+
+# Short budgets: this config is the integration smoke path, not the headline run.
+budgets:
+  simulate_epochs: 5
+  perceive_epochs: 5
+  plan_iterations: 60
+  explain_iterations: 60
+
+ablations:
+  use_physics: true
+  adaptive_alpha: true
+  freeze_encoder: true
+  use_faithfulness: true
+
+output:
+  log_dir: runs/e2e
+  results: runs/e2e/results.json
+
+hydra:
+  run:
+    dir: outputs/e2e/${now:%Y-%m-%d_%H-%M-%S}

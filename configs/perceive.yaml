@@ -1,0 +1,44 @@
+# Phase 3: open-weight VLM grounding with LoRA.
+defaults:
+  - _self_
+
+device: auto
+seed: 0
+
+model:
+  # "tiny" runs offline on CPU. For the open-weight backbones:
+  #   Qwen/Qwen2-VL-2B-Instruct   |  vikhyatk/moondream2
+  backbone: tiny
+  image_size: 64
+  out_grid: 64
+  out_channels: 1
+  lora_r: 8
+  lora_alpha: 16
+  embed_dim: 128
+  quant: none          # none | 4bit  (4bit requires CUDA + bitsandbytes)
+
+data:
+  source: synthetic    # synthetic | real
+  testbed: dar
+  n_samples: 256
+  image_size: 64
+  grid: 64
+  noise: 0.05
+  blur_sigma: 1.0
+  root: null           # defaults to data/perception_proxy
+
+train:
+  epochs: 10
+  batch: 16
+  lr: 1.0e-3
+  w_regression: 1.0
+  w_contrastive: 0.2
+  freeze_encoder: true  # ablation switch: frozen vs fine-tuned perception encoder
+
+output:
+  log_dir: runs/perceive
+  checkpoint: runs/perceive/perceive.pt
+
+hydra:
+  run:
+    dir: outputs/perceive/${now:%Y-%m-%d_%H-%M-%S}

@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Generated data and runs. Regenerate with `make data`; never commit.
+data/pde_testbeds/*.npz
+data/pde_testbeds/*.npy
+data/perception_proxy/images/
+data/perception_proxy/fields/
+data/perception_proxy/captions.json
+runs/
+outputs/
+*.pt

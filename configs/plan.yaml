@@ -1,0 +1,42 @@
+# Phase 2: constrained hybrid-gradient planner.
+defaults:
+  - _self_
+
+testbed: dar
+device: auto
+seed: 0
+
+# Dynamics the planner trains against. "surrogate" needs a Phase 1 checkpoint;
+# "truth" differentiates the numerical solver directly (slower, no surrogate bias).
+dynamics: surrogate
+surrogate_checkpoint: runs/simulate/surrogate.pt
+
+env:
+  grid: 64
+  horizon: 12
+  n_actuators: 9
+
+planner:
+  iterations: 200
+  batch: 16
+  gamma: 0.98
+  lr_policy: 3.0e-4
+  lr_critic: 1.0e-3
+  entropy_coef: 1.0e-3
+  adaptive_alpha: true   # ablation switch: adaptive vs fixed mixing
+  alpha_init: 0.5
+  alpha_fixed: 0.5
+  grad_clip: 10.0
+  kp: 0.05
+  ki: 5.0e-4
+  kd: 0.02
+  eval_every: 20
+  eval_episodes: 8
+
+output:
+  log_dir: runs/plan
+  checkpoint: runs/plan/policy.pt
+
+hydra:
+  run:
+    dir: outputs/plan/${now:%Y-%m-%d_%H-%M-%S}
