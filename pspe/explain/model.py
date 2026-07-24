@@ -176,12 +176,19 @@ class ExplainModule(nn.Module):
     # -- embedding plumbing -------------------------------------------------- #
     def _embed_tokens(self, ids: Tensor) -> Tensor:
         if self._is_hf:
-            return self.backbone.get_input_embeddings()(ids)
+            # The frozen HF backbone is loaded in bf16/4-bit, but the trainable
+            # prefix, embedding-cat and heads all run in float32. Return token
+            # embeddings in float32 so `cat([prefix, tokens])` has one dtype;
+            # `_logits` casts to the backbone's dtype only at its boundary. This
+            # is what avoids "mat1 and mat2 have the same dtype: float != BFloat16".
+            return self.backbone.get_input_embeddings()(ids).float()
         return self.backbone.embedding(ids)
 
     def _logits(self, inputs_embeds: Tensor) -> Tensor:
         if self._is_hf:
-            return self.backbone(inputs_embeds=inputs_embeds).logits
+            weight_dtype = self.backbone.get_input_embeddings().weight.dtype
+            out = self.backbone(inputs_embeds=inputs_embeds.to(weight_dtype))
+            return out.logits.float()
         return self.backbone(inputs_embeds)
 
     def _prefix_embeds(self, condition: Tensor) -> Tensor:

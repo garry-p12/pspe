@@ -231,6 +231,13 @@ class PerceiveModule(nn.Module):
         self._hf_input_size = input_size
         return vision, hidden, token_grid
 
+    def _hf_compute_dtype(self) -> torch.dtype:
+        """First floating-point parameter dtype (skips uint8 4-bit weights)."""
+        for p in self.backbone.parameters():
+            if p.is_floating_point():
+                return p.dtype
+        return torch.float32
+
     # -- forward ------------------------------------------------------------ #
     def encode(self, images: Tensor) -> Tensor:
         if self._backbone_is_hf:
@@ -242,7 +249,10 @@ class PerceiveModule(nn.Module):
                 images, size=(size, size), mode="bilinear", align_corners=False
             )
             pixel_values = (pixel_values - 0.5) / 0.5
-            pixel_values = pixel_values.to(next(self.backbone.parameters()).dtype)
+            # Cast to the backbone's *floating* compute dtype (bf16 on CUDA).
+            # Not `next(params).dtype`: a 4-bit backbone's first param is uint8,
+            # and casting the image to uint8 would destroy it.
+            pixel_values = pixel_values.to(self._hf_compute_dtype())
             out = self.backbone(pixel_values=pixel_values)
             hidden = out.last_hidden_state if hasattr(out, "last_hidden_state") else out
             return hidden.float()

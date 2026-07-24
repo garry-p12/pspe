@@ -45,9 +45,18 @@ class SpectralConv2d(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         batch, _, height, width = x.shape
+        in_dtype = x.dtype
+        # The spectral path runs in float32 regardless of autocast. Under CUDA
+        # mixed precision the input is float16, and rfft2 of a half tensor
+        # produces ComplexHalf (complex32) — which has no baddbmm/einsum kernel
+        # on CUDA ("baddbmm_cuda not implemented for ComplexHalf") and is
+        # numerically poor for spectral convolutions anyway. Casting to float32
+        # here keeps AMP for the rest of the network while the FFT stays stable.
+        work = x.float()
         # MPS has no complex FFT kernel; fall back to CPU for the spectral block.
-        needs_cpu = x.device.type == "mps"
-        work = x.cpu() if needs_cpu else x
+        needs_cpu = work.device.type == "mps"
+        if needs_cpu:
+            work = work.cpu()
 
         x_ft = torch.fft.rfft2(work, norm="ortho")
         mx = min(self.modes_x, height // 2)
@@ -57,13 +66,16 @@ class SpectralConv2d(nn.Module):
             batch, self.out_channels, height, width // 2 + 1,
             dtype=torch.cfloat, device=work.device,
         )
+        # weight_pos / weight_neg are cfloat (float32 complex); keep them so.
         w_pos = self.weight_pos.to(work.device)[:, :, :mx, :my]
         w_neg = self.weight_neg.to(work.device)[:, :, :mx, :my]
         out_ft[:, :, :mx, :my] = self._mul(x_ft[:, :, :mx, :my], w_pos)
         out_ft[:, :, -mx:, :my] = self._mul(x_ft[:, :, -mx:, :my], w_neg)
 
         out = torch.fft.irfft2(out_ft, s=(height, width), norm="ortho")
-        return out.to(x.device) if needs_cpu else out
+        out = out.to(x.device) if needs_cpu else out
+        # Back to the surrounding autocast dtype so the residual add is consistent.
+        return out.to(in_dtype)
 
 
 class FNOBlock(nn.Module):
