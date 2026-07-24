@@ -27,6 +27,7 @@ model:
   modes: 12           # FNO spectral truncation (the reduced order)
   width: 32
   n_layers: 4
+  use_checkpoint: false  # gradient checkpointing; turn on at large grids (128^2)
 
 output:
   log_dir: runs/simulate

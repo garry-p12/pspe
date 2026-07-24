@@ -180,3 +180,53 @@ def test_saute_augments_the_observation_with_the_budget() -> None:
     observed = agent.observe(state, torch.full((2,), env.task.cost_limit))
     assert observed.shape[1] == state.shape[1] + 1
     assert torch.allclose(observed[:, -1], torch.ones_like(observed[:, -1]))
+
+
+# --------------------------------------------------------------------------- #
+# Equity constraint (g_2)
+# --------------------------------------------------------------------------- #
+def test_equity_cost_penalises_concentrated_harm() -> None:
+    from pspe.envs.task import TaskSpec
+
+    spec = TaskSpec(equity_enabled=True, n_subregions=2)
+    uniform = torch.full((2, 1, 32, 32), 0.5)
+    concentrated = torch.zeros(2, 1, 32, 32)
+    concentrated[:, 0, :16, :16] = 2.0
+    action = torch.zeros(2, 9)
+
+    assert float(spec.equity_cost(uniform, action).mean()) < 1e-4
+    assert float(spec.equity_cost(concentrated, action).mean()) > 0.1
+    assert set(spec.costs(concentrated, action)) == {"safety", "equity"}
+
+
+def test_equity_cost_is_differentiable() -> None:
+    from pspe.envs.task import TaskSpec
+
+    spec = TaskSpec(equity_enabled=True)
+    state = torch.rand(2, 1, 16, 16, requires_grad=True)
+    spec.equity_cost(state, torch.zeros(2, 9)).sum().backward()
+    assert state.grad is not None and torch.isfinite(state.grad).all()
+
+
+def test_planner_enforces_the_equity_constraint_with_a_second_dual(tmp_path) -> None:
+    env = make_env("dar", grid=GRID, horizon=3, batched=True)
+    env.task.equity_enabled = True
+    eval_env = make_env("dar", grid=GRID, horizon=3, batched=True)
+    eval_env.task.equity_enabled = True
+
+    policy = GaussianFieldPolicy(env.obs_shape[0], env.action_dim)
+    trainer = HybridPlannerTrainer(
+        env, policy,
+        cfg=PlannerConfig(iterations=3, batch=4, horizon=3, eval_every=100, eval_episodes=2),
+        eval_env=eval_env, logger=RunLogger(tmp_path / "eq"),
+    )
+    summary = trainer.train()
+    assert trainer.equity_dual is not None
+    assert "equity_cost" in summary and "equity_violation_rate" in summary
+    assert 0.0 <= summary["equity_violation_rate"] <= 1.0
+
+
+def test_equity_off_by_default_keeps_single_constraint() -> None:
+    env = make_env("dar", grid=GRID, horizon=2, batched=True)
+    assert env.task.equity_enabled is False
+    assert set(env.task.costs(env.reset(1), torch.zeros(1, env.action_dim))) == {"safety"}

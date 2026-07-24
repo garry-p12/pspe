@@ -85,9 +85,20 @@ Swap in the real backbones with one flag:
 
 ```bash
 pip install -e ".[llm]"
-python scripts/train_perceive.py model.backbone=Qwen/Qwen2-VL-2B-Instruct   # or vikhyatk/moondream2
-python scripts/train_explain.py  model.backbone=Qwen/Qwen2.5-1.5B-Instruct  # or microsoft/Phi-3.5-mini-instruct
+# Perceive: a standard-ViT open-weight vision tower (takes pixel_values).
+python scripts/train_perceive.py model.backbone=google/siglip-base-patch16-224  # or openai/clip-vit-base-patch32, facebook/dinov2-small
+# Explain: any standard causal LM.
+python scripts/train_explain.py  model.backbone=Qwen/Qwen2.5-1.5B-Instruct      # or microsoft/Phi-3.5-mini-instruct
 ```
+
+**Perceive backbone must be a standard-ViT vision tower.** Qwen2-VL and
+moondream2 use *packed dynamic-resolution patches* and require a `grid_thw`
+argument from their image processor — they cannot be driven as a plain image
+encoder, and the module raises a clear, actionable error if you pass one. Use
+SigLIP / CLIP / DINOv2 (the vision halves of VLMs) for the field-regression
+task; the encoder resizes your imagery to the tower's native resolution
+internally. The *language* head has no such constraint — Qwen2.5 / Phi-3.5 work
+directly.
 
 `quant=4bit` is honoured on CUDA hosts. On macOS/arm64 it is ignored, because
 `bitsandbytes` ships no wheels for that platform — the model loads unquantised
@@ -191,13 +202,57 @@ it enforces the budget through state augmentation rather than a dual, so it
 converges to a *conservative* interior point (cost 0.309 against a 0.400 limit)
 rather than sitting on the boundary.
 
-**The PDE testbed constraints do not currently bind.** On `dar`, every planner
-and baseline finishes at episode cost ≈0.16 against a `cost_limit` of 2.0, with
-violation rate 0 — the dual stays at zero and all five are effectively running
-unconstrained, which is why the Phase 2 table shows no separation. Tighten the
-per-testbed `cost_limit` in `pspe/envs/task.py` before generating any
-reportable Phase 2 result; see
-[docs/proposal_deltas.md](docs/proposal_deltas.md) item 6.
+### Phase 2 results (`dar`, 200 iterations, `cost_limit = 0.936`)
+
+| run | return | episode cost | violation | real env samples | surrogate samples | wall (s) |
+|---|---|---|---|---|---|---|
+| **pspe_hybrid** | **−2.251** | **0.189** | 0.00 | **3,072** | 38,400 | 1658 |
+| ppo_lagrangian | −2.468 | 0.216 | 0.00 | 38,400 | 0 | 597 |
+| cpo | −2.483 | 0.228 | 0.00 | 38,400 | 0 | 1508 |
+| saute | −2.504 | 0.234 | 0.00 | 38,400 | 0 | 577 |
+| primal_dual_npg | −2.504 | 0.234 | 0.00 | 38,400 | 0 | 1384 |
+
+The hybrid planner reaches a better return at a lower cost, on **12.5× fewer
+real environment transitions** — it acts inside the differentiable surrogate,
+whose whole real-sample cost is the 3,072 transitions it was fitted on. All
+five respect the constraint, so the comparison is on return and sample cost.
+
+Two things this table does *not* say. It is a **single seed with no error
+bars** — run several before reporting. And the hybrid planner is the *slowest*
+in wall-clock (1658 s): it trades compute for real samples, which is the right
+trade only when environment interaction is the expensive resource.
+
+Sample accounting is explicit for exactly this reason. Counting the planner's
+38,400 surrogate rollouts as "env samples" — which an earlier version of this
+table did — hides the entire model-based argument by making the two look
+equally expensive.
+
+### Constraint limits are calibrated, not guessed
+
+A `cost_limit` set above what a reward-greedy policy actually spends leaves the
+dual pinned at zero and turns the whole constrained comparison into five
+unconstrained learners tying. `scripts/calibrate_constraints.py` measures the
+cost of doing nothing and the cost of a reward-greedy policy (dual disabled),
+then places the limit between them:
+
+```bash
+python scripts/calibrate_constraints.py          # all three testbeds
+```
+
+| testbed | do-nothing | reward-greedy | calibrated limit |
+|---|---|---|---|
+| `dar` | 0.229 | 2.249 | **0.936** |
+| `rdf` | 0.594 | 8.213 | **3.26** |
+| `swe` | 0.108 | 0.347 | **0.192** |
+
+`swe` also needed its cost *thresholds* retuned: `u_max=0.12` and `budget=0.35`
+sat outside the realised distributions (|h| reaches 0.113 at p95, mean|a| peaks
+at 0.051), so neither cost term ever fired and no limit could have made the task
+constrained. Now `u_max=0.04`, `budget=0.03`.
+
+**Re-run the calibration whenever reward weights, the actuator basis, or the
+horizon change** — all three move `cost_greedy`, and a stale limit silently
+reverts the comparison to unconstrained.
 
 **Still missing:** the toy CMDP is a correctness canary, not a scale test.
 `baselines/validate_safety_gym.py` runs all four on SafetyPointGoal1-v0 against
@@ -229,6 +284,49 @@ All from the proposal, all one flag:
 | faithfulness loss on/off | `train.use_faithfulness=false` |
 | cross-domain transfer | `train.padded=true`, then `pspe.pipeline.transfer_gap` |
 
+### Resolution generalization (Section 7.4)
+
+`eval/run_resolution.py` trains a surrogate at one grid and scores it at higher
+ones against the solver run at *those* grids. An FNO maps between function
+spaces, so it should barely notice:
+
+| trained at | eval 32² | eval 48² | eval 64² |
+|---|---|---|---|
+| 32² (`dar`) | 0.089 | 0.089 | 0.088 |
+
+Flat — the operator is discretization-invariant, not memorising a fixed grid.
+
+### Equity constraint (Section 3, "first-class")
+
+The paper's C-POMDP carries a *set* of constraints; a distributional-fairness
+one is called first-class. `TaskSpec.equity_cost` implements it as a genuine
+second constraint g₂ — the variance of residual harm across an R×R partition of
+the domain, zero iff every sub-region is treated equally — enforced by its own
+PID-Lagrangian dual in the planner (`equity.enabled=true`). Off by default so
+the Phase 2 comparison stays a controlled single-constraint problem.
+
+### Gradient checkpointing (Section 7.5)
+
+The FNO takes `use_checkpoint` (config `model.use_checkpoint=true`): recompute
+each spectral block in the backward pass instead of storing activations, which
+is what keeps a multi-step rollout at 128² inside a commodity GPU. Verified to
+produce **identical gradients** to the non-checkpointed path; off by default
+since it is pure overhead at 64².
+
+### Real datasets (loaders built, downloads are Colab steps)
+
+Two real open-source datasets are wired in, tested, and proven end-to-end on
+synthetic stand-ins locally; only the multi-GB / Hub downloads need Colab:
+
+* **PDEBench** (`pspe/simulate/pdebench.py`) — the community neural-operator
+  benchmark, with our exact families (2D reaction-diffusion, 2D shallow-water)
+  and published FNO numbers to compare against. `eval/run_pdebench.py` trains
+  FNO/DeepONet/GNOT on it. Real files are 6.6–13 GB (DaRUS, correct URLs wired);
+  the load→train→data-eval path is proven on a synthetic PDEBench-layout HDF5.
+* **EuroSAT** (`pspe/perceive/eurosat.py`) — Sentinel-2, recover the **NDVI
+  field from RGB** (NIR is dropped from the input, so it is a real inverse
+  problem). HuggingFace-hosted, no credentials. Runs in the Colab notebook.
+
 ### Transfer: two distinct protocols
 
 The three testbeds have different state arities (dar 1, swe 3, rdf 2), so a
@@ -247,6 +345,34 @@ channels plus a validity mask, so one head trains on `dar` and rolls out on
 
 These are not interchangeable and the cross-family number will be much worse;
 say which one any reported figure is.
+
+### Cross-family transfer matrix (Section 7.3 / contribution #5)
+
+`eval/run_transfer.py` trains one padded surrogate per family and rolls each out
+on every family. Rel L2, row = trained on, col = evaluated on (grid 32², 8
+epochs, 8-step rollout):
+
+| trained ↓ / eval → | dar | swe | rdf |
+|---|---|---|---|
+| **dar** | 0.24 | 38.2 | 1.79 |
+| **swe** | 0.36 | 0.47 | 0.57 |
+| **rdf** | 0.43 | 38.7 | 0.19 |
+
+The result is physically coherent, which is the point of the protocol:
+
+* transfer between the two **parabolic** families (dar ↔ rdf) is finite — a
+  surrogate trained on diffusion-advection-reaction is a usable, if degraded,
+  model of the reaction-diffusion front (gap 1.7) and vice-versa (0.38);
+* transfer **into the wave family** (→ swe) collapses (gap ~38): shallow-water
+  is fast, oscillatory, momentum-coupled dynamics that a parabolic surrogate has
+  never seen. A framework that claimed uniform transfer would be hiding this;
+  the matrix surfaces it.
+
+Two honest caveats. This is a **single seed at smoke scale** (32², 8 epochs) —
+directional, not final. And the `swe` surrogate is itself weakly trained at this
+budget (in-family rel L2 ~0.47), so its row and column are the noisiest; the
+clean signal is the dar/rdf block. Re-run with `--grid 64 --epochs 20 --full`
+for reportable numbers.
 
 ---
 
@@ -307,9 +433,12 @@ pspe/
   explain/   brief templates, frozen parser, faithfulness objective, LM+LoRA
   envs/      actuator basis, task functionals, Gymnasium + batched envs
   pipeline.py  the end-to-end loop and the transfer-gap protocol
-baselines/   safe-RL four; operator comparison runner
-eval/        metrics, ablation runner, results table, human-rating harness
-docs/        proposal ↔ implementation deltas (outstanding paper edits)
-scripts/     one entry point per phase
-tests/       79 tests: 73 fast, 5 slow (safe-RL convergence), 1 canary (FNO/Burgers)
+  perceive/  ... + eurosat.py (Sentinel-2 → NDVI, real perception data)
+  simulate/  ... + pdebench.py (real PDE benchmark), multifamily.py (padded surrogate)
+baselines/   safe-RL four; operator comparison runner; toy_cmdp validation
+eval/        metrics, ablations, transfer matrix, resolution-gen, pdebench, human-rating
+docs/        proposal ↔ implementation deltas + paper-gap plan (outstanding work)
+notebooks/   pspe_colab.ipynb — real backbones on real imagery (GPU)
+scripts/     one entry point per phase + calibrate/download helpers
+tests/       96 tests: 90 fast, 5 slow (safe-RL convergence), 1 canary (FNO/Burgers)
 ```

@@ -48,6 +48,43 @@ def rollout_surrogate(
 
 
 @torch.no_grad()
+def resolution_generalization(
+    model: nn.Module,
+    testbed_name: str,
+    train_grid: int,
+    eval_grids: list[int],
+    steps: int = 8,
+    batch: int = 8,
+    device: torch.device | str = "cpu",
+) -> dict[int, dict[str, float]]:
+    """Roll a surrogate trained at `train_grid` out at unseen resolutions.
+
+    A Fourier neural operator maps between function spaces, so a model trained at
+    64x64 should transfer to 96x96 or 128x128 with error that grows only with the
+    genuine resolution mismatch, not catastrophically. This is the paper's
+    "resolution-generalization error" (Section 7.4): the ground truth is the
+    numerical solver run *at each target resolution*, so the surrogate is scored
+    against the physics at that resolution, not a resampled 64x64 field.
+    """
+    from .solvers import make_testbed
+
+    device = torch.device(device)
+    report: dict[int, dict[str, float]] = {}
+    for grid in eval_grids:
+        testbed = make_testbed(testbed_name, grid=grid, device=device)
+        u0 = testbed.initial_condition(batch, torch.Generator().manual_seed(0)).to(device)
+        controls = torch.zeros(batch, steps, 1, grid, grid, device=device)
+        fidelity = surrogate_fidelity(model, testbed, u0, controls, steps)
+        report[grid] = {
+            "rel_l2_final": float(fidelity["rel_l2_final"]),
+            "rel_l2_mean": float(fidelity["rel_l2_mean"]),
+            "trained_at": train_grid,
+            "is_train_grid": grid == train_grid,
+        }
+    return report
+
+
+@torch.no_grad()
 def surrogate_fidelity(
     model: nn.Module,
     testbed: PDETestbed,

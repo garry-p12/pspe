@@ -24,6 +24,7 @@ from baselines.safe_rl import ALGORITHMS, SafeRLConfig, make_agent  # noqa: E402
 from eval.metrics import markdown_table  # noqa: E402
 from pspe.envs import make_env  # noqa: E402
 from pspe.plan import GaussianFieldPolicy, HybridPlannerTrainer, PlannerConfig  # noqa: E402
+from pspe.simulate import load_dataset  # noqa: E402
 from pspe.simulate.trainer import load_surrogate  # noqa: E402
 from pspe.utils import RunLogger, get_device, project_path, seed_everything  # noqa: E402
 
@@ -57,19 +58,32 @@ def main(cfg: DictConfig) -> None:
             "return": summary["return"],
             "episode cost": summary["episode_cost"],
             "violation rate": summary["violation_rate"],
-            "env samples": summary["samples"],
+            # Model-free: every rollout step is a real environment interaction.
+            "real env samples": summary["samples"],
+            "surrogate samples": 0,
             "wall clock (s)": summary["wall_clock_s"],
         })
 
     # -- the proposal's planner ---------------------------------------------- #
     surrogate = None
     dynamics = "truth"
+    surrogate_transitions = 0
     checkpoint = project_path(cfg.surrogate_checkpoint)
     if checkpoint.exists():
         surrogate = load_surrogate(checkpoint, device).eval()
         for p in surrogate.parameters():
             p.requires_grad_(False)
         dynamics = "surrogate"
+        # The planner's real sample cost is the data the surrogate was fitted
+        # on, not the rollouts it then takes inside the surrogate for free.
+        try:
+            blob = load_dataset(cfg.testbed, grid=cfg.env.grid)
+            surrogate_transitions = int(
+                blob["controls"].shape[0] * blob["controls"].shape[1]
+            )
+        except FileNotFoundError:
+            print("surrogate present but its training set is missing; "
+                  "real-sample accounting will report 0")
     else:
         print(f"no surrogate at {checkpoint}; the planner differentiates the solver instead.")
 
@@ -83,14 +97,16 @@ def main(cfg: DictConfig) -> None:
             **OmegaConf.to_container(cfg.planner, resolve=True),
         ),
         eval_env=eval_env, logger=RunLogger(root / "pspe_hybrid"), device=device,
+        surrogate_train_transitions=surrogate_transitions,
     )
     summary = trainer.train()
     rows.append({
-        "run": "pspe_hybrid",
+        "run": f"pspe_hybrid ({dynamics})",
         "return": summary["return"],
         "episode cost": summary["episode_cost"],
         "violation rate": summary["violation_rate"],
-        "env samples": summary["samples"],
+        "real env samples": summary["samples_real_env"],
+        "surrogate samples": summary["samples_surrogate"],
         "wall clock (s)": summary["wall_clock_s"],
     })
 

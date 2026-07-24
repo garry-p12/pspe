@@ -15,6 +15,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint
 
 Tensor = torch.Tensor
 
@@ -96,12 +97,19 @@ class FNO2d(nn.Module):
         n_layers: int = 4,
         control_channels: int = 1,
         predict_delta: bool = True,
+        use_checkpoint: bool = False,
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.control_channels = control_channels
         self.predict_delta = predict_delta
+        # Gradient checkpointing: recompute each FNO block in the backward pass
+        # instead of storing its activations. Trades ~30% compute for a large
+        # activation-memory saving, which is what keeps a multi-step rollout at
+        # 128^2 inside a commodity GPU (paper Section 7.5). Off by default since
+        # it is pure overhead at the 64^2 default resolution.
+        self.use_checkpoint = use_checkpoint
         # +2 for the (x, y) coordinate grid appended to every input.
         self.lift = nn.Conv2d(in_channels + control_channels + 2, width, kernel_size=1)
         self.blocks = nn.ModuleList(FNOBlock(width, modes, modes) for _ in range(n_layers))
@@ -128,6 +136,9 @@ class FNO2d(nn.Module):
         x = torch.cat([state, control, self._grid(state)], dim=1)
         h = self.lift(x)
         for block in self.blocks:
-            h = block(h)
+            if self.use_checkpoint and h.requires_grad:
+                h = torch.utils.checkpoint.checkpoint(block, h, use_reentrant=False)
+            else:
+                h = block(h)
         out = self.project(h)
         return state + out if self.predict_delta else out

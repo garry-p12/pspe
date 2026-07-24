@@ -41,6 +41,10 @@ class SimulateTrainConfig:
     eval_horizon: int = 16
     grid: int = 64
     amp: bool = True                 # mixed precision (CUDA only; no-op elsewhere)
+    # Score the rollout against the *stored* held-out trajectory instead of the
+    # analytic solver. Required for real datasets (PDEBench): there is no
+    # matching in-tree solver to roll as ground truth, only the recorded frames.
+    eval_vs_data: bool = False
     seed: int = 0
     log_dir: str = "runs/simulate"
 
@@ -119,17 +123,39 @@ class SimulateTrainer:
 
     @torch.no_grad()
     def evaluate(self, horizon: int | None = None) -> dict[str, float]:
-        """Relative-L2 rollout error against the numerical ground truth."""
+        """Relative-L2 rollout error against ground truth.
+
+        Ground truth is the analytic solver for the synthetic testbeds, or the
+        stored held-out frames when `eval_vs_data` is set (real datasets).
+        """
         horizon = horizon or self.cfg.eval_horizon
         states = self.val_set.states.to(self.device)
         controls = self.val_set.controls.to(self.device)
         steps = min(horizon, controls.shape[1])
-        report = surrogate_fidelity(self.model, self.testbed, states[:, 0], controls, steps)
+
+        if self.cfg.eval_vs_data:
+            report = self._data_fidelity(states, controls, steps)
+        else:
+            report = surrogate_fidelity(self.model, self.testbed, states[:, 0], controls, steps)
         return {
             "rel_l2_1step": float(report["rel_l2_1step"]),
             "rel_l2_final": float(report["rel_l2_final"]),
             "rel_l2_mean": float(report["rel_l2_mean"]),
             "eval_horizon": float(steps),
+        }
+
+    @torch.no_grad()
+    def _data_fidelity(self, states: Tensor, controls: Tensor, steps: int) -> dict[str, float]:
+        """Roll the surrogate and compare to the recorded trajectory, not a solver."""
+        from .losses import relative_l2
+        from .rollout import rollout_surrogate
+
+        pred = rollout_surrogate(self.model, states[:, 0], controls, steps, detach=True)
+        per_step = [float(relative_l2(pred[:, t], states[:, t])) for t in range(1, steps + 1)]
+        return {
+            "rel_l2_1step": per_step[0],
+            "rel_l2_final": per_step[-1],
+            "rel_l2_mean": sum(per_step) / len(per_step),
         }
 
     def save(self, path: str | Path) -> None:

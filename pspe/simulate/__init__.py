@@ -28,7 +28,12 @@ from .dataset import (
     generate_dataset,
     load_dataset,
 )
-from .rollout import rollout_surrogate, rollout_truth, surrogate_fidelity
+from .rollout import (
+    resolution_generalization,
+    rollout_surrogate,
+    rollout_truth,
+    surrogate_fidelity,
+)
 from .trainer import SimulateTrainConfig, SimulateTrainer, load_surrogate
 
 __all__ = [
@@ -60,6 +65,7 @@ __all__ = [
     "rollout_surrogate",
     "rollout_truth",
     "surrogate_fidelity",
+    "resolution_generalization",
     "SimulateTrainer",
     "SimulateTrainConfig",
     "load_surrogate",

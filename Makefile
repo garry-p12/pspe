@@ -5,7 +5,7 @@ PIP := $(CONDA_BASE)/envs/$(CONDA_ENV)/bin/pip
 
 .PHONY: setup setup-llm test test-all canary validate-baselines smoke data \
         train-simulate train-plan train-perceive train-explain train-e2e rate \
-        baselines-simulate baselines-plan ablations results clean tb
+        baselines-simulate baselines-plan ablations transfer resolution calibrate pdebench results clean tb
 
 ## ---- Phase 0: environment -------------------------------------------------
 setup:
@@ -71,6 +71,19 @@ train-e2e:
 
 ablations:
 	$(PY) eval/run_ablations.py
+
+transfer:
+	$(PY) eval/run_transfer.py
+
+resolution:
+	$(PY) eval/run_resolution.py
+
+calibrate:
+	$(PY) scripts/calibrate_constraints.py
+
+# Real PDEBench benchmark (needs a downloaded file; multi-GB, see the script).
+pdebench:
+	$(PY) eval/run_pdebench.py --file data/pdebench/2D_rdb_NA_NA.h5 --testbed swe --benchmark 2d_shallowwater
 
 results:
 	$(PY) eval/report.py

@@ -40,7 +40,7 @@ DATA_ROOT = Path(__file__).resolve().parents[2] / "data" / "perception_proxy"
 
 @dataclass
 class PerceptionDataConfig:
-    source: str = "synthetic"       # "synthetic" | "real"
+    source: str = "synthetic"       # "synthetic" | "real" | "eurosat"
     testbed: str = "dar"            # synthetic source only
     n_samples: int = 256
     image_size: int = 64
@@ -49,6 +49,7 @@ class PerceptionDataConfig:
     blur_sigma: float = 1.0
     seed: int = 0
     root: str | None = None
+    hf_id: str = "blanchon/EuroSAT_MSI"  # eurosat source only
 
 
 def render_field(field: Tensor, noise: float = 0.05, blur_sigma: float = 1.0,
@@ -98,10 +99,22 @@ class PerceptionDataset(Dataset):
                  train_frac: float = 0.8) -> None:
         self.cfg = cfg
         self.split = split
-        if cfg.source == "real":
+        if cfg.source == "eurosat":
+            self.items = self._load_eurosat(train_frac)
+        elif cfg.source == "real":
             self.items = self._load_real(train_frac)
         else:
             self.items = self._build_synthetic(train_frac)
+
+    # -- EuroSAT (real Sentinel-2, RGB -> NDVI field) ----------------------- #
+    def _load_eurosat(self, train_frac: float) -> list[tuple[Tensor, Tensor, str]]:
+        from .eurosat import EuroSATConfig, load_eurosat
+
+        cfg = EuroSATConfig(
+            hf_id=self.cfg.hf_id, n_samples=self.cfg.n_samples,
+            image_size=self.cfg.image_size, train_frac=train_frac, seed=self.cfg.seed,
+        )
+        return load_eurosat(cfg, self.split)
 
     # -- synthetic ---------------------------------------------------------- #
     def _build_synthetic(self, train_frac: float) -> list[tuple[Tensor, Tensor, str]]:

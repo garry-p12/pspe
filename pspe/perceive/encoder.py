@@ -136,6 +136,7 @@ class PerceiveModule(nn.Module):
     def __init__(self, cfg: PerceiveConfig | None = None) -> None:
         super().__init__()
         self.cfg = cfg or PerceiveConfig()
+        self._backbone_is_hf = self.cfg.backbone != "tiny"
         self.backbone, hidden, token_grid = self._build_backbone()
         self.decoder = FieldDecoder(
             hidden, self.cfg.out_channels, token_grid, self.cfg.out_grid
@@ -186,25 +187,65 @@ class PerceiveModule(nn.Module):
         elif torch.cuda.is_available():
             kwargs["torch_dtype"] = torch.bfloat16
 
+        import inspect
+
         model = AutoModel.from_pretrained(self.cfg.backbone, **kwargs)
         vision = getattr(model, "vision_model", None) or getattr(model, "visual", None) or model
+
+        # Reject packed-patch vision towers (Qwen2-VL, some moondream builds):
+        # their forward takes `grid_thw` and expects processor-packed pixel
+        # patches, not a plain (B, C, H, W) tensor. Driving them needs the
+        # model's image processor, which this generic field-regression encoder
+        # does not wire. Point the user at vision towers that DO take pixel_values.
+        forward_params = inspect.signature(vision.forward).parameters
+        if "grid_thw" in forward_params or "image_grid_thw" in forward_params:
+            raise ValueError(
+                f"backbone '{self.cfg.backbone}' has a packed-patch vision tower "
+                "(needs grid_thw); it cannot be driven as a plain image encoder "
+                "here. Use a standard-ViT open-weight vision backbone instead, e.g. "
+                "google/siglip-base-patch16-224, openai/clip-vit-base-patch32, or "
+                "facebook/dinov2-small — all take pixel_values and run with LoRA "
+                "on a T4."
+            )
+
         for p in vision.parameters():
             p.requires_grad_(False)
 
         peft_cfg = LoraConfig(
             r=self.cfg.lora_r,
             lora_alpha=self.cfg.lora_alpha,
-            target_modules=["q_proj", "v_proj", "qkv", "proj"],
+            target_modules=["q_proj", "k_proj", "v_proj", "out_proj",
+                            "qkv", "proj", "fc1", "fc2"],
             lora_dropout=0.05,
             bias="none",
         )
         vision = get_peft_model(vision, peft_cfg)
-        hidden = int(getattr(vision.config, "hidden_size", 768))
-        token_grid = self.cfg.image_size // int(getattr(vision.config, "patch_size", 16))
+
+        cfg = getattr(getattr(vision, "config", None), "vision_config", None) or vision.config
+        hidden = int(getattr(cfg, "hidden_size", 768))
+        input_size = int(getattr(cfg, "image_size", 224))
+        patch = int(getattr(cfg, "patch_size", 16))
+        # The token grid is set by the backbone's own resolution, not ours: the
+        # encoder resizes our imagery to `input_size` before the tower sees it.
+        token_grid = input_size // patch
+        self._hf_input_size = input_size
         return vision, hidden, token_grid
 
     # -- forward ------------------------------------------------------------ #
     def encode(self, images: Tensor) -> Tensor:
+        if self._backbone_is_hf:
+            # Standard ViT vision towers want their trained resolution and
+            # roughly [-1, 1] normalised pixels; resize + normalise here so raw
+            # [0, 1] imagery of any size works.
+            size = getattr(self, "_hf_input_size", 224)
+            pixel_values = torch.nn.functional.interpolate(
+                images, size=(size, size), mode="bilinear", align_corners=False
+            )
+            pixel_values = (pixel_values - 0.5) / 0.5
+            pixel_values = pixel_values.to(next(self.backbone.parameters()).dtype)
+            out = self.backbone(pixel_values=pixel_values)
+            hidden = out.last_hidden_state if hasattr(out, "last_hidden_state") else out
+            return hidden.float()
         out = self.backbone(images)
         if hasattr(out, "last_hidden_state"):
             out = out.last_hidden_state

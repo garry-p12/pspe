@@ -139,32 +139,40 @@ Run it on Linux or Colab before reporting any Phase 2 comparison.
 
 ---
 
-## 6. The testbed constraints do not bind — fix before reporting Phase 2
+## 6. Constraint limits are now calibrated, not guessed — RESOLVED
 
-Measured on `dar` at the default settings, every planner and every baseline
-finishes with an episode cost around **0.16** against a `cost_limit` of **2.0**,
-and a violation rate of exactly 0:
+An early Phase 2 table showed every learner at episode cost ≈0.16 against a
+`cost_limit` of 2.0 with violation rate 0, which read as "the constraint never
+binds". **That reading was itself an artifact of 12–30-iteration runs.** A
+do-nothing policy on `dar` already costs 0.229; those runs had simply not
+trained long enough for the policy to start actuating, so they were measuring
+something close to the do-nothing cost.
 
-| run | episode cost | limit | violation rate |
-|---|---|---|---|
-| plan (adaptive α) | 0.201 | 2.0 | 0.00 |
-| ppo_lagrangian | 0.159 | 2.0 | 0.00 |
-| cpo | 0.158 | 2.0 | 0.00 |
-| saute | 0.163 | 2.0 | 0.00 |
-| primal_dual_npg | 0.162 | 2.0 | 0.00 |
+[`scripts/calibrate_constraints.py`](../scripts/calibrate_constraints.py)
+measures the two reference points that actually define the problem — the cost
+of doing nothing, and the cost a *reward-greedy* policy (dual disabled,
+`kp=ki=kd=0`) incurs after real training — and places the limit at
+`cost_zero + 0.35 * (cost_greedy - cost_zero)`.
 
-The constraint is slack by more than 10×, so the dual variable stays at zero
-and every algorithm is effectively running unconstrained. A Phase 2 table built
-on this compares five *unconstrained* learners and would show no separation on
-the metric the proposal cares about — which is exactly what the current numbers
-show.
+| testbed | do-nothing | reward-greedy | old limit | calibrated limit |
+|---|---|---|---|---|
+| `dar` | 0.229 | 2.249 | 2.0 (0.9× greedy — barely binding) | **0.936** |
+| `rdf` | 0.594 | 8.213 | 2.0 (0.24× greedy — binding hard already) | **3.26** |
+| `swe` | 0.108 | 0.347 | 1.0 (378× greedy — never binding) | **0.192** |
 
-Fix before generating any reportable Phase 2 result: tighten `cost_limit` in
-[`pspe/envs/task.py`](../pspe/envs/task.py) per testbed until an unconstrained
-policy actually violates it (calibrate by running the planner with the dual
-disabled and setting the limit below its achieved cost), so the constrained
-comparison has something to compare. The `TaskSpec` thresholds `u_max` and
-`budget` are the other two knobs.
+So the three testbeds were in three *different* broken states, not one: `dar`
+marginal, `rdf` over-tight, `swe` completely inert.
+
+`swe` needed more than a new limit. Its cost thresholds sat entirely outside
+the realised distributions — `u_max=0.12` when |h| only reaches 0.113 at the
+95th percentile, and `budget=0.35` when mean|a| peaks at 0.051 — so neither
+cost term ever activated and there was no reward/cost tension to constrain at
+any limit. Retuned to `u_max=0.04`, `budget=0.03`, which puts both inside the
+distribution and produces a real spread (0.108 → 0.347).
+
+Recalibrate whenever the reward weights, actuator basis, or horizon change:
+those all move `cost_greedy`, and a stale limit silently reverts the comparison
+to unconstrained.
 
 ---
 

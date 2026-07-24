@@ -16,6 +16,14 @@ env:
   horizon: 12
   n_actuators: 9
 
+# Second constraint g_2 (distributional equity). Off by default so the
+# head-to-head Phase 2 comparison stays a single-constraint controlled
+# comparison; turn on to exercise the multi-constraint machinery.
+equity:
+  enabled: false
+  n_subregions: 2
+  limit: 0.05
+
 planner:
   iterations: 200
   batch: 16
@@ -27,9 +35,11 @@ planner:
   alpha_init: 0.5
   alpha_fixed: 0.5
   grad_clip: 10.0
-  kp: 0.05
-  ki: 5.0e-4
-  kd: 0.02
+  # Calibrated dual gains - see the note in PlannerConfig. Weak gains leave the
+  # planner effectively unconstrained.
+  kp: 0.5
+  ki: 0.05
+  kd: 0.1
   eval_every: 20
   eval_episodes: 8
 
