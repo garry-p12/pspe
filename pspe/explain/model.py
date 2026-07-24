@@ -108,6 +108,14 @@ class ExplainModule(nn.Module):
             nn.Linear(cond_features, self.cfg.cond_dim), nn.GELU(),
             nn.Linear(self.cfg.cond_dim, self.cfg.n_prefix * self.width),
         )
+        # Briefs live in OUR closed vocabulary (what the frozen parser reads),
+        # NOT the LM's. A real LM head emits tokens over its own 150k vocab,
+        # which our tokenizer cannot decode. So for the HF path the LM is a
+        # frozen sequence encoder: we own the input embedding and the output
+        # head, both over the brief vocabulary; the LM only contextualises.
+        if self._is_hf:
+            self.brief_embed = nn.Embedding(len(self.tokenizer), self.width)
+            self.brief_head = nn.Linear(self.width, len(self.tokenizer))
 
     @property
     def is_stub_backbone(self) -> bool:
@@ -203,19 +211,23 @@ class ExplainModule(nn.Module):
     # -- embedding plumbing -------------------------------------------------- #
     def _embed_tokens(self, ids: Tensor) -> Tensor:
         if self._is_hf:
-            # The frozen HF backbone is loaded in bf16/4-bit, but the trainable
-            # prefix, embedding-cat and heads all run in float32. Return token
-            # embeddings in float32 so `cat([prefix, tokens])` has one dtype;
-            # `_logits` casts to the backbone's dtype only at its boundary. This
-            # is what avoids "mat1 and mat2 have the same dtype: float != BFloat16".
-            return self.backbone.get_input_embeddings()(ids).float()
+            # Our own brief-vocabulary embedding (float32), NOT the LM's — the
+            # LM's embedding is over a different, 150k-token vocabulary.
+            return self.brief_embed(ids)
         return self.backbone.embedding(ids)
 
     def _logits(self, inputs_embeds: Tensor) -> Tensor:
         if self._is_hf:
+            # Run the frozen LM as an encoder, take its final hidden states, and
+            # map them to the brief vocabulary with our own head. Casting to the
+            # backbone dtype only at this boundary keeps the trainable prefix /
+            # embed / head in float32 (avoids the bf16 mat1/mat2 mismatch).
             weight_dtype = self.backbone.get_input_embeddings().weight.dtype
-            out = self.backbone(inputs_embeds=inputs_embeds.to(weight_dtype))
-            return out.logits.float()
+            out = self.backbone(
+                inputs_embeds=inputs_embeds.to(weight_dtype), output_hidden_states=True
+            )
+            hidden = out.hidden_states[-1].float()
+            return self.brief_head(hidden)
         return self.backbone(inputs_embeds)
 
     def _prefix_embeds(self, condition: Tensor) -> Tensor:
