@@ -164,7 +164,9 @@ class ExplainTrainer:
                 mask = mask.to(self.device).float()
 
                 supervised_nll = self.model(condition, token_ids, mask)
-                sampled, sample_logprob = self.model.generate(condition)
+                # Memory-efficient: sample without grad, score with one forward.
+                # `generate` (grad through the whole loop) OOMs a 1.5B backbone.
+                sampled, sample_logprob = self.model.sample_and_score(condition)
                 parsed, extras = self.parser.batch_distribution(sampled, self.device)
                 score, kl = faithfulness_score(reference, parsed)
 

@@ -170,6 +170,18 @@ class ExplainModule(nn.Module):
                 bias="none", task_type="CAUSAL_LM",
             ),
         )
+        # Gradient checkpointing keeps the teacher-forced forward's activation
+        # memory low enough for a T4. The prefix supplies the grad path into the
+        # frozen backbone, so input grads must be enabled for checkpointing to
+        # actually retain a graph. Best-effort — skip if the backbone lacks it.
+        try:
+            if hasattr(model, "enable_input_require_grads"):
+                model.enable_input_require_grads()
+            model.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={"use_reentrant": False}
+            )
+        except Exception:
+            pass
         width = int(model.config.hidden_size)
         return model, width, True
 
@@ -247,3 +259,39 @@ class ExplainModule(nn.Module):
 
         texts = [self.tokenizer.decode(row[1:]) for row in ids]
         return texts, total_logprob
+
+    def _score_sequence(self, condition: Tensor, seq_ids: Tensor, seq_mask: Tensor) -> Tensor:
+        """Summed log-prob of a fixed token sequence under the policy. (B,).
+
+        One teacher-forced forward, differentiable through the prefix and LoRA.
+        This is what the REINFORCE term backprops through — NOT the autoregressive
+        sampling loop.
+        """
+        prefix = self._prefix_embeds(condition)
+        embeds = torch.cat([prefix, self._embed_tokens(seq_ids)], dim=1)
+        logits = self._logits(embeds)[:, self.cfg.n_prefix - 1 : -1]
+        logp = F.log_softmax(logits.float(), dim=-1)
+        picked = logp.gather(-1, seq_ids.unsqueeze(-1)).squeeze(-1)
+        return (picked * seq_mask).sum(dim=-1)
+
+    def sample_and_score(
+        self,
+        condition: Tensor,
+        max_new_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> tuple[list[str], Tensor]:
+        """Memory-efficient REINFORCE rollout: sample without grad, score once.
+
+        The autoregressive loop in `generate` retains the graph across every
+        step — O(L) full-model forwards with all activations kept, which explodes
+        memory for a billion-parameter backbone. Here the sampling runs under
+        `no_grad` (cheap), then the sampled sequence is scored with a single
+        teacher-forced forward that carries the gradient. Identical REINFORCE
+        estimator, bounded memory.
+        """
+        with torch.no_grad():
+            texts, _ = self.generate(condition, max_new_tokens, temperature, greedy=False)
+        seq_ids, mask = self.tokenizer.batch_encode(texts, max_len=self.cfg.max_len)
+        seq_ids = seq_ids.to(condition.device)
+        mask = mask.to(condition.device).float()
+        return texts, self._score_sequence(condition, seq_ids, mask)
