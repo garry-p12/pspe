@@ -139,7 +139,11 @@ class ExplainModule(nn.Module):
 
     def _build_hf_backbone(self) -> tuple[nn.Module, int, bool]:
         try:
-            from peft import LoraConfig, get_peft_model  # type: ignore[import-not-found]
+            from peft import (  # type: ignore[import-not-found]
+                LoraConfig,
+                get_peft_model,
+                prepare_model_for_kbit_training,
+            )
             from transformers import AutoModelForCausalLM  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover - optional extra
             raise ImportError(
@@ -148,20 +152,43 @@ class ExplainModule(nn.Module):
             ) from exc
 
         kwargs: dict[str, object] = {"trust_remote_code": True}
-        if self.cfg.quant == "4bit" and torch.cuda.is_available():
+        use_4bit = self.cfg.quant == "4bit" and torch.cuda.is_available()
+        if use_4bit:
             from transformers import BitsAndBytesConfig  # type: ignore[import-not-found]
 
             kwargs["quantization_config"] = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=torch.bfloat16,
                 bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
             )
         elif torch.cuda.is_available():
             kwargs["torch_dtype"] = torch.bfloat16
 
         model = AutoModelForCausalLM.from_pretrained(self.cfg.backbone, **kwargs)
-        for p in model.parameters():
-            p.requires_grad_(False)
+
+        if use_4bit:
+            # THE canonical QLoRA setup. Doing this by hand (freeze + manual
+            # gradient_checkpointing_enable) is what caused the 1.5B backbone to
+            # train as if it were full-precision (~38 GB, 16 bytes/param with
+            # Adam). prepare_model_for_kbit_training freezes the base correctly,
+            # casts norms/head to fp32, enables input grads, and wires gradient
+            # checkpointing so only LoRA + the prefix ever carry optimizer state.
+            model = prepare_model_for_kbit_training(
+                model, use_gradient_checkpointing=True
+            )
+        else:
+            for p in model.parameters():
+                p.requires_grad_(False)
+            try:  # non-quantised path: still checkpoint to save activation memory
+                if hasattr(model, "enable_input_require_grads"):
+                    model.enable_input_require_grads()
+                model.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": False}
+                )
+            except Exception:
+                pass
+
         model = get_peft_model(
             model,
             LoraConfig(
@@ -170,18 +197,6 @@ class ExplainModule(nn.Module):
                 bias="none", task_type="CAUSAL_LM",
             ),
         )
-        # Gradient checkpointing keeps the teacher-forced forward's activation
-        # memory low enough for a T4. The prefix supplies the grad path into the
-        # frozen backbone, so input grads must be enabled for checkpointing to
-        # actually retain a graph. Best-effort — skip if the backbone lacks it.
-        try:
-            if hasattr(model, "enable_input_require_grads"):
-                model.enable_input_require_grads()
-            model.gradient_checkpointing_enable(
-                gradient_checkpointing_kwargs={"use_reentrant": False}
-            )
-        except Exception:
-            pass
         width = int(model.config.hidden_size)
         return model, width, True
 

@@ -40,7 +40,13 @@ class SimulateTrainConfig:
     rollout_weight: float = 1.0
     eval_horizon: int = 16
     grid: int = 64
-    amp: bool = True                 # mixed precision (CUDA only; no-op elsewhere)
+    # Mixed precision is OFF by default. The FNO's spectral weights are complex
+    # (ComplexFloat) parameters, and AMP's GradScaler cannot unscale complex
+    # gradients on CUDA ("_amp_foreach_non_finite_check_and_unscale_cuda not
+    # implemented for ComplexFloat"). The surrogate is small, so the memory
+    # saving is marginal; correctness wins. Leave off unless the model has no
+    # complex params.
+    amp: bool = False                # mixed precision (CUDA only); see note above
     # Score the rollout against the *stored* held-out trajectory instead of the
     # analytic solver. Required for real datasets (PDEBench): there is no
     # matching in-tree solver to roll as ground truth, only the recorded frames.
