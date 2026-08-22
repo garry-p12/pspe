@@ -256,3 +256,67 @@ def transfer_gap(
         "transfer_gap": results["target"] - results["source"],
         "protocol": protocol,
     }
+
+
+def planning_transfer_gap(
+    surrogate: nn.Module,
+    source_testbed: str,
+    target_testbed: str,
+    grid: int = 64,
+    iterations: int = 60,
+    horizon: int = 12,
+    episodes: int = 8,
+    device: torch.device | str = "cpu",
+    seed: int = 0,
+) -> dict[str, float | str]:
+    """Transfer measured in *decisions*, not forecasts (Section 7.4).
+
+    Surrogate fidelity answers "how wrong are the predictions off-family". The
+    question a planner cares about is "how much reward does the resulting policy
+    lose", and the two need not track each other: a surrogate can be badly
+    calibrated in absolute terms while still ranking actions correctly, or be
+    close in rel L2 while misordering exactly the decisions that matter.
+
+    Protocol: train one policy against `surrogate` (fitted on the source family)
+    while the *true* dynamics are the target family, and one policy against the
+    target's own true dynamics. Both are evaluated on the target's true
+    dynamics, so the gap isolates the surrogate's transfer error rather than any
+    difference in evaluation.
+    """
+    from .envs import make_env
+    from .plan import GaussianFieldPolicy, HybridPlannerTrainer, PlannerConfig
+    from .utils.logging import RunLogger
+
+    device = torch.device(device)
+    env_kwargs = dict(grid=grid, horizon=horizon, device=device, batched=True)
+    eval_env = make_env(target_testbed, dynamics="truth", **env_kwargs)
+
+    def train_policy(train_env) -> dict[str, float]:
+        policy = GaussianFieldPolicy(train_env.obs_shape[0], train_env.action_dim)
+        trainer = HybridPlannerTrainer(
+            train_env, policy,
+            cfg=PlannerConfig(iterations=iterations, horizon=horizon,
+                              eval_episodes=episodes, seed=seed),
+            eval_env=eval_env,
+            logger=RunLogger(f"runs/_transfer_plan/{source_testbed}_{target_testbed}",
+                             use_tensorboard=False),
+            device=device,
+        )
+        return trainer.train()
+
+    transferred = train_policy(
+        make_env(target_testbed, dynamics="surrogate", surrogate=surrogate, **env_kwargs)
+    )
+    native = train_policy(make_env(target_testbed, dynamics="truth", **env_kwargs))
+
+    return {
+        "protocol": f"planning transfer {source_testbed}->{target_testbed}",
+        "return_transferred": transferred["return"],
+        "return_native": native["return"],
+        # Native is the reference: how much return the policy gives up because
+        # its model came from the wrong family. Negative means no penalty.
+        "planning_transfer_gap": native["return"] - transferred["return"],
+        "cost_transferred": transferred["episode_cost"],
+        "cost_native": native["episode_cost"],
+        "violating_evals_transferred": transferred.get("eval/violating_eval_fraction", 0.0),
+    }

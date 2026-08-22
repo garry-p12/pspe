@@ -8,6 +8,10 @@ metric in the code will catch any of these immediately.
 Status: **the proposal text has not yet been edited.** Every row below is an
 outstanding edit to the proposal, the code, or both.
 
+Items 1–7 predate the multi-seed sweeps. Item 8 collects what those sweeps
+changed, and it is the larger set: five claims in the proposal are contradicted
+by their own reruns.
+
 ---
 
 ## 1. Faithfulness formula — edit the proposal
@@ -183,3 +187,77 @@ offline. They exercise the full training path but are **not** Qwen2-VL /
 Qwen2.5 / Phi-3.5 results. Every run records `backbone` and
 `backbone_is_stub` in its `summary.json`; any number destined for the paper
 must come from a run with `backbone_is_stub: false`.
+
+
+---
+
+## 8. What the multi-seed sweeps changed — all outstanding proposal edits
+
+Every number in items 1–7 was a single seed. Reruns at full budget across five
+seeds (Vista GH200; `runs/seeds_full/`, `runs/seeds_rest/`, `runs/transfer_seeds/`)
+contradict five separate claims. Each needs a proposal edit, and none of them is
+cosmetic.
+
+### 8.1 "The planner satisfies the constraint" — reporting was wrong, then the claim
+
+Two bugs stacked. The first was a *metric* bug: the summary reported constraint
+satisfaction from a single end-of-training evaluation. The planner's cost spikes
+to 5–8× the limit and decays within one eval interval, so two runs with
+identical excursion behaviour were reported as "violation 0.0" and "violation
+1.0" purely on whether the last snapshot happened to land on a spike.
+
+Fixed in [`pspe/utils/common.py`](../pspe/utils/common.py) (`constraint_summary`)
+and wired into both the planner and all four baselines, which now evaluate
+periodically on the same schedule. Runs report `eval/violating_eval_fraction`
+and `eval/cost_max_over_run` alongside the final snapshot.
+
+The claim itself still needs weakening: excursions above the limit occur in
+nearly every seed, and fixed α produced one permanent collapse (cost 8.1
+against a 0.936 limit, λ = 19.1). Corollary 1 holds on the toy CMDP; on the PDE
+testbed at 200 iterations it does not hold uniformly.
+
+### 8.2 "The physics-informed loss improves the surrogate" — budget-dependent
+
+At 32² / 3 epochs: physics-on 0.063 vs off 0.177, a 2.8× gap. At 64² / 20
+epochs across five seeds: no effect (paired t = +0.52, df = 4, physics-on
+nominally worse). The term buys **convergence speed at small budgets**, not
+asymptotic accuracy. The proposal must say which claim it is making.
+
+### 8.3 "Adaptive α improves return" — it improves the tail, not the mean
+
+Paired t = +1.47 (df = 4): not significant. What adaptive α demonstrably does
+is prevent the fixed-α dual divergence. That is a stability claim, and a
+defensible one; the return claim is not.
+
+### 8.4 Transfer magnitudes into `swe` are not measurements
+
+`dar → swe` gap 27.4 ± 26, `rdf → swe` 10.5 ± 8.2 — σ ≈ mean. The single-seed
+"gap ≈ 38" was one draw from a distribution spanning an order of magnitude.
+`swe → dar` (0.087 ± 0.14) is consistent with *no* transfer penalty. Report the
+direction (parabolic ↔ parabolic finite, into-wave collapses), never the number.
+
+Also: `transfer_gap` measures forecasting error only. The decision-relevant
+number now exists — `planning_transfer_gap` in
+[`pspe/pipeline.py`](../pspe/pipeline.py), `eval/run_transfer.py --planning` —
+and trains a planner against the transferred surrogate while the true dynamics
+are the target family. The proposal's Section 7.4 promises this metric; until
+its full-budget run lands, no planning-transfer number should be quoted.
+
+### 8.5 The Section 7.2 controls existed only as prose
+
+Both are now implemented, and the proposal should describe them as they are:
+
+* perception — `eval/run_perception_baselines.py` runs three arms sharing one
+  decoder and dataset: LoRA adapters, a frozen-backbone **linear probe** (no
+  adapters), and a from-scratch **CNN**. The probe is what isolates the LoRA
+  contribution; freeze-vs-finetune cannot, since both its arms have adapters.
+* explanation — `eval/run_explain_baselines.py` adds the genuine **post-hoc**
+  control (`ExplainTrainConfig(posthoc=True)`): the generator is never trained
+  against the policy. `use_faithfulness=False` is *not* that control — it still
+  trains on the policy's briefs through the supervised term, so using it as the
+  post-hoc comparison would have overstated the trained-in advantage.
+
+Open: on the stub backbone the perception arms are within noise of each other
+and the faithfulness ablation shows no separation (t = +0.67, the apparent gain
+coming from one seed of five). Neither the architecture claim nor Eq. 11 can be
+supported until these run on a real backbone.

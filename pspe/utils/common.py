@@ -13,6 +13,7 @@ import resource
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Iterator
 
 import numpy as np
@@ -87,3 +88,30 @@ def timer() -> Iterator[TimerResult]:
         yield result
     finally:
         result.seconds = time.perf_counter() - start
+
+
+def constraint_summary(
+    eval_costs: Sequence[float], limit: float, prefix: str = "eval"
+) -> dict[str, float]:
+    """Run-level constraint statistics from every evaluation of a training run.
+
+    A single final evaluation cannot characterise constraint satisfaction here.
+    Measured on `dar`: the planner's episode cost spikes to 5-8x the limit and
+    decays again within one eval interval, so whether the *last* snapshot lands
+    on an excursion is luck. Two runs with identical excursion behaviour were
+    reported as "violation 0.0" and "violation 1.0" purely on that timing.
+
+    So the honest run-level numbers are: how many evaluations violated, and how
+    bad the worst one was. Both are reported alongside the final snapshot rather
+    than replacing it, since the final policy is what a deployment would ship.
+    """
+    costs = [float(c) for c in eval_costs]
+    if not costs:
+        return {}
+    violating = [c for c in costs if c > limit]
+    return {
+        f"{prefix}/evals": float(len(costs)),
+        f"{prefix}/cost_mean_over_run": sum(costs) / len(costs),
+        f"{prefix}/cost_max_over_run": max(costs),
+        f"{prefix}/violating_eval_fraction": len(violating) / len(costs),
+    }

@@ -13,6 +13,7 @@ license = { text = "MIT" }
 # Everything here is free / open-source. No paid API keys anywhere in the stack.
 dependencies = [
     "torch>=2.2",
+    "h5py>=3.10",       # PDEBench loader; tests importorskip it, so it must be declared
     "numpy>=1.26",
     "scipy>=1.11",
     "gymnasium>=0.29",

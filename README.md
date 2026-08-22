@@ -49,6 +49,7 @@ make train-perceive   # Phase 3
 make train-explain    # Phase 4
 make train-e2e        # Phase 5: the whole loop
 make ablations        # the full results table
+make seeds            # the same table over 5 seeds, mean ± std
 make tb               # tensorboard on runs/
 ```
 
@@ -217,10 +218,64 @@ real environment transitions** — it acts inside the differentiable surrogate,
 whose whole real-sample cost is the 3,072 transitions it was fitted on. All
 five respect the constraint, so the comparison is on return and sample cost.
 
-Two things this table does *not* say. It is a **single seed with no error
-bars** — run several before reporting. And the hybrid planner is the *slowest*
-in wall-clock (1658 s): it trades compute for real samples, which is the right
+One thing this table does *not* say: the hybrid planner is the *slowest* in
+wall-clock (1658 s). It trades compute for real samples, which is the right
 trade only when environment interaction is the expensive resource.
+
+The other thing it does not say is what happens on a different seed — see
+below, because it is not a footnote.
+
+### The same comparison across 5 seeds (`make seeds`)
+
+Run on 5 seeds as a Vista GH200 array (`scripts/tacc/vista_seeds.slurm`), same
+budget and limit, mean ± sample std over seeds 0–4, aggregated by
+`eval/run_seeds.py` into `runs/seeds_v3/`:
+
+| run | return | violating evals | worst cost over run |
+|---|---|---|---|
+| **pspe_hybrid (adaptive α)** | **−2.448 ± 0.029** | 7.3% | 1.109 |
+| pspe_hybrid (fixed α) | −2.738 ± 0.365 | 12.7% | 2.758 |
+| ppo_lagrangian | −2.558 ± 0.039 | 0% | 0.297 |
+| cpo | −2.541 ± 0.035 | 0% | 0.277 |
+| saute | −2.537 ± 0.024 | 0% | 0.275 |
+| primal_dual_npg | −2.544 ± 0.026 | 0% | 0.275 |
+
+**The return advantage is real.** Paired by seed, the hybrid planner beats every
+baseline: t = +3.84 (ppo_lagrangian), +4.87 (cpo), +17.95 (saute), +4.52
+(primal_dual_npg), df = 4, all past the 2.78 threshold.
+
+**The constraint claim does not hold.** "All five respect the constraint" was a
+single-seed artifact. Across seeds the planner exceeds the limit on **7.3% of
+evaluations**, worst case 1.109 against a 0.936 limit; fixed α is worse (12.7%,
+worst 2.758). Every baseline violates on **zero** evaluations, peaking at 0.30.
+So the planner is not buying return *and* safety — it buys return partly by
+running past the limit, which the dual does not always pull back. Corollary 1
+(time-averaged violation → 0) holds on the toy CMDP but not here at 200
+iterations. This is the repo's most important open item.
+
+**Adaptive α is a variance story, not a mean story.** It beats fixed α by +0.290
+return, but paired t = +1.66 — not significant. What separates them is spread:
+0.029 std versus 0.365, and 7.3% violating evaluations versus 12.7%. Adaptive α
+also saturates (final α = 0.9917 ± 0.0006) at this budget versus 0.734 at smoke
+budget, consistent with α → 1 as the surrogate-gradient variance ratio grows.
+
+Two measurement bugs had to be fixed before these numbers meant anything, and
+both inflated earlier tables:
+
+* **the summary reported one end-of-training evaluation.** Cost excursions decay
+  within an eval interval, so two runs with identical behaviour were recorded as
+  "violation 0.0" and "violation 1.0" on nothing but which snapshot the last
+  evaluation landed on. Runs now report `eval/violating_eval_fraction` and
+  `eval/cost_max_over_run` over the whole run (`constraint_summary`).
+* **evaluation perturbed training.** `env.step` draws from the global RNG, so
+  adding periodic evaluation to the baselines moved their return from −2.51 to
+  −2.30 — the measurement changed the measured. Both evaluators now fork the RNG
+  and evaluate on a fixed set of initial conditions;
+  `tests/test_baselines_arms.py` asserts eval-schedule independence.
+
+Reproduce: `sbatch -A <alloc> scripts/tacc/vista_seeds.slurm`, then
+`eval/run_seeds.py --aggregate-only --seeds 0 1 2 3 4 --full --out runs/seeds_v3`.
+These are GPU runs; do not pool them with CPU runs, whose RNG stream differs.
 
 Sample accounting is explicit for exactly this reason. Counting the planner's
 38,400 surrogate rollouts as "env samples" — which an earlier version of this
@@ -283,6 +338,97 @@ All from the proposal, all one flag:
 | frozen vs fine-tuned perception encoder | `train.freeze_encoder=false` |
 | faithfulness loss on/off | `train.use_faithfulness=false` |
 | cross-domain transfer | `train.padded=true`, then `pspe.pipeline.transfer_gap` |
+
+### Ablation results over 5 seeds (`runs/seeds_rest/`)
+
+Run as a Vista GH200 array at full budget (64², 20 epochs / 200 iterations),
+mean ± sample std over seeds 0–4, paired t on 4 df (|t| > 2.78 for p < 0.05):
+
+| ablation | on | off | paired t | verdict |
+|---|---|---|---|---|
+| physics-informed loss (rel L2 rollout) | 0.0567 ± 0.026 | 0.0496 ± 0.044 | +0.52 | **no effect** |
+| frozen vs fine-tuned perception (val loss) | 0.377 ± 0.017 | 0.420 ± 0.034 | −3.97 | **frozen wins** |
+| faithfulness loss (F(b)) | 0.643 ± 0.15 | 0.598 ± 0.006 | +0.67 | **no effect** |
+
+And the operator comparison, same seeds (rel L2, rollout):
+
+| surrogate | rel L2 | params |
+|---|---|---|
+| **FNO** | **0.057 ± 0.026** | 1.19 M |
+| DeepONet | 0.256 ± 0.004 | 0.09 M |
+| GNOT | 0.268 ± 0.040 | 0.31 M |
+
+Three corrections to what single-seed runs suggested:
+
+**The physics-informed loss does not improve final accuracy.** The smoke-scale
+table (32², 3 epochs) shows physics-on at 0.063 against physics-off at 0.177 —
+a 2.8× gap. At 64² for 20 epochs that gap is gone (t = +0.52, physics-on
+nominally *worse*, winning on 2 of 5 seeds). The honest claim is that the
+residual term buys **convergence speed at small budgets**, not asymptotic
+accuracy. Both readings are reproducible; only the second belongs in a results
+table.
+
+**Freezing the perception encoder beats fine-tuning it** (t = −3.97 on total
+val loss, −3.07 on the regression term). This is measured on the `tiny` stub
+backbone, so it is a statement about the stub, not about Qwen2-VL — a real
+backbone has far more capacity to exploit and may well reverse it. Flagged
+because the paper predicts the opposite direction.
+
+**The faithfulness objective does not separate at stub scale.** F(b) on = 0.643
+± 0.15 versus off = 0.598 ± 0.006, t = +0.67. The entire apparent gain comes
+from one seed (0.904); the other four sit at 0.55–0.60, indistinguishable from
+the no-objective control. The Eq. 11 term cannot be claimed to do anything
+until it runs on a real LM.
+
+### Section 7.2 controls: what the design actually buys
+
+Two controls the proposal names and the repo did not have. Both run over 5 seeds
+on Vista (`runs/perception_seeds/`, `runs/explain_seeds/`), paired t on 4 df.
+
+**Perception** (`make perception-baselines`) — three arms sharing one decoder,
+one dataset and one seed schedule, so the encoder is the only difference:
+
+| arm | field rel L2 | retrieval acc | trainable |
+|---|---|---|---|
+| pspe — frozen backbone + LoRA + contrastive | 0.0524 ± 0.008 | **0.510 ± 0.058** | 164 k |
+| probe — frozen backbone, decoder only | 0.0476 ± 0.003 | 0.133 ± 0.007 | 115 k |
+| **cnn — trained from scratch, regression only** | **0.0422 ± 0.004** | 0.137 ± 0.018 | 563 k |
+
+The from-scratch CNN reconstructs the field *better* than the method
+(t = +2.17), and so does the adapter-free probe (t = +1.74). What the method
+wins, and wins overwhelmingly, is retrieval accuracy: 0.510 vs 0.133,
+t = +14.3. So on this task the frozen-backbone + LoRA + contrastive design buys
+**text–image alignment**, not reconstruction accuracy, and gives up a little
+accuracy to get it. Measured on the `tiny` stub, so a real VLM may change the
+ranking — but the Section 7.2 claim as written is not supported by its own
+control.
+
+The probe arm is what isolates LoRA: the freeze-vs-fine-tune ablation cannot,
+because both of its arms carry adapters.
+
+**Explanation** (`make explain-baselines`) — three arms against a *trained*
+planner, since briefs about an untrained policy are degenerate:
+
+| arm | F(b) | vs post-hoc |
+|---|---|---|
+| trained-in (Eq. 11) | 0.168 ± 0.13 | **t = +5.53** |
+| no-faithfulness | 0.229 ± 0.21 | t = +2.56 |
+| post-hoc (generator never trained on this policy) | 0.101 ± 0.11 | — |
+
+Trained-in beats the post-hoc control decisively — the first time that claim has
+been tested against a real control. But the faithfulness *objective* is not what
+does it: dropping the term (`no-faithfulness`) scores at least as well
+(t = −1.40, n.s.). What buys faithfulness is training the generator on the
+policy's briefs at all.
+
+This is why `use_faithfulness=False` is not the post-hoc baseline, though it is
+the obvious candidate: that arm has already seen the policy through the
+supervised term. Using it as the control would have credited Eq. 11 with the
+entire trained-in advantage.
+
+Note also that F(b) falls to 0.10–0.23 against a trained policy, from ~0.6
+against an untrained one: briefs describing a policy that actually actuates are
+much harder to keep faithful.
 
 ### Resolution generalization (Section 7.4)
 
@@ -368,11 +514,29 @@ The result is physically coherent, which is the point of the protocol:
   never seen. A framework that claimed uniform transfer would be hiding this;
   the matrix surfaces it.
 
-Two honest caveats. This is a **single seed at smoke scale** (32², 8 epochs) —
-directional, not final. And the `swe` surrogate is itself weakly trained at this
-budget (in-family rel L2 ~0.47), so its row and column are the noisiest; the
-clean signal is the dar/rdf block. Re-run with `--grid 64 --epochs 20 --full`
-for reportable numbers.
+That was a **single seed at smoke scale** (32², 8 epochs). Rerun at 64² / 20
+epochs across 5 seeds on a Vista GH200 array (`runs/transfer_seeds/`), the gaps
+are:
+
+| pair | transfer gap | measurable? |
+|---|---|---|
+| rdf → dar | 0.358 ± 0.033 | **yes** — 11σ from zero |
+| swe → rdf | 0.311 ± 0.13 | yes |
+| dar → rdf | 1.81 ± 1.1 | marginal |
+| swe → dar | 0.087 ± 0.14 | **no** — crosses zero |
+| rdf → swe | 10.5 ± 8.2 | **no** — σ ≈ mean |
+| dar → swe | 27.4 ± 26 | **no** — σ ≈ mean |
+
+The qualitative story survives: parabolic ↔ parabolic transfer is finite,
+transfer into the wave family blows up. But the *magnitudes* into `swe` are not
+measurements — the standard deviation is the same size as the mean, so "gap ≈
+38" from the single-seed table was one draw from a distribution spanning an
+order of magnitude. Quote the direction, not the number.
+
+Two of the six pairs are consistent with **no transfer penalty at all**:
+`swe → dar` (0.087 ± 0.14) crosses zero. The `swe` surrogate remains the weak
+link — its in-family rel L2 is 0.171 ± 0.13 against 0.022 for `dar` — so both
+its row and its column carry that noise into every pair they touch.
 
 ---
 
@@ -436,7 +600,7 @@ pspe/
   perceive/  ... + eurosat.py (Sentinel-2 → NDVI, real perception data)
   simulate/  ... + pdebench.py (real PDE benchmark), multifamily.py (padded surrogate)
 baselines/   safe-RL four; operator comparison runner; toy_cmdp validation
-eval/        metrics, ablations, transfer matrix, resolution-gen, pdebench, human-rating
+eval/        metrics, ablations, seed sweep (error bars), transfer matrix, resolution-gen, pdebench, human-rating
 docs/        proposal ↔ implementation deltas + paper-gap plan (outstanding work)
 notebooks/   pspe_colab.ipynb — real backbones on real imagery (GPU)
 scripts/     one entry point per phase + calibrate/download helpers

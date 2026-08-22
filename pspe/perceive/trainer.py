@@ -35,6 +35,24 @@ class PerceiveTrainConfig:
     log_dir: str = "runs/perceive"
 
 
+def param_stats(module: PerceiveModule) -> dict[str, float]:
+    """Parameter-count breakdown, reported by every arm.
+
+    The fine-tuned and CNN-baseline arms skip the frozen-backbone assert but
+    still need the counts: "how many parameters did this arm train" is the
+    column that makes a rel-L2 comparison between arms meaningful.
+    """
+    trainable, total = count_parameters(module)
+    bb_trainable, bb_total = count_parameters(module.backbone)
+    return {
+        "params/trainable": float(trainable),
+        "params/total": float(total),
+        "params/trainable_fraction": trainable / max(total, 1),
+        "params/backbone_trainable": float(bb_trainable),
+        "params/backbone_total": float(bb_total),
+    }
+
+
 def assert_lora_only(module: PerceiveModule) -> dict[str, float]:
     """Verify the backbone is frozen; return the parameter-count breakdown."""
     backbone_trainable = [
@@ -46,15 +64,7 @@ def assert_lora_only(module: PerceiveModule) -> dict[str, float]:
             f"{len(backbone_trainable)} backbone parameters are trainable, "
             f"e.g. {backbone_trainable[:3]}; expected LoRA adapters only"
         )
-    trainable, total = count_parameters(module)
-    bb_trainable, bb_total = count_parameters(module.backbone)
-    return {
-        "params/trainable": float(trainable),
-        "params/total": float(total),
-        "params/trainable_fraction": trainable / max(total, 1),
-        "params/backbone_trainable": float(bb_trainable),
-        "params/backbone_total": float(bb_total),
-    }
+    return param_stats(module)
 
 
 class PerceiveTrainer:
@@ -86,12 +96,12 @@ class PerceiveTrainer:
         self.logger = logger or RunLogger(self.cfg.log_dir)
 
     def train(self) -> dict[str, float]:
-        param_stats = (
+        stats = (
             assert_lora_only(self.model)
             if self.cfg.freeze_encoder
-            else {"params/trainable_fraction": 1.0}
+            else param_stats(self.model)
         )
-        self.logger.log(0, **param_stats)
+        self.logger.log(0, **stats)
 
         loader = DataLoader(
             self.train_set, batch_size=self.cfg.batch, shuffle=True, collate_fn=collate
@@ -119,7 +129,7 @@ class PerceiveTrainer:
         metrics = self.evaluate()
         summary = {
             **metrics,
-            **param_stats,
+            **stats,
             # Watermark: a stand-in-backbone number must never be cited as a
             # Qwen2-VL/moondream2 result in a draft.
             "backbone": self.model.cfg.backbone,

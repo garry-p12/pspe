@@ -5,7 +5,7 @@ PIP := $(CONDA_BASE)/envs/$(CONDA_ENV)/bin/pip
 
 .PHONY: setup setup-llm test test-all canary validate-baselines smoke data \
         train-simulate train-plan train-perceive train-explain train-e2e rate \
-        baselines-simulate baselines-plan ablations transfer resolution calibrate pdebench results clean tb
+        baselines-simulate baselines-plan ablations seeds transfer resolution calibrate pdebench results clean tb
 
 ## ---- Phase 0: environment -------------------------------------------------
 setup:
@@ -72,8 +72,21 @@ train-e2e:
 ablations:
 	$(PY) eval/run_ablations.py
 
+# Phase F: the same table over 5 seeds, mean +/- std. Nothing is reportable
+# without this; a single-seed gap has no scale to be judged against.
+seeds:
+	$(PY) eval/run_seeds.py
+
 transfer:
 	$(PY) eval/run_transfer.py
+
+# Section 7.2 controls. Perception: LoRA vs frozen probe vs from-scratch CNN.
+# Explanation: trained-in vs no-faithfulness vs post-hoc.
+perception-baselines:
+	$(PY) eval/run_perception_baselines.py
+
+explain-baselines:
+	$(PY) eval/run_explain_baselines.py --policy runs/plan/dar/policy.pt
 
 resolution:
 	$(PY) eval/run_resolution.py

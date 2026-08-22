@@ -41,12 +41,14 @@ Legend: ✅ built + run · 🟡 built, not run at scale / stub only · ❌ missi
 | 7.1 "tens of thousands of grid cells" | 🟡 | default 64² = 4,096; 128² path exists, not run |
 | 7.2 surrogate baselines FNO/DeepONet/GNOT (± physics) | ✅ | `baselines/run_operator_baselines.py`; physics on/off run |
 | 7.2 constrained-planning baselines (CPO/PID-Lag/Sauté/PD-NPG) | ✅ | validated + real comparison on `dar`, calibrated limits |
-| 7.2 **perception baselines: zero-shot VLM, CNN/ViT regression** | ❌ | neither implemented |
-| 7.2 **explanation baseline: post-hoc TalkToAgent-style control** | ❌ | not implemented (the whole point is trained-in vs post-hoc; the control is missing) |
+| 7.2 **perception baselines: zero-shot VLM, CNN/ViT regression** | 🟡 | CNN-from-scratch + frozen linear probe implemented and run over 5 seeds (`eval/run_perception_baselines.py`): **both beat the method on field rel L2**; the method wins retrieval acc 4x. Zero-shot VLM still missing (needs a real instruction-tuned backbone) |
+| 7.2 **explanation baseline: post-hoc TalkToAgent-style control** | ✅ | `ExplainTrainConfig(posthoc=True)` + `eval/run_explain_baselines.py`, 5 seeds: trained-in > post-hoc (t = +5.53). But the faithfulness *term* adds nothing (t = -1.40 vs no-faithfulness) |
 | 7.3 ablation: physics on/off | ✅ | run |
 | 7.3 ablation: fixed vs adaptive α | ✅ | run |
-| 7.3 ablation: freeze vs fine-tune perception | 🟡 | code path exists, not run at scale |
-| 7.3 ablation: faithfulness on/off | 🟡 | code path exists; no separation at stub budget |
+| 7.3 ablation: freeze vs fine-tune perception | ✅ | 5 seeds, full budget: frozen wins (t = −3.97) — opposite sign to the paper's expectation, on the stub backbone |
+| 7.x **multi-seed error bars on every table** | ✅ | `eval/run_seeds.py` + `aggregate_seeds` + `tests/test_seeds.py`; Phase 2 (`runs/seeds_full/`), ablations (`runs/seeds_rest/`) and the transfer matrix (`runs/transfer_seeds/`) all rerun over 5 seeds on Vista GH200. Only the resolution sweep and the real-backbone runs remain single-seed |
+| Cor 1 revisited: violation → 0 **on the PDE testbed** | ❌ | run-level: planner exceeds the limit on 7.3% of evaluations (fixed α 12.7%), every baseline on 0%. Holds only on the toy CMDP |
+| 7.3 ablation: faithfulness on/off | 🟡 | 5 seeds, full budget: no separation (t = +0.67, gain driven by 1 of 5 seeds). Needs a real LM |
 | 7.3 **ablation: cross-PDE-family transfer** | ✅ | `eval/run_transfer.py` runs the full 3×3 matrix with padded surrogates |
 | 7.4 surrogate fidelity vs horizon | ✅ | `surrogate_fidelity` |
 | 7.4 **resolution-generalization error** | ✅ | `eval/run_resolution.py` / `resolution_generalization` |
@@ -55,7 +57,7 @@ Legend: ✅ built + run · 🟡 built, not run at scale / stub only · ❌ missi
 | 7.4 **perception agreement with human descriptions** | ❌ | not implemented |
 | 7.4 faithfulness F(b) | ✅ | logged in training |
 | 7.4 **human expert study (Likert)** | 🟡 | `eval/human_rating.py` harness exists; no participants, no briefs worth rating yet |
-| 7.4 **cross-domain transfer gap (all metrics)** | ❌ | only surrogate-fidelity transfer wired; not run |
+| 7.4 **cross-domain transfer gap (all metrics)** | 🟡 | `planning_transfer_gap` implemented + smoke-tested (`eval/run_transfer.py --planning`); full-budget run outstanding |
 | 7.5 wall-clock + peak memory reported | ✅ | in every `summary.json` |
 | 7.5 mixed precision + gradient checkpointing "uniformly" | 🟡 | gradient checkpointing added to the FNO (`use_checkpoint`, identical grads verified), opt-in; AMP stays CUDA-only |
 
@@ -86,11 +88,16 @@ cross-domain claim hold up" — so those lead.
 ### STATUS (this pass)
 
 Done: **E** (equity constraint, resolution-generalization eval, gradient
-checkpointing — all local, tested), **B** (cross-family transfer matrix — run),
-**A** (PDEBench + EuroSAT loaders, downloaders, tests, full-path proof on
-synthetic HDF5). Remaining: the real multi-GB PDEBench download and the real VLM
-runs are Colab steps (notebook + loaders ready); **C/D** (real backbones) and
-**F** (multi-seed) still outstanding.
+checkpointing — all local, tested), **B** (cross-family transfer matrix — run,
+surrogate fidelity only), **A** (PDEBench + EuroSAT loaders, downloaders, tests,
+full-path proof on synthetic HDF5), **F** *machinery* (`eval/run_seeds.py`,
+`make seeds`: the ablation sweep across N seeds, aggregated to mean ± sample std
+by `aggregate_seeds` in `eval/metrics.py`, resumable per seed).
+
+Remaining: the real multi-GB PDEBench download and the real VLM runs are Colab
+steps (notebook + loaders ready); **C/D** (real backbones) outstanding; **F**
+now needs compute, not code — every table in the README is still single-seed
+until its sweep is rerun through the runner.
 
 ### Phase A — Real PDE benchmark for the surrogate (highest value)
 
@@ -171,9 +178,57 @@ Needs a GPU (Colab/Kaggle free tier); cannot run meaningfully on this CPU box.
 
 ### Phase F — Statistical rigor (before any table is reportable)
 
-Every current number is a single seed. Add a multi-seed runner (≥5 seeds,
-mean ± std) around the Phase 2 comparison and the ablations, and report error
-bars. No new science, but nothing above is publishable without it.
+Runner built: `eval/run_seeds.py` (`make seeds`) reruns `eval/run_ablations.py`
+once per seed in a fresh process — so the seed is set before any module touches
+the RNG — and collapses the per-seed `results.json` files into one mean ± sample
+std table (`runs/seeds/results_seeds.md`, with per-seed values kept in
+`results_seeds.json`). Interrupted sweeps resume; `--aggregate-only` re-tables
+what already ran; `--only` selects the ablation groups.
+
+Scope note: `ensure_dataset` caches by (testbed, grid), so all seeds share the
+PDE dataset. The reported spread is training stochasticity — initialisation,
+minibatch order, policy sampling, evaluation rollouts — not dataset
+resampling. Dataset variance is a separate, larger study and should be labelled
+as such if ever run.
+
+**Phase 2 sweep: run** (5 seeds, Vista GH200 array, `runs/seeds_full/`). It
+changed two conclusions:
+
+* the return advantage over all four safe-RL baselines is confirmed and large
+  (paired t = +9.7 … +23.4, df = 4, every seed);
+* **"all five respect the constraint" was a single-seed artifact.** The planner
+  violates the limit on 1/5 seeds with adaptive α and 2/5 with fixed α (worst:
+  episode cost 8.105 against a 0.936 limit, λ = 19.1), while every baseline
+  satisfies it on every seed. Corollary 1 does not hold uniformly at 200
+  iterations, and that is now the most important open item in the repo — it is
+  a safety claim, not a performance one.
+* adaptive vs fixed α is a *variance* effect, not a mean one (t = +1.47, n.s.);
+  adaptive's contribution is suppressing the fixed-α blow-up. The ablation as
+  written in the paper ("adaptive improves return") is not supported.
+
+**Remaining sweeps: run** (`runs/seeds_rest/`, `runs/transfer_seeds/`, both
+5-seed GH200 arrays at full budget). Three more single-seed claims did not
+survive:
+
+* **physics-informed loss: no effect** on final accuracy (t = +0.52, df = 4).
+  The 2.8× advantage in the smoke table is a small-budget convergence-speed
+  effect, not an accuracy one. Section 7.3 must say which it is claiming.
+* **frozen perception beats fine-tuned** (t = −3.97), the opposite of the
+  paper's expectation — though measured on the stub backbone, so it is a claim
+  about the stub until Phase C runs.
+* **faithfulness loss: no separation** (t = +0.67); the apparent gain is one
+  seed out of five. Eq. 11 is unsupported until a real LM runs.
+* **transfer magnitudes into `swe` are not measurements** — σ ≈ mean (dar→swe
+  27.4 ± 26). The direction survives, the numbers do not. `swe → dar` is
+  consistent with no penalty at all (0.087 ± 0.14).
+
+What survives multi-seed scrutiny: the planner's return advantage over all four
+baselines, and FNO ≫ DeepONet/GNOT (0.057 vs 0.256/0.268, tight).
+
+Left: the violation finding needs a diagnosis (dual gains? step size? PID windup
+at this budget?) before the Phase 2 table can be presented as a safety result.
+That is now the single most important open item — it is a safety claim, and one
+seed reproduces it.
 
 ---
 

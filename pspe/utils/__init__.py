@@ -1,5 +1,6 @@
 from .common import (
     PROJECT_ROOT,
+    constraint_summary,
     count_parameters,
     get_device,
     peak_memory_mb,
@@ -11,6 +12,7 @@ from .logging import RunLogger
 
 __all__ = [
     "PROJECT_ROOT",
+    "constraint_summary",
     "count_parameters",
     "get_device",
     "peak_memory_mb",

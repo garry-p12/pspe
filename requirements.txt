@@ -11,6 +11,12 @@ rich>=13.0
 pytest>=8.0
 pytest-timeout>=2.2
 
+# Real PDE benchmark data. The PDEBench loader imports h5py lazily and its
+# tests use `importorskip`, so without this the loader path silently *skips*
+# rather than fails — which is how a "built and tested" loader reached a GPU
+# run and died on a missing import.
+h5py>=3.10
+
 # Phase 3 / Phase 4 open-weight backbones (optional; `pip install -e ".[llm]"`).
 transformers>=4.44
 peft>=0.11

@@ -38,6 +38,13 @@ class ExplainTrainConfig:
     weight_supervised: float = 1.0
     weight_faithful: float = 1.0
     use_faithfulness: bool = True   # ablation switch: faithfulness loss on/off
+    # Post-hoc control (Section 7.2): the policy is fixed and the explainer is
+    # never trained against it — briefs come out of the untouched generator
+    # after the fact, TalkToAgent-style. This is the comparison the whole
+    # trained-in argument rests on, and `use_faithfulness=False` is *not* it:
+    # that arm still trains the generator on the brief templates, so it has
+    # already seen the policy's behaviour through supervised NLL.
+    posthoc: bool = False
     eval_every: int = 25
     seed: int = 0
     log_dir: str = "runs/explain"
@@ -154,8 +161,9 @@ class ExplainTrainer:
                 "params/trainable_fraction": trainable / max(total, 1),
             },
         )
+        iterations = 0 if self.cfg.posthoc else self.cfg.iterations
         with timer() as clock:
-            for it in range(1, self.cfg.iterations + 1):
+            for it in range(1, iterations + 1):
                 condition, briefs, reference = self.sample_batch(self.cfg.batch)
                 token_ids, mask = self.tokenizer.batch_encode(
                     briefs, max_len=self.model.cfg.max_len
@@ -203,6 +211,8 @@ class ExplainTrainer:
             # Qwen2.5/Phi-3.5 faithfulness result.
             "backbone": self.model.cfg.backbone,
             "backbone_is_stub": self.model.is_stub_backbone,
+            "posthoc": self.cfg.posthoc,
+            "train_iterations": float(iterations),
             "wall_clock_s": clock.seconds,
             "peak_memory_mb": peak_memory_mb(self.device),
         }

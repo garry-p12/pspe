@@ -82,6 +82,41 @@ class TinyVisionBackbone(nn.Module):
         return self.norm(x)  # (B, n_tokens, width)
 
 
+class ConvVisionBackbone(nn.Module):
+    """Plain CNN encoder — the Section 7.2 "CNN/ViT regression" baseline.
+
+    Trained from scratch, every parameter free. It is the control for the
+    frozen-backbone + LoRA design: if a small conv net fitted end-to-end on the
+    regression loss matches the adapter path, the adapter buys nothing on this
+    task and the architecture claim is unsupported.
+
+    Emits the same (B, tokens, width) layout as the patch transformer so the
+    field decoder is shared and the two arms differ only in the encoder.
+    """
+
+    hidden_size: int
+
+    def __init__(self, image_size: int = 64, patch: int = 8, width: int = 128) -> None:
+        super().__init__()
+        self.grid_tokens = image_size // patch
+        self.hidden_size = width
+        stages, in_ch, stride_left = [], 3, patch
+        while stride_left > 1:  # halve resolution until the token grid is reached
+            stages += [
+                nn.Conv2d(in_ch, width, 3, stride=2, padding=1),
+                nn.GroupNorm(8, width),
+                nn.GELU(),
+            ]
+            in_ch, stride_left = width, stride_left // 2
+        stages += [nn.Conv2d(width, width, 3, padding=1), nn.GELU()]
+        self.net = nn.Sequential(*stages)
+        self.norm = nn.LayerNorm(width)
+
+    def forward(self, images: Tensor) -> Tensor:
+        x = self.net(images)
+        return self.norm(x.flatten(2).transpose(1, 2))
+
+
 # --------------------------------------------------------------------------- #
 # Field decoder
 # --------------------------------------------------------------------------- #
@@ -120,7 +155,11 @@ class FieldDecoder(nn.Module):
 # --------------------------------------------------------------------------- #
 @dataclass
 class PerceiveConfig:
-    backbone: str = "tiny"
+    backbone: str = "tiny"      # "tiny" | "cnn" | any HF vision model id
+    # LoRA off turns the frozen-backbone path into a linear probe: the encoder
+    # is frozen and only the decoder trains. That isolates what the adapters
+    # contribute, which "frozen vs fine-tuned" alone cannot separate.
+    use_lora: bool = True
     image_size: int = 64
     out_grid: int = 64
     out_channels: int = 1
@@ -136,7 +175,7 @@ class PerceiveModule(nn.Module):
     def __init__(self, cfg: PerceiveConfig | None = None) -> None:
         super().__init__()
         self.cfg = cfg or PerceiveConfig()
-        self._backbone_is_hf = self.cfg.backbone != "tiny"
+        self._backbone_is_hf = self.cfg.backbone not in ("tiny", "cnn")
         self.backbone, hidden, token_grid = self._build_backbone()
         self.decoder = FieldDecoder(
             hidden, self.cfg.out_channels, token_grid, self.cfg.out_grid
@@ -154,14 +193,23 @@ class PerceiveModule(nn.Module):
         Every run's `summary.json` carries this, so a stub number can never be
         mistaken for a Qwen2-VL/moondream2 number in a later draft.
         """
-        return self.cfg.backbone == "tiny"
+        return not self._backbone_is_hf
 
     # -- construction ------------------------------------------------------- #
     def _build_backbone(self) -> tuple[nn.Module, int, int]:
+        if self.cfg.backbone == "cnn":
+            # The baseline arm: no freezing, no adapters, everything trains.
+            backbone = ConvVisionBackbone(image_size=self.cfg.image_size)
+            return backbone, backbone.hidden_size, backbone.grid_tokens
         if self.cfg.backbone == "tiny":
             backbone = TinyVisionBackbone(image_size=self.cfg.image_size)
-            inject_lora(backbone, self.cfg.lora_r, self.cfg.lora_alpha)
-            mark_only_lora_trainable(backbone)
+            if self.cfg.use_lora:
+                inject_lora(backbone, self.cfg.lora_r, self.cfg.lora_alpha)
+                mark_only_lora_trainable(backbone)
+            else:
+                # Linear-probe arm: frozen encoder, decoder-only training.
+                for param in backbone.parameters():
+                    param.requires_grad_(False)
             return backbone, backbone.hidden_size, backbone.grid_tokens
         return self._build_hf_backbone()
 

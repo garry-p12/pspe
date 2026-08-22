@@ -32,7 +32,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eval.metrics import markdown_table  # noqa: E402
-from pspe.pipeline import transfer_gap  # noqa: E402
+from pspe.pipeline import planning_transfer_gap, transfer_gap  # noqa: E402
 from pspe.simulate import (  # noqa: E402
     SimulateTrainConfig,
     SimulateTrainer,
@@ -69,6 +69,11 @@ def main() -> int:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--full", action="store_true")
+    parser.add_argument("--planning", action="store_true",
+                        help="also train a planner per pair and report the "
+                             "planning-reward gap (Section 7.4). Much slower: "
+                             "two planner runs per off-diagonal pair")
+    parser.add_argument("--plan-iterations", type=int, default=60)
     parser.add_argument("--out", default="runs/transfer")
     args = parser.parse_args()
 
@@ -104,13 +109,28 @@ def main() -> int:
             rel = gap["target_rel_l2"]
             matrix[source][target] = rel
             if source != target:
-                rows.append({
+                row = {
                     "run": f"{source} -> {target}",
                     "source rel L2": round(gap["source_rel_l2"], 4),
                     "target rel L2": round(rel, 4),
                     "transfer gap": round(gap["transfer_gap"], 4),
                     "protocol": gap["protocol"],
-                })
+                }
+                if args.planning:
+                    # Fidelity says how wrong the forecasts are; this says how
+                    # much reward the resulting decisions give up, which is the
+                    # number Section 7.4 actually asks for.
+                    print(f"[plan] {source} -> {target} ...")
+                    plan = planning_transfer_gap(
+                        surrogates[source], source, target, grid=args.grid,
+                        iterations=args.plan_iterations, device=device, seed=args.seed,
+                    )
+                    row.update({
+                        "return (transferred)": round(plan["return_transferred"], 4),
+                        "return (native)": round(plan["return_native"], 4),
+                        "planning gap": round(plan["planning_transfer_gap"], 4),
+                    })
+                rows.append(row)
 
     # Square matrix view (rows = trained-on, cols = evaluated-on).
     print("\nCross-family surrogate rel L2 (row = trained on, col = evaluated on):")

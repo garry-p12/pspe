@@ -24,7 +24,7 @@ import torch
 import torch.nn as nn
 
 from ..envs.pde_env import BatchedFieldEnv
-from ..utils.common import peak_memory_mb, timer
+from ..utils.common import constraint_summary, peak_memory_mb, timer
 from ..utils.logging import RunLogger
 from .hybrid_gradient import HybridGradientEstimator
 from .lagrangian import PIDLagrangian
@@ -116,6 +116,9 @@ class HybridPlannerTrainer:
         self.logger = logger or RunLogger(self.cfg.log_dir)
         self.generator = torch.Generator().manual_seed(self.cfg.seed)
         self.history: list[dict[str, float]] = []
+        # Every periodic evaluation's episode cost, so the summary can report
+        # constraint satisfaction over the run rather than at one lucky instant.
+        self.eval_costs: list[float] = []
 
     # -- rollout ------------------------------------------------------------ #
     def collect(self, env: BatchedFieldEnv, batch: int, keep_graph: bool = True) -> RolloutBatch:
@@ -247,9 +250,12 @@ class HybridPlannerTrainer:
 
                 if self.eval_env is not None and it % self.cfg.eval_every == 0:
                     metrics = self.evaluate(self.cfg.eval_episodes)
+                    self.eval_costs.append(metrics["episode_cost"])
                     self.logger.log(it, **{f"eval/{k}": v for k, v in metrics.items()})
 
         final = self.evaluate(self.cfg.eval_episodes) if self.eval_env is not None else {}
+        if final:
+            self.eval_costs.append(final["episode_cost"])
         rollout_steps = self.cfg.iterations * self.cfg.batch * self.cfg.horizon
         # Sample accounting has to distinguish surrogate rollouts from real
         # environment interaction, or the model-based planner looks like it
@@ -260,6 +266,7 @@ class HybridPlannerTrainer:
         on_surrogate = self.env.dynamics == "surrogate"
         summary = {
             **final,
+            **constraint_summary(self.eval_costs, self.env.task.cost_limit),
             "wall_clock_s": clock.seconds,
             "peak_memory_mb": peak_memory_mb(self.device),
             "samples": rollout_steps,  # kept for backwards compatibility
@@ -278,10 +285,26 @@ class HybridPlannerTrainer:
     # -- evaluation --------------------------------------------------------- #
     @torch.no_grad()
     def evaluate(self, episodes: int = 8, env: BatchedFieldEnv | None = None) -> dict[str, float]:
-        """Report on the numerical dynamics, not the surrogate."""
+        """Report on the numerical dynamics, not the surrogate.
+
+        Forked RNG: `env.step` draws globally, so an evaluation would otherwise
+        shift every subsequent training draw and the eval schedule would become
+        part of the result.
+        """
+        devices = [self.device] if self.device.type == "cuda" else []
+        with torch.random.fork_rng(devices=devices):
+            return self._evaluate(episodes, env)
+
+    @property
+    def eval_seed(self) -> int:
+        """Fixed evaluation set: same initial conditions at every evaluation."""
+        return self.cfg.seed + 10_000
+
+    @torch.no_grad()
+    def _evaluate(self, episodes: int = 8, env: BatchedFieldEnv | None = None) -> dict[str, float]:
         env = env or self.eval_env or self.env
         self.policy.eval()
-        state = env.reset(episodes, self.generator)
+        state = env.reset(episodes, torch.Generator().manual_seed(self.eval_seed))
         total_reward = torch.zeros(episodes, device=state.device)
         total_cost = torch.zeros(episodes, device=state.device)
         total_equity = torch.zeros(episodes, device=state.device)

@@ -1,0 +1,52 @@
+#!/bin/bash
+#SBATCH -J pspe-seeds
+#SBATCH -o %x.o%A_%a
+#SBATCH -e %x.e%A_%a
+#SBATCH -p gpu-a100
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -t 04:00:00
+#SBATCH --array=0-4
+#
+# Phase F on LS6: one seed per array task. The seeds are independent runs, so
+# the sweep costs one seed's wall-clock instead of five. Each task writes its
+# own runs/seeds_full/seed_<N>/results.json, which is exactly the layout
+# eval/run_seeds.py --aggregate-only expects — so the aggregation happens back
+# on the laptop with no cluster-side merge step.
+#
+#   sbatch -A <allocation> scripts/tacc/ls6_seeds.slurm
+set -euo pipefail
+
+VENV="${VENV:-$WORK/pspe-venv}"
+REPO="${REPO:-$WORK/pspe}"
+SEED="${SLURM_ARRAY_TASK_ID:-0}"
+
+module purge
+module load gcc/11.2.0 cuda/12.4 python3/3.11.8 2>/dev/null || module load python3
+source "$VENV/bin/activate"
+cd "$REPO"
+
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+python -c "import torch; assert torch.cuda.is_available(), 'no CUDA visible to torch'"
+
+# The dataset must already exist. `ensure_dataset` generates it on a miss, and
+# five array tasks missing at once would race on one .npz path — the file would
+# be read while another task is still writing it. Staged by rsync from the
+# laptop so every seed also trains on byte-identical data to the CPU runs.
+DATA="$REPO/data/pde_testbeds/dar_64.npz"
+if [ ! -f "$DATA" ]; then
+    echo "missing $DATA — rsync it before submitting (see scripts/tacc/README.md)" >&2
+    exit 1
+fi
+
+# --full: 20 simulate epochs / 200 planner iterations / 200 baseline iterations,
+# the budget the README's Phase 2 table was run at. --device cuda is explicit so
+# a broken CUDA build fails loudly instead of silently falling back to CPU.
+srun python eval/run_ablations.py \
+    --seed "$SEED" \
+    --testbed dar \
+    --grid 64 \
+    --full \
+    --device cuda \
+    --only adaptive baselines \
+    --out "runs/seeds_full/seed_${SEED}"

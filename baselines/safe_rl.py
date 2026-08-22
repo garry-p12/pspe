@@ -32,7 +32,7 @@ import torch.nn as nn
 from pspe.envs.pde_env import BatchedFieldEnv
 from pspe.plan.lagrangian import PIDLagrangian
 from pspe.plan.policy import FieldCritic, GaussianFieldPolicy
-from pspe.utils.common import peak_memory_mb, timer
+from pspe.utils.common import constraint_summary, peak_memory_mb, timer
 from pspe.utils.logging import RunLogger
 
 Tensor = torch.Tensor
@@ -65,6 +65,11 @@ class SafeRLConfig:
     backtrack_steps: int = 10
     backtrack_coef: float = 0.8
     eval_episodes: int = 8
+    # Periodic evaluation, matching the planner's. Without it a baseline's
+    # constraint behaviour is one end-of-run snapshot, which cannot be compared
+    # against a run-level statistic — and the planner's excursions showed a
+    # snapshot is not enough to characterise either side.
+    eval_every: int = 20
     seed: int = 0
     log_dir: str = "runs/baselines"
 
@@ -152,6 +157,16 @@ class OnPolicySafeAgent:
         self.opt_critic = torch.optim.Adam(self.critic.parameters(), lr=self.cfg.lr_critic)
         self.logger = logger or RunLogger(f"{self.cfg.log_dir}/{self.name}")
         self.generator = torch.Generator().manual_seed(self.cfg.seed)
+        # Evaluation must not disturb training. `evaluate` resets the *training*
+        # env and would otherwise draw from the training RNG stream, so adding
+        # periodic evaluation silently changed every baseline's trajectory —
+        # measured on dar, mean return moved from -2.51 to -2.30 purely from the
+        # extra draws. Two things keep the instrument out of the result: the
+        # global stream is forked (env.step draws from it), and evaluation uses
+        # a *fixed* set of initial conditions, reseeded identically at every
+        # call. Fixed ICs also make the eval curve comparable across iterations:
+        # a cost change is then the policy moving, not a new set of episodes.
+        self.eval_seed = self.cfg.seed + 10_000
         self.cost_limit = env.task.cost_limit
         self.samples_used = 0
 
@@ -248,6 +263,7 @@ class OnPolicySafeAgent:
 
     # -- driver ------------------------------------------------------------- #
     def train(self) -> dict[str, float]:
+        eval_costs: list[float] = []
         with timer() as clock:
             for it in range(1, self.cfg.iterations + 1):
                 buf = self.collect()
@@ -262,9 +278,16 @@ class OnPolicySafeAgent:
                 )
                 self.logger.log(it, **stats)
 
+                if self.cfg.eval_every and it % self.cfg.eval_every == 0:
+                    periodic = self.evaluate(self.cfg.eval_episodes)
+                    eval_costs.append(periodic["episode_cost"])
+                    self.logger.log(it, **{f"eval/{k}": v for k, v in periodic.items()})
+
         metrics = self.evaluate(self.cfg.eval_episodes)
+        eval_costs.append(metrics["episode_cost"])
         summary = {
             **metrics,
+            **constraint_summary(eval_costs, self.cost_limit),
             "algorithm": self.name,
             "wall_clock_s": clock.seconds,
             "peak_memory_mb": peak_memory_mb(self.device),
@@ -275,7 +298,20 @@ class OnPolicySafeAgent:
 
     @torch.no_grad()
     def evaluate(self, episodes: int = 8) -> dict[str, float]:
-        state = self.env.reset(episodes, self.generator)
+        with torch.random.fork_rng(devices=self._rng_devices):
+            return self._evaluate(episodes)
+
+    @property
+    def _rng_devices(self) -> list:
+        return [self.device] if self.device.type == "cuda" else []
+
+    @torch.no_grad()
+    def _evaluate(self, episodes: int = 8) -> dict[str, float]:
+        # `env.step` draws from the *global* RNG, so evaluating mid-training
+        # shifts every subsequent training draw unless the stream is forked.
+        # Restoring `env.state` alone is not enough - that was measured.
+        saved_state = getattr(self.env, "state", None)
+        state = self.env.reset(episodes, torch.Generator().manual_seed(self.eval_seed))
         budget = torch.full((episodes,), self.cost_limit, device=state.device)
         total_reward = torch.zeros(episodes, device=state.device)
         total_cost = torch.zeros(episodes, device=state.device)
@@ -287,6 +323,8 @@ class OnPolicySafeAgent:
             budget = budget - cost
             total_reward += reward
             total_cost += cost
+        if saved_state is not None:
+            self.env.state = saved_state
         return {
             "return": float(total_reward.mean()),
             "episode_cost": float(total_cost.mean()),
