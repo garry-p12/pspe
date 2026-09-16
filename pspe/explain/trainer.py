@@ -38,6 +38,14 @@ class ExplainTrainConfig:
     weight_supervised: float = 1.0
     weight_faithful: float = 1.0
     use_faithfulness: bool = True   # ablation switch: faithfulness loss on/off
+    # REINFORCE rollout settings. Measured: at the generation temperature (0.8)
+    # an under-trained generator's samples never parse — zero actuators
+    # mentioned in every sample — so every score equals the parser fallback and
+    # the faithfulness gradient is exactly zero. Sampling close to the mode keeps
+    # samples parseable; the self-critical baseline (greedy decode's score)
+    # makes the advantage informative even when parse rates are low.
+    reinforce_temperature: float = 0.3
+    self_critical: bool = True
     # Post-hoc control (Section 7.2): the policy is fixed and the explainer is
     # never trained against it — briefs come out of the untouched generator
     # after the fact, TalkToAgent-style. This is the comparison the whole
@@ -174,13 +182,28 @@ class ExplainTrainer:
                 supervised_nll = self.model(condition, token_ids, mask)
                 # Memory-efficient: sample without grad, score with one forward.
                 # `generate` (grad through the whole loop) OOMs a 1.5B backbone.
-                sampled, sample_logprob = self.model.sample_and_score(condition)
+                sampled, sample_logprob = self.model.sample_and_score(
+                    condition, temperature=self.cfg.reinforce_temperature
+                )
                 parsed, extras = self.parser.batch_distribution(sampled, self.device)
                 score, kl = faithfulness_score(reference, parsed)
 
+                critic_score = None
+                if self.cfg.use_faithfulness and self.cfg.self_critical:
+                    with torch.no_grad():
+                        greedy_texts, _ = self.model.generate(condition, greedy=True)
+                    greedy_parsed, _ = self.parser.batch_distribution(greedy_texts, self.device)
+                    critic_score, _ = faithfulness_score(reference, greedy_parsed)
+
                 loss, components = self.objective(
-                    supervised_nll, sample_logprob, score, self.cfg.use_faithfulness
+                    supervised_nll, sample_logprob, score, self.cfg.use_faithfulness,
+                    critic_score=critic_score,
                 )
+                # Parse rate is the starvation diagnostic: near zero means the
+                # faithfulness term has nothing to learn from, whatever it reports.
+                components["metric/parse_rate"] = sum(
+                    1.0 for e in extras if e["mentioned_actuators"] > 0
+                ) / len(extras)
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(

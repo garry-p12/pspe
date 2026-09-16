@@ -94,6 +94,16 @@ resolution:
 calibrate:
 	$(PY) scripts/calibrate_constraints.py
 
+# Real wildfire observations (Next Day Wildfire Spread). Needs a Kaggle token:
+# see scripts/download_ndws.py. Scored with AUC-PR against the fire prevalence
+# floor, because next-day fire is a ~1% positive-rate problem.
+ndws:
+	$(PY) eval/run_ndws.py
+
+# Does closing the surrogate/reality cost gap fix the constraint violation?
+constraint-fix:
+	$(PY) eval/run_constraint_fix.py
+
 # Real PDEBench benchmark (needs a downloaded file; multi-GB, see the script).
 pdebench:
 	$(PY) eval/run_pdebench.py --file data/pdebench/2D_rdb_NA_NA.h5 --testbed swe --benchmark 2d_shallowwater

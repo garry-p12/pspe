@@ -67,6 +67,7 @@ class FaithfulnessObjective:
         sample_logprob: Tensor,     # (B,) log-prob of the sampled brief
         score: Tensor,              # (B,) F of the sampled brief, detached
         use_faithfulness: bool = True,
+        critic_score: Tensor | None = None,   # (B,) F of the greedy brief, if SCST
     ) -> tuple[Tensor, dict[str, float]]:
         score = score.detach()
         mean_score = float(score.mean())
@@ -81,7 +82,15 @@ class FaithfulnessObjective:
         loss = self.weight_supervised * supervised_nll.mean()
         reinforce = torch.zeros((), device=supervised_nll.device)
         if use_faithfulness:
-            advantage = score - self.baseline
+            # Self-critical baseline when available: the greedy brief's own
+            # score. A batch-EMA baseline gave exactly zero gradient on both the
+            # stub and Qwen2.5 — every stochastic sample was unparseable, so all
+            # scores equalled the parser fallback and the advantage vanished.
+            # Against the greedy decode, a sample that parses *worse* than the
+            # mode is penalised and one that parses better is rewarded, which is
+            # signal even when most samples fail.
+            baseline = critic_score.detach() if critic_score is not None else self.baseline
+            advantage = score - baseline
             reinforce = -(advantage * sample_logprob).mean()
             loss = loss + self.weight_faithful * reinforce
 
@@ -91,4 +100,5 @@ class FaithfulnessObjective:
             "loss/reinforce": float(reinforce.detach()),
             "metric/faithfulness": mean_score,
             "metric/faithfulness_baseline": self.baseline,
+            "metric/advantage_std": float((score - (critic_score.detach() if critic_score is not None else self.baseline)).std()) if score.numel() > 1 else 0.0,
         }

@@ -24,7 +24,9 @@ STATUS="$WORK/pspe/STATUS.md"
 export VENV="$WORK/pspe-venv" REPO="$WORK/pspe"
 export HF_HOME="$WORK/hf_cache"
 
-log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%SZ')] $*" | tee -a "$LOG"; }
+# stderr, never stdout: `submit()` runs inside $(...), so anything log() writes
+# to stdout is captured as part of the job id and wait_for then polls garbage.
+log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%SZ')] $*" | tee -a "$LOG" >&2; }
 
 write_status() {
     {
@@ -97,7 +99,13 @@ fi
 
 # --- 2. The experiment queue. Independent jobs go in together; the scheduler
 # runs them concurrently on separate nodes.
-PDEB=$(submit scripts/tacc/vista_pdebench.slurm)
+# PDEBench already produced results (job 928714); do not spend a node redoing it.
+PDEB=""
+if [ -f runs/pdebench/pdebench_results.json ]; then
+    log "pdebench results already present, skipping"
+else
+    PDEB=$(submit scripts/tacc/vista_pdebench.slurm)
+fi
 TRANS=$(submit scripts/tacc/vista_transfer_planning.slurm)
 RES=$(submit scripts/tacc/vista_resolution.slurm)
 PERC=$(submit scripts/tacc/vista_perception_real.slurm)

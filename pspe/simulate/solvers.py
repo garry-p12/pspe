@@ -20,6 +20,8 @@ nothing in the repo requires it.
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -307,9 +309,33 @@ DEFAULT_INTEGRATION: dict[str, dict[str, float | int]] = {
 }
 
 
+REFERENCE_GRID = 64
+
+
+def stable_substeps(base: int, grid: int) -> int:
+    """Micro-steps needed to keep the explicit scheme stable at `grid`.
+
+    The defaults are tuned at 64x64. An explicit diffusion step is stable only
+    while `nu * dt_micro / dx^2` stays below a constant, and dx halves when the
+    grid doubles, so the micro-step must shrink by (grid / 64)^2. Without this
+    the truth solver — not the surrogate — went to NaN at 96^2 (step 5) and
+    128^2 (step 1), and the resolution-generalisation sweep silently reported
+    NaN at every resolution above the training one.
+
+    Coarser grids keep the base count: fewer micro-steps would be stable, but
+    changing them would alter the numerics behind every existing 32^2 result.
+    """
+    if grid <= REFERENCE_GRID:
+        return base
+    return int(math.ceil(base * (grid / REFERENCE_GRID) ** 2))
+
+
 def make_testbed(name: str, **kwargs: object) -> PDETestbed:
     if name not in TESTBEDS:
         raise KeyError(f"unknown testbed {name!r}; expected one of {sorted(TESTBEDS)}")
     settings: dict[str, object] = dict(DEFAULT_INTEGRATION[name])
     settings.update({k: v for k, v in kwargs.items() if v is not None})
+    grid = int(settings.get("grid", REFERENCE_GRID))
+    if "substeps" not in kwargs or kwargs["substeps"] is None:
+        settings["substeps"] = stable_substeps(int(settings["substeps"]), grid)
     return TESTBEDS[name](**settings)  # type: ignore[arg-type]

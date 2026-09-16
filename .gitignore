@@ -11,6 +11,10 @@ data/pde_testbeds/*.npy
 data/perception_proxy/images/
 data/perception_proxy/fields/
 data/perception_proxy/captions.json
+# Real observational datasets: hundreds of MB to GB, re-downloadable.
+data/ndws/
+data/pdebench/
+data/sen1floods11/
 runs/
 outputs/
 *.pt

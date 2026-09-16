@@ -129,3 +129,23 @@ def test_dataset_roundtrip(tmp_path) -> None:
     # The control channel must actually be excited, or the surrogate can never
     # learn the counterfactual the planner asks it for.
     assert float(abs(data["controls"]).mean()) > 1e-3
+
+
+def test_truth_solver_is_stable_above_the_reference_grid() -> None:
+    """The resolution sweep reported NaN at 96^2 and 128^2 — from the solver, not
+    the surrogate. Micro-steps must scale with (grid/64)^2 for explicit diffusion."""
+    import torch
+    from pspe.simulate.solvers import make_testbed, stable_substeps
+
+    assert stable_substeps(4, 64) == 4
+    assert stable_substeps(4, 128) == 16
+    assert stable_substeps(4, 32) == 4, "coarser grids keep the reference numerics"
+
+    for name in ("dar", "swe", "rdf"):
+        for grid in (96, 128):
+            tb = make_testbed(name, grid=grid)
+            u = tb.initial_condition(2, torch.Generator().manual_seed(0))
+            c = torch.zeros(2, tb.n_channels if name != "dar" else 1, grid, grid)[:, :1]
+            for _ in range(8):
+                u = tb.step(u, c)
+            assert torch.isfinite(u).all(), f"{name} at {grid}^2 diverged"

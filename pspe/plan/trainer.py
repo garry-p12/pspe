@@ -58,6 +58,28 @@ class PlannerConfig:
     kd: float = 0.1
     eval_every: int = 20
     eval_episodes: int = 8
+    # --- closing the surrogate/reality gap on the constraint ----------------
+    # The dual is fed the cost measured on *surrogate* rollouts, but violation
+    # is realised under the true dynamics. Where the surrogate under-predicts
+    # cost the policy is safe in-model and unsafe in reality: measured on dar,
+    # 7.3% of evaluations exceeded a 0.936 limit while every model-free
+    # baseline exceeded it on none.
+    #
+    # `real_cost_every` probes the true environment every N iterations and
+    # feeds *that* cost to the dual. Between probes the surrogate's cost is
+    # corrected by the running bias those probes measure, so the correction
+    # applies at every step rather than only on probe steps.
+    #
+    # Off by default: switching it on changes the planner's real-sample cost,
+    # which is the axis its advantage over model-free baselines is claimed on,
+    # so it must be an explicit, accounted choice. Probe transitions are added
+    # to `samples_real_env`.
+    real_cost_every: int = 0          # 0 disables the probe entirely
+    real_cost_episodes: int = 8
+    # Constraint tightening: plan against `limit - k * sigma`, where sigma is
+    # the running spread of the surrogate's cost error. With k = 0 the limit is
+    # the nominal one; k > 0 buys safety margin at some return.
+    cost_margin_k: float = 0.0
     seed: int = 0
     log_dir: str = "runs/plan"
 
@@ -119,6 +141,11 @@ class HybridPlannerTrainer:
         # Every periodic evaluation's episode cost, so the summary can report
         # constraint satisfaction over the run rather than at one lucky instant.
         self.eval_costs: list[float] = []
+        # Surrogate-vs-truth cost error, learned from the real probes.
+        self.cost_bias = 0.0          # EMA of (real cost - surrogate cost)
+        self.cost_bias_var = 0.0      # EMA of squared deviation, for the margin
+        self.real_probe_transitions = 0
+        self._probe_seed = self.cfg.seed + 20_000
 
     # -- rollout ------------------------------------------------------------ #
     def collect(self, env: BatchedFieldEnv, batch: int, keep_graph: bool = True) -> RolloutBatch:
@@ -208,13 +235,77 @@ class HybridPlannerTrainer:
         }
         return pathwise, likelihood, diagnostics
 
+    # -- surrogate/reality cost gap ------------------------------------------ #
+    @torch.no_grad()
+    def probe_real_cost(self, episodes: int) -> float:
+        """Mean episode cost of the current policy under the TRUE dynamics.
+
+        Sampled stochastically, not greedily: the dual is controlling the cost
+        of the behaviour policy, and the greedy action is not what the policy
+        actually does during training.
+
+        RNG is forked and the probe uses its own stream, for the same reason
+        evaluation does — a probe that shifts the training draws would make the
+        probe schedule part of the result.
+        """
+        env = self.eval_env
+        if env is None:
+            return float("nan")
+        devices = [self.device] if self.device.type == "cuda" else []
+        with torch.random.fork_rng(devices=devices):
+            gen = torch.Generator().manual_seed(self._probe_seed)
+            self._probe_seed += 1
+            state = env.reset(episodes, gen)
+            total = torch.zeros(episodes, device=state.device)
+            for _ in range(self.cfg.horizon):
+                action, _ = self.policy.sample(state)
+                state, _, cost, _ = env.step(action)
+                total += cost
+        self.real_probe_transitions += episodes * self.cfg.horizon
+        return float(total.mean())
+
+    def _dual_input(self, surrogate_cost: float, it: int) -> tuple[float, dict[str, float]]:
+        """What the dual should see this iteration, and why.
+
+        On a probe iteration that is the measured real cost. Between probes it
+        is the surrogate's cost plus the running bias, so a surrogate that
+        systematically under-predicts cost does not silently relax the
+        constraint for the 19 iterations between probes.
+        """
+        if not self.cfg.real_cost_every or self.eval_env is None:
+            return surrogate_cost, {}
+        if it % self.cfg.real_cost_every == 0:
+            real = self.probe_real_cost(self.cfg.real_cost_episodes)
+            error = real - surrogate_cost
+            # EMA rather than a full history: the bias is non-stationary, since
+            # the policy keeps moving into parts of the state space where the
+            # surrogate is differently wrong.
+            self.cost_bias = 0.7 * self.cost_bias + 0.3 * error
+            self.cost_bias_var = 0.7 * self.cost_bias_var + 0.3 * (error - self.cost_bias) ** 2
+            record = {
+                "dual/real_cost": real,
+                "dual/surrogate_cost": surrogate_cost,
+                "dual/cost_bias": self.cost_bias,
+            }
+            return real, record
+        return surrogate_cost + self.cost_bias, {"dual/cost_bias": self.cost_bias}
+
+    def _effective_limit(self) -> float:
+        """Nominal limit, tightened by the measured spread of surrogate error."""
+        if self.cfg.cost_margin_k <= 0:
+            return self.env.task.cost_limit
+        sigma = self.cost_bias_var ** 0.5
+        return max(0.0, self.env.task.cost_limit - self.cfg.cost_margin_k * sigma)
+
     # -- training ----------------------------------------------------------- #
     def train(self) -> dict[str, float]:
         with timer() as clock:
             for it in range(1, self.cfg.iterations + 1):
                 batch = self.collect(self.env, self.cfg.batch, keep_graph=True)
                 episode_cost = float(batch.costs.sum(dim=1).mean().detach())
-                multiplier = self.dual.update(episode_cost)
+                dual_cost, dual_record = self._dual_input(episode_cost, it)
+                self.dual.cost_limit = self._effective_limit()
+                multiplier = self.dual.update(dual_cost)
 
                 equity_multiplier = 0.0
                 equity_record: dict[str, float] = {}
@@ -237,6 +328,7 @@ class HybridPlannerTrainer:
 
                 record = {
                     **diagnostics,
+                    **dual_record,
                     **self.dual.state(),
                     **equity_record,
                     "hybrid/alpha": stats.alpha,
@@ -273,8 +365,14 @@ class HybridPlannerTrainer:
             "rollout_steps": rollout_steps,
             "samples_surrogate": rollout_steps if on_surrogate else 0,
             "samples_real_env": (
-                self.surrogate_train_transitions if on_surrogate else rollout_steps
+                # Probe transitions are real environment interaction and belong
+                # in the number the sample-efficiency claim is made on.
+                self.surrogate_train_transitions + self.real_probe_transitions
+                if on_surrogate else rollout_steps
             ),
+            "samples_real_probe": self.real_probe_transitions,
+            "dual/final_cost_bias": self.cost_bias,
+            "dual/effective_limit": self._effective_limit(),
             "dynamics": self.env.dynamics,
             "final_alpha": self.estimator.alpha,
             "final_lambda": self.dual.multiplier,
