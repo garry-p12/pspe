@@ -37,6 +37,11 @@ aggregate explain_real      "0 1 2"       arm
 aggregate explain_real_v2   "0 1 2"       arm
 aggregate constraint_fix    "0 1 2 3 4"   arm
 aggregate transfer_planning "0 1 2 3 4"   run transfer_matrix.json
+# Phase 1: theory-code gap closers
+aggregate conformal_real    "0 1 2"       delta
+aggregate faith_weights     "0 1 2"       arm
+aggregate lipschitz         "0 1 2 3 4"   arm
+aggregate alpha_rule        "0 1 2 3 4"   arm
 
 # run_resolution.py writes {grid: {...}}, not a row list, so it needs its own
 # collation rather than the shared aggregator.

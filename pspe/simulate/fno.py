@@ -43,6 +43,37 @@ class SpectralConv2d(nn.Module):
         # (B, Cin, X, Y) x (Cin, Cout, X, Y) -> (B, Cout, X, Y)
         return torch.einsum("bixy,ioxy->boxy", inp, weight)
 
+    @torch.no_grad()
+    def project_operator_norm(self, max_norm: float = 1.0) -> float:
+        """Clip each mode's (Cin x Cout) mixing matrix to spectral norm <= max_norm.
+
+        Under the orthonormal FFT this layer is block-diagonal across modes, so
+        its operator norm is exactly the largest per-mode spectral norm. Clipping
+        per mode is therefore the tight constraint, not a proxy. Returns the
+        largest norm seen before clipping, so training logs show how binding
+        the constraint is.
+        """
+        worst = 0.0
+        for weight in (self.weight_pos, self.weight_neg):
+            # (Cin, Cout, X, Y) -> (X*Y, Cin, Cout): one matrix per mode
+            mats = weight.permute(2, 3, 0, 1).reshape(-1, self.in_channels, self.out_channels)
+            # SVD on CPU: MPS has no complex SVD kernel and these matrices are
+            # (modes^2) x width x width — small enough that the copy is free.
+            norms = torch.linalg.matrix_norm(mats.detach().cpu(), ord=2).to(mats.device)
+            worst = max(worst, float(norms.max()))
+            scale = torch.clamp(max_norm / norms.clamp(min=1e-12), max=1.0)
+            mats.mul_(scale[:, None, None].to(mats.dtype))
+        return worst
+
+    def operator_norm(self) -> float:
+        """Current operator norm (max per-mode spectral norm), without clipping."""
+        with torch.no_grad():
+            worst = 0.0
+            for weight in (self.weight_pos, self.weight_neg):
+                mats = weight.permute(2, 3, 0, 1).reshape(-1, self.in_channels, self.out_channels)
+                worst = max(worst, float(torch.linalg.matrix_norm(mats.detach().cpu(), ord=2).max()))
+            return worst
+
     def forward(self, x: Tensor) -> Tensor:
         batch, _, height, width = x.shape
         in_dtype = x.dtype
@@ -79,17 +110,40 @@ class SpectralConv2d(nn.Module):
 
 
 class FNOBlock(nn.Module):
-    """Spectral branch + pointwise branch + residual, the standard FNO layer."""
+    """Spectral branch + pointwise branch + residual, the standard FNO layer.
 
-    def __init__(self, width: int, modes_x: int, modes_y: int) -> None:
+    `lipschitz=True` is the paper's Section 4.2 / Assumption 1 mode (Miyato et
+    al. spectral normalisation), and it changes two things besides normalising
+    the 1x1 conv:
+
+    * GroupNorm is dropped. Normalisation layers are not Lipschitz — they
+      rescale a small-magnitude input by an arbitrary factor — so no bound
+      survives them. The block keeps its residual structure without it.
+    * The branch is scaled by `residual_scale`. A residual block's constant is
+      1 + L_branch, so even with both branches at norm <= 1 the block is
+      2-Lipschitz, and n stacked blocks are 2^n. The scale is what makes a
+      near-1 constant *possible*; `estimate_lipschitz` is what says whether it
+      was *achieved*. The two must not be confused: the paper's L_G <= 1 is a
+      claim about the trained network, and only the measurement can support it.
+    """
+
+    def __init__(self, width: int, modes_x: int, modes_y: int,
+                 lipschitz: bool = False, residual_scale: float = 0.1) -> None:
         super().__init__()
+        self.lipschitz = lipschitz
+        self.residual_scale = residual_scale if lipschitz else 1.0
         self.spectral = SpectralConv2d(width, width, modes_x, modes_y)
-        self.pointwise = nn.Conv2d(width, width, kernel_size=1)
-        self.norm = nn.GroupNorm(num_groups=min(8, width), num_channels=width)
+        pointwise = nn.Conv2d(width, width, kernel_size=1)
+        if lipschitz:
+            pointwise = torch.nn.utils.parametrizations.spectral_norm(pointwise)
+        self.pointwise = pointwise
+        self.norm = nn.Identity() if lipschitz else nn.GroupNorm(
+            num_groups=min(8, width), num_channels=width
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         h = self.spectral(x) + self.pointwise(x)
-        return x + F.gelu(self.norm(h))
+        return x + self.residual_scale * F.gelu(self.norm(h))
 
 
 class FNO2d(nn.Module):
@@ -110,8 +164,10 @@ class FNO2d(nn.Module):
         control_channels: int = 1,
         predict_delta: bool = True,
         use_checkpoint: bool = False,
+        lipschitz: bool = False,
     ) -> None:
         super().__init__()
+        self.lipschitz = lipschitz
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.control_channels = control_channels
@@ -123,13 +179,17 @@ class FNO2d(nn.Module):
         # it is pure overhead at the 64^2 default resolution.
         self.use_checkpoint = use_checkpoint
         # +2 for the (x, y) coordinate grid appended to every input.
-        self.lift = nn.Conv2d(in_channels + control_channels + 2, width, kernel_size=1)
-        self.blocks = nn.ModuleList(FNOBlock(width, modes, modes) for _ in range(n_layers))
-        self.project = nn.Sequential(
-            nn.Conv2d(width, 2 * width, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(2 * width, out_channels, kernel_size=1),
+        lift = nn.Conv2d(in_channels + control_channels + 2, width, kernel_size=1)
+        proj_in = nn.Conv2d(width, 2 * width, kernel_size=1)
+        proj_out = nn.Conv2d(2 * width, out_channels, kernel_size=1)
+        if lipschitz:
+            sn = torch.nn.utils.parametrizations.spectral_norm
+            lift, proj_in, proj_out = sn(lift), sn(proj_in), sn(proj_out)
+        self.lift = lift
+        self.blocks = nn.ModuleList(
+            FNOBlock(width, modes, modes, lipschitz=lipschitz) for _ in range(n_layers)
         )
+        self.project = nn.Sequential(proj_in, nn.GELU(), proj_out)
 
     def _grid(self, x: Tensor) -> Tensor:
         batch, _, height, width = x.shape
@@ -154,3 +214,42 @@ class FNO2d(nn.Module):
                 h = block(h)
         out = self.project(h)
         return state + out if self.predict_delta else out
+
+    @torch.no_grad()
+    def project_spectral_weights(self, max_norm: float = 1.0) -> float:
+        """Clip every Fourier layer's per-mode operator norm. Call after each
+        optimiser step in Lipschitz mode; the 1x1 convs are handled by their
+        spectral_norm parametrisation, but complex Fourier weights are not
+        covered by that utility and need the explicit projection."""
+        return max(block.spectral.project_operator_norm(max_norm) for block in self.blocks)
+
+    def estimate_lipschitz(self, state: Tensor, control: Tensor | None = None,
+                           iters: int = 20) -> float:
+        """Local Lipschitz constant of state -> next state, by power iteration
+        on the Jacobian at `state`.
+
+        This is the number Assumption 1 is about, measured rather than
+        assumed. Power iteration on J^T J converges to the largest singular
+        value of the Jacobian; averaged over sampled states it is the local
+        constant the Prop. 1 recursion actually uses. Global sup is not
+        computable; this is the honest proxy, and the docstring says so.
+        """
+        was_training = self.training
+        self.eval()
+        x = state.detach().clone().requires_grad_(True)
+        v = torch.randn_like(x)
+        v = v / v.norm()
+        sigma = 0.0
+        f = lambda s: self.forward(s, control)  # noqa: E731
+        x0 = x.detach()
+        for _ in range(iters):
+            _, jv = torch.func.jvp(f, (x0,), (v,))          # J v
+            _, vjp_fn = torch.func.vjp(f, x0)
+            jtjv = vjp_fn(jv)[0]                            # J^T J v
+            # Rayleigh quotient of J^T J at the current v -> sigma_max^2.
+            with torch.no_grad():
+                sigma = float(torch.sqrt((v * jtjv).sum().abs() / (v * v).sum()))
+                v = jtjv / max(float(jtjv.norm()), 1e-12)
+        if was_training:
+            self.train()
+        return sigma

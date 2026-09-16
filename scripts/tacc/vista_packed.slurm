@@ -5,7 +5,7 @@
 #SBATCH -p gh
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH -t 01:30:00
+#SBATCH -t 03:00:00
 #
 # All seeds of one experiment concurrently on ONE GH200, instead of one node
 # per seed. When the partition is saturated (573/576 nodes, ~480 jobs ahead),
@@ -38,6 +38,29 @@ case "${EXPERIMENT:?set EXPERIMENT=cfix|expl|res}" in
           --device cuda --backbone Qwen/Qwen2.5-0.5B-Instruct --policy "$CKPT" \
           --seed $s --out runs/explain_real_v2/seed_$s
       ) > runs/explain_v2_seed_$s.log 2>&1 &
+    done ;;
+  expl2)   # Phase 1b + 1d on Qwen: conformal certificate + faithfulness weight sweep
+    for s in 0 1 2; do
+      ( CKPT="runs/explain_real_v2/seed_$s/policy.pt"
+        [ -f "$CKPT" ] || python scripts/train_plan.py seed=$s device=cuda planner.iterations=200 \
+          output.checkpoint="$CKPT" hydra.run.dir="outputs/expl2_plan_$s"
+        python eval/run_conformal.py --testbed dar --grid 64 --iterations 200 --device cuda \
+          --backbone Qwen/Qwen2.5-0.5B-Instruct --policy "$CKPT" --n-cal 200 --n-test 400 \
+          --seed $s --out runs/conformal_real/seed_$s &&
+        python eval/run_explain_baselines.py --testbed dar --grid 64 --iterations 200 \
+          --device cuda --backbone Qwen/Qwen2.5-0.5B-Instruct --policy "$CKPT" \
+          --faith-weights 10 100 1000 --seed $s --out runs/faith_weights/seed_$s
+      ) > runs/expl2_seed_$s.log 2>&1 &
+    done ;;
+  lip)     # Phase 1a: Assumption 1 / Prop. 1 measured, 5 seeds
+    for s in 0 1 2 3 4; do
+      python eval/run_lipschitz.py --seed $s --grid 64 --epochs 20 --device cuda \
+        --out runs/lipschitz/seed_$s > runs/lipschitz_seed_$s.log 2>&1 &
+    done ;;
+  alpha)   # Phase 1c: fixed / variance / Eq. 8 mixing rule, 5 seeds
+    for s in 0 1 2 3 4; do
+      python eval/run_alpha_rule.py --seed $s --grid 64 --epochs 20 --iterations 200 \
+        --device cuda --out runs/alpha_rule/seed_$s > runs/alpha_seed_$s.log 2>&1 &
     done ;;
   res)
     for s in 0 1 2 3 4; do

@@ -1,4 +1,5 @@
 from .hybrid_gradient import HybridGradientEstimator, HybridStats
+from .joint import JointConfig, JointPlannerTrainer
 from .lagrangian import PIDLagrangian
 from .policy import FieldCritic, FieldEncoder, GaussianFieldPolicy
 from .trainer import HybridPlannerTrainer, PlannerConfig, RolloutBatch
@@ -11,6 +12,8 @@ __all__ = [
     "FieldCritic",
     "FieldEncoder",
     "HybridPlannerTrainer",
+    "JointConfig",
+    "JointPlannerTrainer",
     "PlannerConfig",
     "RolloutBatch",
 ]

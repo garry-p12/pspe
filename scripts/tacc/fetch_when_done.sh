@@ -12,7 +12,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 HOST="${HOST:-vista2}"
 PY="${PY:-/opt/anaconda3/envs/pspe/bin/python}"
-JOBS="${JOBS:-998919,998920,998921}"
+JOBS="${JOBS:-999843,999856,999858}"
 
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%SZ')] $*"; }
 
@@ -35,32 +35,20 @@ while true; do
 done
 log "queue empty — fetching"
 
-for d in constraint_fix explain_real_v2 resolution_seeds; do
+for d in conformal_real faith_weights lipschitz alpha_rule; do
     rsync -az "$HOST":"\$WORK/pspe/runs/$d/" "runs/$d/" && log "fetched $d"
 done
 
 # Aggregate locally with the key each runner uses.
-"$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 3 4 --out runs/constraint_fix --key arm >/dev/null 2>&1 \
-    && log "aggregated constraint_fix" || log "constraint_fix aggregation failed"
-"$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 --out runs/explain_real_v2 --key arm >/dev/null 2>&1 \
-    && log "aggregated explain_real_v2" || log "explain_real_v2 aggregation failed"
-
-"$PY" - <<'PYEOF'
-import json, glob, numpy as np
-per = {}
-for f in sorted(glob.glob("runs/resolution_seeds/seed_*/dar_resolution.json")):
-    for g, rec in json.load(open(f)).items():
-        per.setdefault(int(g), []).append(float(rec["rel_l2_final"]))
-rows = {g: {"mean": float(np.nanmean(v)), "std": float(np.nanstd(v, ddof=1)) if len(v) > 1 else None,
-            "n": len(v), "nan": int(np.isnan(v).sum())} for g, v in sorted(per.items())}
-json.dump(rows, open("runs/resolution_seeds/resolution_seeds.json", "w"), indent=2)
-print("resolution:", json.dumps(rows))
-PYEOF
+"$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 --out runs/conformal_real --key delta >/dev/null 2>&1 && log "aggregated conformal_real"
+"$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 --out runs/faith_weights --key arm >/dev/null 2>&1 && log "aggregated faith_weights"
+"$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 3 4 --out runs/lipschitz --key arm >/dev/null 2>&1 && log "aggregated lipschitz"
+"$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 3 4 --out runs/alpha_rule --key arm >/dev/null 2>&1 && log "aggregated alpha_rule"
 
 {
-    echo "# Vista batch — fetched $(date -u '+%Y-%m-%d %H:%M:%SZ')"
-    echo; echo "## constraint_fix"; cat runs/constraint_fix/results_seeds.md 2>/dev/null
-    echo; echo "## explain_real_v2"; cat runs/explain_real_v2/results_seeds.md 2>/dev/null
-    echo; echo "## resolution_seeds"; cat runs/resolution_seeds/resolution_seeds.json 2>/dev/null
-} > runs/VISTA_BATCH_RESULTS.md
-log "summary written to runs/VISTA_BATCH_RESULTS.md"
+    echo "# Vista batch (Phase 1) — fetched $(date -u '+%Y-%m-%d %H:%M:%SZ')"
+    for d in conformal_real faith_weights lipschitz alpha_rule; do
+        echo; echo "## $d"; cat "runs/$d/results_seeds.md" 2>/dev/null || echo "(missing)"
+    done
+} > runs/VISTA_PHASE1_RESULTS.md
+log "summary written to runs/VISTA_PHASE1_RESULTS.md"

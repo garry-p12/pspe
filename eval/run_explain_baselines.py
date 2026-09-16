@@ -55,6 +55,11 @@ def main() -> int:
                              "untrained policy are degenerate and not worth rating")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--faith-weights", type=float, nargs="*", default=None,
+                        help="extra trained-in arms at these faithfulness weights, e.g. "
+                             "10 100 1000. At the default weight (1.0) the term's gradient is "
+                             "real but two orders below the supervised term; this is the "
+                             "sweep that says whether the objective can matter at all")
     parser.add_argument("--out", default="runs/explain_baselines")
     args = parser.parse_args()
 
@@ -73,8 +78,12 @@ def main() -> int:
         print("WARNING: untrained policy — F(b) is measured against a policy that "
               "does nothing interesting. Pass --policy for a reportable number.")
 
+    arms = dict(ARMS)
+    for w in (args.faith_weights or []):
+        arms[f"trained-in@w{w:g}"] = dict(use_faithfulness=True, posthoc=False, weight_faithful=w)
+
     rows = []
-    for name, overrides in ARMS.items():
+    for name, overrides in arms.items():
         seed_everything(args.seed)
         trainer = ExplainTrainer(
             env, policy,

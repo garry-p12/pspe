@@ -110,6 +110,13 @@ class SimulateTrainer:
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     step += 1
+                    # Lipschitz mode: the 1x1 convs are spectrally normalised
+                    # by parametrisation, but the complex Fourier weights need
+                    # an explicit projection after every step (Assumption 1).
+                    if getattr(self.model, "lipschitz", False):
+                        components["lipschitz/fourier_norm_pre_clip"] = (
+                            self.model.project_spectral_weights(1.0)
+                        )
                     self.logger.log(step, epoch=epoch, **components)
 
         metrics = self.evaluate()

@@ -244,6 +244,23 @@ class ExplainTrainer:
 
     # -- evaluation ---------------------------------------------------------- #
     @torch.no_grad()
+    def faithfulness_samples(self, n: int, batch: int = 16) -> "np.ndarray":
+        """Per-brief F on `n` fresh states — the input to the conformal certificate.
+
+        Fresh draws every call, so a calibration set and a test set built from
+        two calls are disjoint and, under a fixed policy, exchangeable.
+        """
+        import numpy as np
+        scores = []
+        while sum(len(s) for s in scores) < n:
+            condition, _, reference_dist = self.sample_batch(min(batch, n))
+            generated, _ = self.model.generate(condition, greedy=True)
+            parsed, _ = self.parser.batch_distribution(generated, self.device)
+            score, _ = faithfulness_score(reference_dist, parsed)
+            scores.append(score.detach().cpu().numpy())
+        return np.concatenate(scores)[:n]
+
+    @torch.no_grad()
     def evaluate(self, batch: int = 16, dump: str | Path | None = None) -> dict[str, float]:
         """Faithfulness of greedily generated briefs, plus a brief dump for raters."""
         condition, references, reference_dist = self.sample_batch(batch)

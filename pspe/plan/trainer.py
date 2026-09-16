@@ -80,6 +80,14 @@ class PlannerConfig:
     # the running spread of the surrogate's cost error. With k = 0 the limit is
     # the nominal one; k > 0 buys safety margin at some return.
     cost_margin_k: float = 0.0
+    # Eq. 8 of the paper: alpha* = V_L / (B^2 + V_p + V_L), where B is the
+    # pathwise gradient bias from surrogate error. The paper leaves the constant
+    # in B = C * eps unknown. Here B is *measured*: the true solver is
+    # differentiable, so at each probe the pathwise gradient is taken through
+    # both the surrogate and the truth from identical states, and B^2 is the
+    # squared distance between them. Needs `real_cost_every > 0` for the probe
+    # schedule; costs one extra differentiable truth rollout per probe.
+    eq8_alpha: bool = False
     seed: int = 0
     log_dir: str = "runs/plan"
 
@@ -146,6 +154,7 @@ class HybridPlannerTrainer:
         self.cost_bias_var = 0.0      # EMA of squared deviation, for the margin
         self.real_probe_transitions = 0
         self._probe_seed = self.cfg.seed + 20_000
+        self.pathwise_bias_sq = 0.0
 
     # -- rollout ------------------------------------------------------------ #
     def collect(self, env: BatchedFieldEnv, batch: int, keep_graph: bool = True) -> RolloutBatch:
@@ -264,6 +273,41 @@ class HybridPlannerTrainer:
         self.real_probe_transitions += episodes * self.cfg.horizon
         return float(total.mean())
 
+    def _pathwise_grad_from(self, env: BatchedFieldEnv, state0: Tensor, multiplier: float) -> Tensor:
+        """Flat pathwise gradient of the Lagrangian rolled out from `state0` in `env`."""
+        env.state = state0.clone()
+        state = env.state
+        total = torch.zeros(state.shape[0], device=state.device)
+        for _ in range(self.cfg.horizon):
+            action, _ = self.policy.sample(state)
+            state, reward, cost, _ = env.step(action)
+            total = total + (reward - multiplier * cost)
+        loss = -total.mean()
+        grads = torch.autograd.grad(loss, list(self.policy.parameters()), allow_unused=True)
+        return torch.cat([
+            (g if g is not None else torch.zeros_like(p)).reshape(-1)
+            for g, p in zip(grads, self.policy.parameters())
+        ]).detach()
+
+    def measure_pathwise_bias(self, state0: Tensor, multiplier: float) -> float:
+        """B^2 = ||g_pw(surrogate) - g_pw(truth)||^2 from identical start states.
+
+        Both rollouts use the same policy noise (RNG forked and reseeded
+        between them), so the difference isolates the dynamics model. RNG is
+        restored afterwards so the measurement does not shift training.
+        """
+        if self.eval_env is None:
+            return 0.0
+        devices = [self.device] if self.device.type == "cuda" else []
+        with torch.random.fork_rng(devices=devices):
+            torch.manual_seed(self._probe_seed)
+            g_surr = self._pathwise_grad_from(self.env, state0, multiplier)
+            torch.manual_seed(self._probe_seed)
+            g_true = self._pathwise_grad_from(self.eval_env, state0, multiplier)
+        self._probe_seed += 1
+        self.real_probe_transitions += state0.shape[0] * self.cfg.horizon
+        return float(((g_surr - g_true) ** 2).sum())
+
     def _dual_input(self, surrogate_cost: float, it: int) -> tuple[float, dict[str, float]]:
         """What the dual should see this iteration, and why.
 
@@ -297,6 +341,14 @@ class HybridPlannerTrainer:
         sigma = self.cost_bias_var ** 0.5
         return max(0.0, self.env.task.cost_limit - self.cfg.cost_margin_k * sigma)
 
+    # -- joint-training hooks (no-ops here) ---------------------------------- #
+    def _before_policy_step(self, batch: RolloutBatch, pathwise: Tensor,
+                            likelihood: Tensor) -> dict[str, float]:
+        return {}
+
+    def _after_policy_step(self, it: int) -> dict[str, float]:
+        return {}
+
     # -- training ----------------------------------------------------------- #
     def train(self) -> dict[str, float]:
         with timer() as clock:
@@ -306,6 +358,13 @@ class HybridPlannerTrainer:
                 dual_cost, dual_record = self._dual_input(episode_cost, it)
                 self.dual.cost_limit = self._effective_limit()
                 multiplier = self.dual.update(dual_cost)
+
+                if (self.cfg.eq8_alpha and self.cfg.real_cost_every
+                        and it % self.cfg.real_cost_every == 0):
+                    b_sq = self.measure_pathwise_bias(batch.states[0], multiplier)
+                    self.pathwise_bias_sq = 0.7 * self.pathwise_bias_sq + 0.3 * b_sq
+                    self.estimator.bias_sq = self.pathwise_bias_sq
+                    dual_record["alpha/pathwise_bias_sq"] = self.pathwise_bias_sq
 
                 equity_multiplier = 0.0
                 equity_record: dict[str, float] = {}
@@ -322,12 +381,20 @@ class HybridPlannerTrainer:
                     batch, multiplier, equity_multiplier
                 )
 
+                # Hooks for joint training. `_before_policy_step` runs while
+                # the rollout graph is still alive (the estimator frees it), so
+                # a subclass can take gradients of the planning loss w.r.t.
+                # modules other than the policy. `_after_policy_step` runs once
+                # the policy has moved, for those modules' own updates.
+                extra = self._before_policy_step(batch, pathwise, likelihood)
                 self.opt_policy.zero_grad(set_to_none=True)
                 stats = self.estimator.step(pathwise, likelihood)
                 self.opt_policy.step()
+                extra.update(self._after_policy_step(it))
 
                 record = {
                     **diagnostics,
+                    **extra,
                     **dual_record,
                     **self.dual.state(),
                     **equity_record,
@@ -372,6 +439,7 @@ class HybridPlannerTrainer:
             ),
             "samples_real_probe": self.real_probe_transitions,
             "dual/final_cost_bias": self.cost_bias,
+            "alpha/final_pathwise_bias_sq": self.pathwise_bias_sq,
             "dual/effective_limit": self._effective_limit(),
             "dynamics": self.env.dynamics,
             "final_alpha": self.estimator.alpha,

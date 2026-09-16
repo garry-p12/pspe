@@ -88,6 +88,10 @@ class HybridGradientEstimator:
         self.grad_clip = grad_clip
         self._step = 0
         self.stats = HybridStats(alpha=alpha_init)
+        # Squared pathwise bias ||E[g_pw^surrogate] - E[g_pw^truth]||^2, the B^2
+        # of the paper's Eq. 8. Zero means the variance-only rule; the planner
+        # sets it from measured gradients when `eq8` mode is on.
+        self.bias_sq = 0.0
 
     # -- variance-optimal mixing ------------------------------------------- #
     def _estimate_alpha(
@@ -110,7 +114,10 @@ class HybridGradientEstimator:
         var_lr = float((dev_lr**2).sum() / denom)
         cov = float((dev_pw * dev_lr).sum() / denom)
 
-        spread = var_pw + var_lr - 2 * cov
+        # MSE(a) = a^2 (B^2 + V_pw) + (1 - a)^2 V_lr + 2 a (1 - a) Cov, minimised
+        # at a* = (V_lr - Cov) / (B^2 + V_pw + V_lr - 2 Cov). With B = 0 this
+        # is the variance-only rule; with Cov = 0 it is the paper's Eq. 8.
+        spread = self.bias_sq + var_pw + var_lr - 2 * cov
         if spread <= 1e-12:
             alpha = self.alpha
         else:
@@ -130,7 +137,7 @@ class HybridGradientEstimator:
         same sampled actions.
         """
         self._step += 1
-        if self.adaptive and self._step % self.estimate_every == 1:
+        if self.adaptive and (self._step - 1) % self.estimate_every == 0:
             alpha, var_pw, var_lr, cov = self._estimate_alpha(
                 per_sample_pathwise, per_sample_likelihood
             )

@@ -101,3 +101,37 @@ def test_probe_does_not_perturb_training() -> None:
         return trainer.train()["return"]
 
     assert final_return() == build().train()["return"]
+
+
+def test_eq8_measures_pathwise_bias_and_feeds_the_mixing_rule() -> None:
+    """Theorem 1 / Eq. 8: B^2 enters the denominator and is measured, not assumed."""
+    trainer = build(real_cost_every=2, real_cost_episodes=2, eq8_alpha=True)
+    trainer.train()
+    assert trainer.pathwise_bias_sq > 0.0, "no bias measured — probes never fired"
+    assert trainer.estimator.bias_sq == trainer.pathwise_bias_sq
+
+
+def test_pathwise_bias_is_zero_when_surrogate_is_the_truth() -> None:
+    """Sanity: same dynamics on both sides -> identical gradients -> B^2 = 0."""
+    trainer = build(real_cost_every=2, eq8_alpha=True)
+    trainer.env = trainer.eval_env            # surrogate *is* the truth
+    state0 = trainer.eval_env.reset(2, torch.Generator().manual_seed(0))
+    assert trainer.measure_pathwise_bias(state0, multiplier=0.0) < 1e-10
+
+
+def test_bias_term_lowers_alpha() -> None:
+    """A large measured bias must push the mix toward the unbiased estimator."""
+    from pspe.plan.hybrid_gradient import HybridGradientEstimator
+    lin = torch.nn.Linear(4, 1)
+    est = HybridGradientEstimator(lin.parameters(), adaptive=True, alpha_init=0.5,
+                                  alpha_ema=0.0, estimate_every=1)
+    x = torch.randn(8, 4)
+    # Pathwise must be the LOW-variance estimator for alpha to start above zero;
+    # the point of the test is that bias then pulls it back down.
+    def losses():
+        return (lin(x).squeeze(-1) * 0.5) ** 2, (lin(x).squeeze(-1) ** 2)
+    est.bias_sq = 0.0
+    lin.zero_grad(); est.step(*losses()); a0 = est.alpha
+    est.bias_sq = 1e6
+    lin.zero_grad(); est.step(*losses()); a1 = est.alpha
+    assert a1 < a0, f"bias should lower alpha: {a0} -> {a1}"
