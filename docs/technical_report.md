@@ -416,6 +416,64 @@ residual across a 12-channel input stack — and they account for most of the
 gap between the first run (0.035) and this one. The remaining gap to the
 published 0.284, and to the 0.34 state of the art, is architectural.
 
+### 7.9 Theory checks and joint training (Vista, Phase 1 and 2a)
+
+Full tables in `runs/PHASE1_ANALYSIS.md`. dar, paper budget, probe +
+margin on in every planning arm.
+
+**Joint vs disaggregated — the paper's central comparison.** 5 seeds, one
+pretrained FNO copied per arm:
+
+| arm | return | held-out surrogate rel L2 before → after | drift |
+|---|---|---|---|
+| disaggregated (frozen surrogate) | −2.302 ± 0.17 | 0.0048 → 0.0048 | 0 |
+| **joint, anchored (β = 0.1)** | −2.296 ± 0.18 | 0.0048 → **0.0005** | −0.004 |
+| joint, unanchored | −2.369 ± 0.17 | 0.0048 → **0.975** | +0.970 |
+
+Joint vs disaggregated on return: t = +0.66 — no difference. The same three
+outcomes reproduce on swe and rdf (`runs/PHASE3_ANALYSIS.md`): joint return
+identical to disaggregated (t = +1.00 on rdf; identical to four decimals on
+swe), anchored surrogate error down 5–9× on held-out data, unanchored surrogate
+destroyed (rel L2 0.83–1.14). Two testbed caveats from the same runs: on swe
+the policy never leaves its initial near-zero behaviour at the calibrated
+actuation scale (every arm, every fix, identical return −0.1733), so swe
+currently benchmarks surrogates, not planners; on rdf the dual fails —
+cost sprints to the reward-greedy value (8.0 vs limit 3.26) in the first 50
+iterations and λ = 37 cannot pull it back, an action-saturation failure of the
+planner that probe + margin does not touch. The anchored
+joint surrogate does *not* get captured; its held-out error falls 9× on every
+seed, because the planning gradient at one tenth of the data gradient acts as
+extra training on the states the policy visits. The unanchored arm is the
+failure mode run on purpose: the surrogate stops predicting the data (rel L2
+0.975) and return falls (t = −5.84). So "joint beats disaggregated" does not
+hold here; "joint is safe when anchored and destructive when not" does.
+
+**Eq. 8 mixing rule.** Measured pathwise bias B² ≈ 0.001, so the Eq. 8 α and
+the variance-only α coincide (0.992). Return t = +0.22. The Eq. 8 arm was the
+only one with zero violating evaluations on all 5 seeds, at 1,920 extra truth
+transitions — a tail effect of the extra rollouts, not of the formula.
+
+**Assumption 1 and Proposition 1.** Trained FNO: L_G = 0.985 ± 0.013 (≤ 1 on
+4 of 5 seeds; init 1.61); spectral normalisation gives 0.964 on all seeds for
++0.01 rel L2. Measured return bias 0.10. Prop 1's infinite-horizon bound is
+422 (vacuous, prefactor 2,450 at γ = 0.98); the finite-horizon form (H = 12)
+is 9.8 and holds on every seed, 100× loose.
+
+**Faithfulness weight sweep on Qwen** (3 seeds): w = 1 → 0.468, w = 10 →
+0.366, w = 100 → 0.218 (≈ post-hoc), w = 1000 → 0.399; no-term 0.468. The
+term is null at its default and harmful above it. Dropped from the method.
+
+**Conformal certificate on Qwen** (3 seeds, n_cal 200, n_test 400): holds at
+δ = 0.1 and 0.2 on all three seeds (coverage 0.878 / 0.893 / 0.895 at nominal
+0.90); fails at δ = 0.05 on one seed (0.928 vs 0.95, p = 0.03). Certified
+floors track the generator: F ≥ 0.28 on the weak seed, F ≥ 0.56 on the others.
+
+**Constraint fix across all probe + margin runs.** With 15 seed-runs of the
+fixed configuration now available (constraint_fix, alpha_rule, joint), 13 are
+clean; two seeds each had one evaluation over the limit (0.98 and 1.71 vs
+0.936). The "0% on all 5 seeds" of §7.2 was one draw. Honest rate: about 1%
+of evaluations vs 7.3% before the fix — a 7× reduction, not a guarantee.
+
 ## 8. What survives, and what does not
 
 **Survives multi-seed scrutiny**
@@ -427,8 +485,13 @@ published 0.284, and to the 0.34 state of the art, is architectural.
 * trained-in explanation beating a genuine post-hoc control
 * the direction of cross-family transfer
 
-* constraint satisfaction — **after the fix**: 0% violating evaluations on all
-  seeds with probe + margin, at no return cost and 9.2× fewer real samples
+* constraint violation cut ~7× by probe + margin (13 of 15 seed-runs clean,
+  ~1% of evaluations vs 7.3%), at no return cost and 9.2× fewer real samples
+* joint training is safe when data-anchored: surrogate held-out error falls
+  5–9× on all three testbeds, decision unchanged; unanchored, it destroys the
+  surrogate on all three (§7.9)
+* Assumption 1 (L_G ≤ 1) after training; the conformal faithfulness
+  certificate at 90% on real Qwen, 3 of 3 seeds
 * resolution invariance to 128² (16,384 cells), 5 seeds
 * trained-in explanation on a real LM: 0.468 vs 0.182 post-hoc, t = +21
 * the FNO's scope: operators for smooth fields, convolutions for sharp fronts
@@ -447,6 +510,13 @@ published 0.284, and to the 0.34 state of the art, is architectural.
   SigLIP); it wins alignment instead
 * any specific magnitude for transfer into the wave family
 * the FNO as a universal surrogate — it loses to a U-Net on observed fire spread
+* joint training *beating* the disaggregated pipeline on return (t = +0.66
+  dar, +1.00 rdf, identical on swe)
+* swe as a planning testbed (policy never moves) and rdf's dual at the current
+  PID gains (cost pinned at the greedy value under λ = 37)
+* Eq. 8 improving on the variance-only α (B² is too small to matter)
+* Proposition 1's infinite-horizon bound as a useful number (4,000× loose)
+* constraint satisfaction as a guarantee — probe + margin is a 7× reduction
 
 ## 9. Application to climate and earth-science problems
 

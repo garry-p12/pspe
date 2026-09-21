@@ -12,7 +12,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 HOST="${HOST:-vista2}"
 PY="${PY:-/opt/anaconda3/envs/pspe/bin/python}"
-JOBS="${JOBS:-999843,999856,999858}"
+JOBS="${JOBS:-1013191,1013192,1013193,1013194}"
 
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%SZ')] $*"; }
 
@@ -35,7 +35,7 @@ while true; do
 done
 log "queue empty — fetching"
 
-for d in conformal_real faith_weights lipschitz alpha_rule; do
+for d in conformal_real faith_weights lipschitz alpha_rule joint constraint_fix_swe constraint_fix_rdf joint_swe joint_rdf; do
     rsync -az "$HOST":"\$WORK/pspe/runs/$d/" "runs/$d/" && log "fetched $d"
 done
 
@@ -44,11 +44,12 @@ done
 "$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 --out runs/faith_weights --key arm >/dev/null 2>&1 && log "aggregated faith_weights"
 "$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 3 4 --out runs/lipschitz --key arm >/dev/null 2>&1 && log "aggregated lipschitz"
 "$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 3 4 --out runs/alpha_rule --key arm >/dev/null 2>&1 && log "aggregated alpha_rule"
+"$PY" eval/run_seeds.py --aggregate-only --seeds 0 1 2 3 4 --out runs/joint --key arm >/dev/null 2>&1 && log "aggregated joint"
 
 {
-    echo "# Vista batch (Phase 1) — fetched $(date -u '+%Y-%m-%d %H:%M:%SZ')"
-    for d in conformal_real faith_weights lipschitz alpha_rule; do
+    echo "# Vista batch (Phase 1 + 3 testbed sweeps), fetched $(date -u '+%Y-%m-%d %H:%M:%SZ')"
+    for d in conformal_real faith_weights lipschitz alpha_rule joint constraint_fix_swe constraint_fix_rdf joint_swe joint_rdf; do
         echo; echo "## $d"; cat "runs/$d/results_seeds.md" 2>/dev/null || echo "(missing)"
     done
-} > runs/VISTA_PHASE1_RESULTS.md
-log "summary written to runs/VISTA_PHASE1_RESULTS.md"
+} > runs/VISTA_PHASE3_RESULTS.md
+log "summary written to runs/VISTA_PHASE3_RESULTS.md"
