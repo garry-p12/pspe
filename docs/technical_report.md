@@ -474,12 +474,50 @@ clean; two seeds each had one evaluation over the limit (0.98 and 1.71 vs
 0.936). The "0% on all 5 seeds" of §7.2 was one draw. Honest rate: about 1%
 of evaluations vs 7.3% before the fix — a 7× reduction, not a guarantee.
 
+### 7.10 The planner on a second family: rdf (Experiments 1 and 2)
+
+Full detail in `runs/RDF_PLANNER_FIX.md`. On rdf the planner as shipped
+violated the limit on 85% of evaluations at 2.5× the limit, in every arm,
+regardless of the probe. Three defects, read off the training trace in
+sequence:
+
+1. **Action saturation.** The reward-greedy sprint drives the pre-tanh
+   policy mean past |μ| ≈ 3; tanh has no slope there, the pathwise gradient
+   dies (‖g‖ 0.036, variance exactly 0), the variance rule picks the dead
+   branch (α → 0.99, since zero variance looks like precision), and the LR
+   branch explodes (‖g‖ 1e4) because every rollout returns the same value
+   and the advantage normaliser divides by ~0. Fix: a soft wall on |μ| and a
+   floor on the advantage std. 85% → 44%.
+2. **Dual oscillation.** λ collapses to zero whenever cost dips under the
+   limit, the policy sprints, overshoots. Lowering the gain made it worse
+   (60%); raising the integral gain ×10 lets λ hold. 44% → 14.5%.
+3. **Tail violations.** A dual holding the *mean* at the limit violates on
+   half the evaluations by construction; the margin now includes the policy's
+   own episode cost spread, measured on the probe. 14.5% → **5.5%**, worst
+   case 3.23 vs the 3.26 limit.
+
+The same configuration on dar: return unchanged, 0% violations, worst case 3×
+smaller. One planner configuration now works on both families.
+
+**Against the baselines on rdf** (5 seeds, 38,400 real transitions each):
+PPO-Lagrangian −7.66 at 1.8% violations, and −7.69 at **0%** once given the
+same integral-gain fix; CPO/Sauté/NPG −7.97 to −8.08 at 0%, but with cost at
+the do-nothing level — safe by inaction. PSPE v2 (probe + margin): −7.49 at
+5.5% on 7,360 real transitions. Paired t vs PPO-Lag: **+0.82** — parity, and
+PPO-Lag has the better tail. Without the margin PSPE beats every baseline
+(t +2.1 to +3.8) but at 14.5% violations, a different operating point.
+
+So the planning claim, honestly stated: a return edge on dar (t 3.8–18),
+parity on rdf, 5–9× fewer real samples on both, and a safety mechanism whose
+failure modes are measured and whose fix also repaired PPO-Lagrangian.
+
 ## 8. What survives, and what does not
 
 **Survives multi-seed scrutiny**
 
-* the planner's return advantage over all four safe-RL baselines (t = 3.84–17.95)
-* its 12.5× real-sample efficiency, which follows from the model-based design
+* the planner's return advantage over all four safe-RL baselines **on dar**
+  (t = 3.84–17.95); on rdf it is parity with PPO-Lagrangian (t = +0.82)
+* real-sample efficiency: 9× on dar, 5× on rdf, from the model-based design
 * FNO ≫ DeepONet ≫ GNOT, on both synthetic and real benchmark data
 * surrogate accuracy competitive with published PDEBench FNO error
 * trained-in explanation beating a genuine post-hoc control
@@ -512,8 +550,9 @@ of evaluations vs 7.3% before the fix — a 7× reduction, not a guarantee.
 * the FNO as a universal surrogate — it loses to a U-Net on observed fire spread
 * joint training *beating* the disaggregated pipeline on return (t = +0.66
   dar, +1.00 rdf, identical on swe)
-* swe as a planning testbed (policy never moves) and rdf's dual at the current
-  PID gains (cost pinned at the greedy value under λ = 37)
+* swe as a planning testbed (policy never moves)
+* rdf's dual at the original gains — fixed (§7.10); the return edge on rdf
+  did not survive the fix (parity with PPO-Lag at matched safety)
 * Eq. 8 improving on the variance-only α (B² is too small to matter)
 * Proposition 1's infinite-horizon bound as a useful number (4,000× loose)
 * constraint satisfaction as a guarantee — probe + margin is a 7× reduction

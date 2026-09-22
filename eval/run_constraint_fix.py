@@ -68,6 +68,19 @@ def main() -> int:
                              "< --iterations or the probe arms never fire and every arm "
                              "silently collapses onto the baseline")
     parser.add_argument("--margin-k", type=float, default=2.0)
+    # Saturation guard (see PlannerConfig). Defaults reproduce the original
+    # runs; `--sat-coef 1 --adv-floor 1e-2 --dual-ema 0.7` is the rdf fix.
+    parser.add_argument("--sat-coef", type=float, default=0.0)
+    parser.add_argument("--sat-margin", type=float, default=1.5)
+    parser.add_argument("--adv-floor", type=float, default=1e-6)
+    parser.add_argument("--dual-ema", type=float, default=0.9)
+    parser.add_argument("--lambda-init", type=float, default=0.0)
+    parser.add_argument("--dual-normalize", action="store_true")
+    parser.add_argument("--lr-policy", type=float, default=3e-4)
+    parser.add_argument("--kp", type=float, default=0.5)
+    parser.add_argument("--ki", type=float, default=0.05)
+    parser.add_argument("--kd", type=float, default=0.1)
+    parser.add_argument("--margin-episode-std", action="store_true")
     parser.add_argument("--out", default="runs/constraint_fix")
     args = parser.parse_args()
 
@@ -114,7 +127,14 @@ def main() -> int:
         trainer = HybridPlannerTrainer(
             train_env, policy,
             cfg=PlannerConfig(iterations=args.iterations, horizon=args.horizon,
-                              seed=args.seed, **overrides),
+                              seed=args.seed, saturation_coef=args.sat_coef,
+                              saturation_margin=args.sat_margin,
+                              advantage_std_floor=args.adv_floor,
+                              dual_ema=args.dual_ema, lambda_init=args.lambda_init,
+                              dual_normalize=args.dual_normalize, lr_policy=args.lr_policy,
+                              kp=args.kp, ki=args.ki, kd=args.kd,
+                              margin_episode_std=args.margin_episode_std,
+                              **overrides),
             eval_env=eval_env,
             logger=RunLogger(root / name, use_tensorboard=False),
             device=device,
@@ -132,6 +152,8 @@ def main() -> int:
             "effective_limit": round(s.get("dual/effective_limit", s["cost_limit"]), 4),
             "real_samples": s["samples_real_env"],
             "probe_samples": s.get("samples_real_probe", 0),
+            "final_lambda": round(s.get("final_lambda", 0.0), 3),
+            "pre_tanh_abs": round(s.get("train/pre_tanh_mean_abs", 0.0), 3),
         })
         print(f"[{name}] return {rows[-1]['return']} "
               f"violating {rows[-1]['violating_evals']} "

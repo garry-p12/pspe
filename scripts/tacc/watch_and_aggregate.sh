@@ -48,6 +48,8 @@ for tb in swe rdf; do
     aggregate "constraint_fix_$tb" "0 1 2 3 4" arm
     aggregate "joint_$tb"          "0 1 2 3 4" arm
 done
+aggregate constraint_fix_sat     "0 1 2 3 4" arm
+aggregate constraint_fix_sat_rdf "0 1 2 3 4" arm
 
 # run_resolution.py writes {grid: {...}}, not a row list, so it needs its own
 # collation rather than the shared aggregator.

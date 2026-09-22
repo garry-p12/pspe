@@ -35,7 +35,7 @@ while true; do
 done
 log "queue empty — fetching"
 
-for d in conformal_real faith_weights lipschitz alpha_rule joint constraint_fix_swe constraint_fix_rdf joint_swe joint_rdf; do
+for d in constraint_fix_sat constraint_fix_sat_rdf; do
     rsync -az "$HOST":"\$WORK/pspe/runs/$d/" "runs/$d/" && log "fetched $d"
 done
 
@@ -48,8 +48,8 @@ done
 
 {
     echo "# Vista batch (Phase 1 + 3 testbed sweeps), fetched $(date -u '+%Y-%m-%d %H:%M:%SZ')"
-    for d in conformal_real faith_weights lipschitz alpha_rule joint constraint_fix_swe constraint_fix_rdf joint_swe joint_rdf; do
+    for d in constraint_fix_sat constraint_fix_sat_rdf; do
         echo; echo "## $d"; cat "runs/$d/results_seeds.md" 2>/dev/null || echo "(missing)"
     done
-} > runs/VISTA_PHASE3_RESULTS.md
-log "summary written to runs/VISTA_PHASE3_RESULTS.md"
+} > runs/VISTA_SATFIX_RESULTS.md
+log "summary written to runs/VISTA_SATFIX_RESULTS.md"

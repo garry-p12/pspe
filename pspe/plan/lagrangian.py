@@ -29,12 +29,19 @@ class PIDLagrangian:
     kd: float = 0.02
     lambda_max: float = 50.0
     ema: float = 0.9  # smoothing on the measured cost, which is a noisy estimate
+    lambda_init: float = 0.0  # warm start; realised through the integral term
+    # Scale-free error: e = (J_C - d) / d. The loop gain otherwise grows with
+    # the cost scale, and gains tuned on dar (limit 0.94) oscillate on rdf
+    # (limit 3.26): cost 1.3 -> 4.5 -> 1.7 -> 3.5 while lambda flips 0 -> 0.6 -> 0.
+    normalize: bool = False
 
     def __post_init__(self) -> None:
-        self.integral = 0.0
+        # A warm start has to live in the integral, or the first update
+        # (raw = kp*e + ki*I + kd*d with e < 0 early on) would zero it again.
+        self.integral = self.lambda_init / self.ki if self.ki > 0 else 0.0
         self.prev_cost = 0.0
         self.smoothed_cost = 0.0
-        self.multiplier = 0.0
+        self.multiplier = float(self.lambda_init)
         self._initialised = False
 
     def update(self, episode_cost: float) -> float:
@@ -49,8 +56,12 @@ class PIDLagrangian:
             )
 
         error = self.smoothed_cost - self.cost_limit
+        if self.normalize:
+            error = error / max(abs(self.cost_limit), 1e-6)
         self.integral = max(0.0, self.integral + error)
         derivative = max(0.0, self.smoothed_cost - self.prev_cost)
+        if self.normalize:
+            derivative = derivative / max(abs(self.cost_limit), 1e-6)
         self.prev_cost = self.smoothed_cost
 
         raw = self.kp * error + self.ki * self.integral + self.kd * derivative

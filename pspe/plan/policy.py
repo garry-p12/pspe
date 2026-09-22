@@ -62,6 +62,11 @@ class GaussianFieldPolicy(nn.Module):
         """Return (action, log_prob). `action` is reparameterised (pathwise-ready)."""
         dist = self.distribution(state)
         pre_tanh = dist.mean if deterministic else dist.rsample()
+        # Kept for the trainer's saturation penalty: once |mean| is large the
+        # tanh has no slope, the pathwise gradient dies, and no multiplier can
+        # move the policy. Measured on rdf: |g_pw| fell to 0.036 with variance
+        # exactly zero while lambda climbed to 38 to no effect.
+        self.last_pre_tanh_mean = dist.mean
         action = torch.tanh(pre_tanh)
         # Change-of-variables correction for the tanh squash.
         log_prob = dist.log_prob(pre_tanh).sum(-1) - (

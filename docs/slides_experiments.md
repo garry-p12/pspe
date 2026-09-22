@@ -7,7 +7,7 @@ stand-in backbone and are superseded by the real-backbone slide that follows.
 
 Phase 1 and 2a results (joint training, Eq. 8 rule, Lipschitz bound,
 faithfulness weight sweep, conformal certificate on Qwen) were fetched from
-Vista on 2026-09-21 and are on slides 12 and 13. Full tables in
+Vista on 2026-09-21 and are on slides 13 and 14; the rdf planner fix and baselines are slide 12. Full tables in
 `runs/PHASE1_ANALYSIS.md`.
 
 ---
@@ -227,7 +227,38 @@ Source: `runs/ndws_seeds/results_seeds.md`, report section 7.8.
 
 ---
 
-## Slide 12. Joint training and the theory checks
+## Slide 12. The planner on a second family: rdf
+
+Source: `runs/RDF_PLANNER_FIX.md`. dar cost limit 0.94; rdf cost limit 3.26 (reward-greedy cost 8.2).
+
+**Three defects on rdf, each read from the training trace**
+
+| step | symptom | fix | violating evals |
+|---|---|---|---|
+| as shipped | cost pinned at 8.0, lambda 38 useless, pathwise gradient norm 0.036 | | 85% |
+| 1. action saturation | policy mean past the tanh slope; variance rule picks the dead branch | soft wall on the pre-tanh mean, floor on advantage std | 44% |
+| 2. dual oscillation | lambda collapses to 0 on every dip, policy sprints, overshoots | integral gain 0.05 to 0.5 (lowering gain made it worse: 60%) | 14.5% |
+| 3. tail | mean held at the limit violates on half of evaluations | margin covers the policy's own episode spread | 5.5%, worst 3.23 |
+
+Same configuration on dar: return unchanged, 0% violations, worst case 3x smaller.
+
+**Against safe RL on rdf** (5 seeds, 38,400 real transitions each)
+
+| method | return | violating evals | worst | real samples |
+|---|---|---|---|---|
+| PPO-Lagrangian, stock | -7.66 ± 0.31 | 1.8% | 2.15 | 38,400 |
+| PPO-Lagrangian with the same integral-gain fix | -7.69 ± 0.31 | 0% | 2.02 | 38,400 |
+| CPO, Saute, primal-dual NPG | -7.97 to -8.08 | 0% | 0.63 | 38,400 |
+| PSPE v2, probe + margin | -7.49 ± 0.62 | 5.5% | 3.23 | 7,360 |
+
+- Paired t versus PPO-Lagrangian: +0.82. Parity on return; PPO-Lag has the better tail
+- CPO, Saute and NPG are safe by inaction: cost sits at the do-nothing level
+- The dual fix transfers: the same gain change took PPO-Lagrangian from 1.8% to 0%
+- Planning claim across families: return edge on dar (t 3.8 to 18), parity on rdf, 5x to 9x fewer real samples on both
+
+---
+
+## Slide 13. Joint training and the theory checks
 
 dar, 5 seeds, paper budget, probe + margin on. Source: `runs/PHASE1_ANALYSIS.md`.
 
@@ -268,7 +299,7 @@ dar, 5 seeds, paper budget, probe + margin on. Source: `runs/PHASE1_ANALYSIS.md`
 
 ---
 
-## Slide 13. Explain on Qwen: weight sweep and certificate
+## Slide 14. Explain on Qwen: weight sweep and certificate
 
 3 seeds, Qwen2.5-0.5B. Source: `runs/faith_weights/`, `runs/conformal_real/`.
 
@@ -299,15 +330,15 @@ dar, 5 seeds, paper budget, probe + margin on. Source: `runs/PHASE1_ANALYSIS.md`
 
 ---
 
-## Slide 14. What survives, what does not
+## Slide 15. What survives, what does not
 
 **Survives**
-- Beats all four safe-RL baselines on return (t = +3.84 to +17.95)
+- Beats all four safe-RL baselines on return on dar (t = +3.84 to +17.95); parity with PPO-Lagrangian on rdf
 - Constraint violations cut about 7x by probe + margin (13 of 15 seed-runs clean), no return cost
 - Joint training is safe when anchored: surrogate held-out error falls 9x, decision unchanged
 - Assumption 1 (Lipschitz constant below 1) holds after training
 - Conformal faithfulness certificate holds at 90% on real Qwen, 3 of 3 seeds
-- Real-sample efficiency: 9.2x with the safety fix, 12.5x without
+- Real-sample efficiency: 9x on dar, 5x on rdf
 - FNO above DeepONet above GNOT, on benchmark and synthetic data
 - Surrogate within reach of the published PDEBench number
 - Trained-in explanation beats post-hoc, on stub and on real Qwen (t = +21)
@@ -328,8 +359,8 @@ dar, 5 seeds, paper budget, probe + margin on. Source: `runs/PHASE1_ANALYSIS.md`
 - Proposition 1's infinite-horizon bound as a usable number (4,000x loose)
 - Constraint satisfaction as a guarantee (a 7x reduction, two excursions in 15 runs)
 - swe as a planning testbed: the policy never leaves its initial behaviour, every arm returns -0.1733
-- The dual on rdf at the current PID gains: cost sprints to the reward-greedy value in 50 iterations and lambda = 37 cannot pull it back; 85% of evaluations violate in every arm
+- A return edge on rdf: after the planner fix, PSPE and PPO-Lagrangian tie at matched safety (t = +0.82)
 
 **Not yet measured**
 - Flood testbed on real data, planning on real wildfire data, human study on real briefs
-- Safe-RL baselines on rdf and swe (only dar has the 5-seed comparison)
+- Safe-RL baselines on swe (blocked on the swe task redesign)

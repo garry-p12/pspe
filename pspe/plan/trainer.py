@@ -88,6 +88,33 @@ class PlannerConfig:
     # squared distance between them. Needs `real_cost_every > 0` for the probe
     # schedule; costs one extra differentiable truth rollout per probe.
     eq8_alpha: bool = False
+    # --- saturation guard (off by default; dar never needed it) -------------
+    # On rdf the reward-greedy sprint drives the pre-tanh policy mean past
+    # |mu| ~ 3 within 40 iterations. There tanh'(mu) ~ 0: the pathwise
+    # gradient dies (|g_pw| 0.036, variance 0), the variance rule then picks
+    # the dead branch (alpha -> 0.99) because zero variance looks like
+    # precision, and lambda = 38 multiplies nothing. `saturation_coef` adds
+    # c * relu(|mu| - saturation_margin)^2 per actuator to the loss, a soft
+    # wall that keeps the policy where the squash has slope. tanh'(1.5) = 0.18.
+    saturation_coef: float = 0.0
+    saturation_margin: float = 1.5
+    # Advantage normalisation divides by the batch std; when every rollout
+    # returns the same value (a saturated, near-deterministic policy) that std
+    # is ~0 and the likelihood-ratio gradient explodes (|g_lr| 1e4 on rdf).
+    # Legacy value 1e-6 reproduces earlier runs; 1e-2 is the sane floor.
+    advantage_std_floor: float = 1e-6
+    # Dual responsiveness. The PID smooths the measured cost with an EMA; 0.9
+    # lags the cost by ~10 iterations, which on rdf is a third of the sprint.
+    # `lambda_init` warm-starts the multiplier so early greedy steps are
+    # already priced.
+    dual_ema: float = 0.9
+    lambda_init: float = 0.0
+    dual_normalize: bool = False   # error in units of the limit (see PIDLagrangian)
+    # Margin against the policy's own episode-to-episode cost spread, measured
+    # on the probe's real rollouts, in addition to the surrogate-error spread.
+    # A dual that holds the MEAN cost at the limit violates on ~half of
+    # evaluations by construction; the surrogate-error sigma does not see that.
+    margin_episode_std: bool = False
     seed: int = 0
     log_dir: str = "runs/plan"
 
@@ -101,6 +128,7 @@ class RolloutBatch:
     states: list[Tensor]
     actions: list[Tensor]
     equity_costs: Tensor | None = None  # (B, T) — equity constraint g_2, if enabled
+    saturation: Tensor | None = None    # (B, T) — pre-tanh excess beyond the margin
     extras: dict[str, float] = field(default_factory=dict)
 
 
@@ -134,7 +162,9 @@ class HybridPlannerTrainer:
             grad_clip=self.cfg.grad_clip,
         )
         self.dual = PIDLagrangian(
-            cost_limit=env.task.cost_limit, kp=self.cfg.kp, ki=self.cfg.ki, kd=self.cfg.kd
+            cost_limit=env.task.cost_limit, kp=self.cfg.kp, ki=self.cfg.ki, kd=self.cfg.kd,
+            ema=self.cfg.dual_ema, lambda_init=self.cfg.lambda_init,
+            normalize=self.cfg.dual_normalize,
         )
         # Second dual for the equity constraint g_2, only when the task enables it.
         self.equity_enabled = bool(getattr(env.task, "equity_enabled", False))
@@ -152,6 +182,7 @@ class HybridPlannerTrainer:
         # Surrogate-vs-truth cost error, learned from the real probes.
         self.cost_bias = 0.0          # EMA of (real cost - surrogate cost)
         self.cost_bias_var = 0.0      # EMA of squared deviation, for the margin
+        self.probe_episode_std = 0.0  # spread of real episode costs at the last probe
         self.real_probe_transitions = 0
         self._probe_seed = self.cfg.seed + 20_000
         self.pathwise_bias_sq = 0.0
@@ -160,11 +191,16 @@ class HybridPlannerTrainer:
     def collect(self, env: BatchedFieldEnv, batch: int, keep_graph: bool = True) -> RolloutBatch:
         state = env.reset(batch, self.generator)
         rewards, costs, log_probs, entropies = [], [], [], []
-        states, actions, equities = [], [], []
+        states, actions, equities, saturations = [], [], [], []
 
         for _ in range(self.cfg.horizon):
             action, log_prob = self.policy.sample(state)
             entropy = self.policy.entropy(state)
+            if self.cfg.saturation_coef > 0:
+                mu = self.policy.last_pre_tanh_mean
+                saturations.append(
+                    torch.relu(mu.abs() - self.cfg.saturation_margin).pow(2).sum(-1)
+                )
             states.append(state.detach())
             actions.append(action.detach())
 
@@ -190,6 +226,7 @@ class HybridPlannerTrainer:
             states=states,
             actions=actions,
             equity_costs=torch.stack(equities, dim=1) if self.equity_enabled else None,
+            saturation=torch.stack(saturations, dim=1) if saturations else None,
         )
 
     # -- losses ------------------------------------------------------------- #
@@ -220,12 +257,22 @@ class HybridPlannerTrainer:
         value, cost_value = self.critic(flat_states)
         value = value.view(self.cfg.horizon, -1).transpose(0, 1)
         advantage = returns - value.detach()
-        advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-6)
+        advantage = (advantage - advantage.mean()) / (
+            advantage.std().clamp_min(self.cfg.advantage_std_floor) + 1e-6
+        )
         likelihood = -(batch.log_probs * advantage).sum(dim=1)
 
         entropy_bonus = self.cfg.entropy_coef * batch.entropies.sum(dim=1)
         pathwise = pathwise - entropy_bonus
         likelihood = likelihood - entropy_bonus
+        # The saturation wall is a direct function of the parameters, so it is
+        # the same term on both branches and survives any mixing weight.
+        saturation = 0.0
+        if batch.saturation is not None:
+            sat_pen = self.cfg.saturation_coef * batch.saturation.sum(dim=1)
+            pathwise = pathwise + sat_pen
+            likelihood = likelihood + sat_pen
+            saturation = float(batch.saturation.sum(dim=1).mean().detach())
 
         # --- critic regression (reward and cost value heads).
         with torch.no_grad():
@@ -241,6 +288,9 @@ class HybridPlannerTrainer:
             "train/return": float(batch.rewards.sum(dim=1).mean().detach()),
             "train/episode_cost": float(batch.costs.sum(dim=1).mean().detach()),
             "train/entropy": float(batch.entropies.mean().detach()),
+            "train/saturation": saturation,
+            "train/pre_tanh_mean_abs": float(self.policy.last_pre_tanh_mean.abs().mean().detach())
+            if hasattr(self.policy, "last_pre_tanh_mean") else 0.0,
         }
         return pathwise, likelihood, diagnostics
 
@@ -271,6 +321,7 @@ class HybridPlannerTrainer:
                 state, _, cost, _ = env.step(action)
                 total += cost
         self.real_probe_transitions += episodes * self.cfg.horizon
+        self.probe_episode_std = float(total.std(unbiased=False)) if episodes > 1 else 0.0
         return float(total.mean())
 
     def _pathwise_grad_from(self, env: BatchedFieldEnv, state0: Tensor, multiplier: float) -> Tensor:
@@ -338,7 +389,10 @@ class HybridPlannerTrainer:
         """Nominal limit, tightened by the measured spread of surrogate error."""
         if self.cfg.cost_margin_k <= 0:
             return self.env.task.cost_limit
-        sigma = self.cost_bias_var ** 0.5
+        var = self.cost_bias_var
+        if self.cfg.margin_episode_std:
+            var = var + self.probe_episode_std ** 2
+        sigma = var ** 0.5
         return max(0.0, self.env.task.cost_limit - self.cfg.cost_margin_k * sigma)
 
     # -- joint-training hooks (no-ops here) ---------------------------------- #
@@ -444,6 +498,9 @@ class HybridPlannerTrainer:
             "dynamics": self.env.dynamics,
             "final_alpha": self.estimator.alpha,
             "final_lambda": self.dual.multiplier,
+            "train/pre_tanh_mean_abs": (
+                self.history[-1].get("train/pre_tanh_mean_abs", 0.0) if self.history else 0.0
+            ),
         }
         self.logger.log_summary(**summary)
         return summary

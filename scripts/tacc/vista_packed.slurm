@@ -15,7 +15,7 @@
 #   sbatch -A <alloc> --export=ALL,EXPERIMENT=cfix scripts/tacc/vista_packed.slurm
 #   sbatch -A <alloc> --export=ALL,EXPERIMENT=cfix,TESTBED=swe scripts/tacc/vista_packed.slurm
 #   EXPERIMENT in: cfix | expl | expl2 | lip | alpha | joint | res
-#   TESTBED (cfix, joint only): dar (default) | swe | rdf
+#   TESTBED (cfix, cfixsat, joint): dar (default) | swe | rdf
 set -uo pipefail
 VENV="${VENV:-$WORK/pspe-venv}"; REPO="${REPO:-$WORK/pspe}"
 export HF_HOME="${HF_HOME:-$WORK/hf_cache}" HF_HUB_OFFLINE=1
@@ -33,12 +33,42 @@ else
 fi
 
 TB="${TESTBED:-dar}"; SFX=""; [ "$TB" = dar ] || SFX="_$TB"
+SFX="$SFX${RUNSFX:-}"   # RUNSFX=_gpu etc. keeps racing copies in separate directories
 case "${EXPERIMENT:?set EXPERIMENT=cfix|expl|res}" in
   cfix)    # TESTBED=dar (default) writes runs/constraint_fix/; others get a suffix
     for s in 0 1 2 3 4; do
       python eval/run_constraint_fix.py --testbed "$TB" --seed $s --grid 64 --epochs 20 --iterations 200 \
         --probe-every 20 --margin-k 2.0 --device "$DEV" --out "runs/constraint_fix$SFX/seed_$s" \
         > "runs/constraint_fix${SFX}_seed_$s.log" 2>&1 &
+    done ;;
+  cfixsat) # rdf planner fix: saturation wall + advantage floor + faster dual; TESTBED=rdf|dar
+    for s in 0 1 2 3 4; do
+      python eval/run_constraint_fix.py --testbed "$TB" --seed $s --grid 64 --epochs 20 --iterations 200 \
+        --probe-every 20 --margin-k 2.0 --sat-coef 1.0 --adv-floor 1e-2 --dual-ema 0.7 \
+        --device "$DEV" --out "runs/constraint_fix_sat$SFX/seed_$s" \
+        > "runs/constraint_fix_sat${SFX}_seed_$s.log" 2>&1 &
+    done ;;
+  cfixsat2) # dual-tuning variants on top of cfixsat; VARIANT selects extra flags, OUT dir suffix
+    case "${VARIANT:?norm|norm_warm|norm_lowlr}" in
+      norm)       EXTRA="--dual-normalize" ;;
+      norm_warm)  EXTRA="--dual-normalize --lambda-init 0.3" ;;
+      norm_lowlr) EXTRA="--dual-normalize --lr-policy 1e-4" ;;
+      ki10)       EXTRA="--ki 0.5" ;;                       # integral holds lambda at equilibrium
+      ki10_lowlr) EXTRA="--ki 0.5 --lr-policy 1e-4" ;;
+      ki10_epstd) EXTRA="--ki 0.5 --margin-episode-std" ;;  # margin covers episode spread too
+    esac
+    for s in 0 1 2 3 4; do
+      python eval/run_constraint_fix.py --testbed "$TB" --seed $s --grid 64 --epochs 20 --iterations 200 \
+        --probe-every 20 --margin-k 2.0 --sat-coef 1.0 --adv-floor 1e-2 --dual-ema 0.7 $EXTRA \
+        --device "$DEV" --out "runs/constraint_fix_${VARIANT}$SFX/seed_$s" \
+        > "runs/constraint_fix_${VARIANT}${SFX}_seed_$s.log" 2>&1 &
+    done ;;
+  base)    # four safe-RL baselines, 5 seeds; TESTBED, KI (0.05 stock | 0.5 the rdf dual fix)
+    KIV="${KI:-0.05}"; KSFX=""; [ "$KIV" = 0.05 ] || KSFX="_ki$KIV"
+    for s in 0 1 2 3 4; do
+      python eval/run_ablations.py --testbed "$TB" --grid 64 --full --only baselines \
+        --baseline-ki "$KIV" --seed $s --device "$DEV" --out "runs/baselines$SFX$KSFX/seed_$s" \
+        > "runs/baselines${SFX}${KSFX}_seed_$s.log" 2>&1 &
     done ;;
   expl)
     for s in 0 1 2; do

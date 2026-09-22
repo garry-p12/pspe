@@ -105,6 +105,8 @@ def main() -> int:
         choices=["physics", "adaptive", "perception", "faithful", "transfer",
                  "baselines", "operators"],
     )
+    parser.add_argument("--baseline-ki", type=float, default=0.05,
+                        help="integral gain of PPO-Lagrangian's dual; 0.5 is the rdf fix")
     parser.add_argument("--out", default="runs/ablations")
     args = parser.parse_args()
 
@@ -158,6 +160,7 @@ def main() -> int:
             agent = make_agent(
                 name, env,
                 cfg=SafeRLConfig(iterations=budget["baseline_iterations"],
+                                 lagrangian_ki=args.baseline_ki,
                                  log_dir=str(root / "baselines")),
                 device=device,
             )
