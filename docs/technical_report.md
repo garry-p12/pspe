@@ -418,7 +418,7 @@ published 0.284, and to the 0.34 state of the art, is architectural.
 
 ### 7.9 Theory checks and joint training (Vista, Phase 1 and 2a)
 
-Full tables in `runs/PHASE1_ANALYSIS.md`. dar, paper budget, probe +
+Full tables in `docs/results/PHASE1_ANALYSIS.md`. dar, paper budget, probe +
 margin on in every planning arm.
 
 **Joint vs disaggregated — the paper's central comparison.** 5 seeds, one
@@ -431,7 +431,7 @@ pretrained FNO copied per arm:
 | joint, unanchored | −2.369 ± 0.17 | 0.0048 → **0.975** | +0.970 |
 
 Joint vs disaggregated on return: t = +0.66 — no difference. The same three
-outcomes reproduce on swe and rdf (`runs/PHASE3_ANALYSIS.md`): joint return
+outcomes reproduce on swe and rdf (`docs/results/PHASE3_ANALYSIS.md`): joint return
 identical to disaggregated (t = +1.00 on rdf; identical to four decimals on
 swe), anchored surrogate error down 5–9× on held-out data, unanchored surrogate
 destroyed (rel L2 0.83–1.14). Two testbed caveats from the same runs: on swe
@@ -476,7 +476,7 @@ of evaluations vs 7.3% before the fix — a 7× reduction, not a guarantee.
 
 ### 7.10 The planner on a second family: rdf (Experiments 1 and 2)
 
-Full detail in `runs/RDF_PLANNER_FIX.md`. On rdf the planner as shipped
+Full detail in `docs/results/RDF_PLANNER_FIX.md`. On rdf the planner as shipped
 violated the limit on 85% of evaluations at 2.5× the limit, in every arm,
 regardless of the probe. Three defects, read off the training trace in
 sequence:
@@ -511,6 +511,94 @@ So the planning claim, honestly stated: a return edge on dar (t 3.8–18),
 parity on rdf, 5–9× fewer real samples on both, and a safety mechanism whose
 failure modes are measured and whose fix also repaired PPO-Lagrangian.
 
+### 7.11 Plan on observed wildfire data (Experiment 4)
+
+Full detail in `docs/results/NDWS_PLANNING.md`. The first planning result whose
+dynamics are a model of what a real fire did: the NDWS U-Net (forecast
+AUC-PR 0.264–0.280 on the held-out fires, published 0.284), frozen, with an
+8×8 grid of firebreak intensities per day under a 3%-of-patch daily crew
+budget, three days ahead, population-weighted burn as the objective. Action
+model stated in code: a break removes fuel (NDVI −2σ × intensity, the learned
+model decides the effect) and blocks spread into treated cells (0.9 ×
+intensity, imposed). 1,500 held-out fires, 3 seeds:
+
+| policy | burn reduction | treated/day | over budget | via learned fuel channel |
+|---|---|---|---|---|
+| greedy: forecast today, treat the riskiest cells, repeat | 24.1 ± 3.8% | 3.0% | 0 | 5.7% |
+| **PSPE, per-instance 3-day plan through the surrogate** | **36.5 ± 1.0%** | 3.0% | 0 | **19.3%** |
+| PSPE amortised policy | 12.2 ± 4.5% | 2.2% | 17% | 2.5% |
+| unconstrained | 85.7% | 61.7% | 100% | 24.4% |
+
+Per-instance planning beats the operational heuristic by +12.4 points
+(paired t = 6.66, df 2) at identical budget and zero violations, and the
+margin comes through the learned model: 19% of its reduction survives with
+the imposed block term switched off, against 6% for greedy. On the one-day
+problem greedy is the exact optimum and nothing beats it; planning earns its
+keep only across days. The amortised policy is the wrong tool on a
+distribution this diverse; decision-time optimisation is what a twin runs.
+
+Not shown: any effect on a real fire. NDWS has no counterfactuals; the
+forecast is validated against observation, the treatment effect rests on the
+stated action model.
+
+### 7.12 The permutation control: Explain briefs are not state-specific
+
+Full detail in `docs/results/EXPLAIN_PERMUTATION.md`. Scoring each brief
+against a *different* state's action distribution leaves F unchanged to four
+decimals, on dar and on the real NDWS firebreak plans, for every arm
+including the post-hoc control:
+
+| testbed | arm | F aligned | F shuffled | gap |
+|---|---|---|---|---|
+| dar, seed 0 | trained-in | 0.2809 | 0.2805 | +0.0004 |
+| dar, seed 0 | post-hoc | 0.0034 | 0.0034 | 0.0000 |
+| dar, seed 2 | trained-in | 0.5657 | 0.5659 | −0.0002 |
+| NDWS, seed 0 | trained-in | 0.7439 | 0.7436 | +0.0003 |
+| NDWS, seed 2 | trained-in | 0.8630 | 0.8639 | −0.0009 |
+
+A gap of exactly zero is what a *constant* generator produces: aligned and
+shuffled then use the same multiset of (policy, brief) pairs. The sampled
+briefs confirm it — the same actuators at the same amplitudes for different
+states, with only the cost and reward lines varying.
+
+**This withdraws §7.5's central claim.** "Trained-in explanation beats a
+post-hoc control" (0.468 vs 0.182, t = +21 on Qwen; 0.814 vs 0.741 on real
+fire plans) measures that the trained generator's constant brief lies closer
+to the *average* action than the untrained generator's constant brief. It is
+format and calibration learning, not faithfulness to a decision. The
+conformal certificate is unaffected as machinery — coverage holds and the
+floor is honest — but what it certifies is a near-constant brief.
+
+It also explains the faithfulness term's persistent null: the term rewards
+briefs whose parse matches the policy, but the generator never learned to
+vary its output with the state, so the term has nothing to shape.
+
+Three fixes were tried and all failed (details in the same file): more
+conditioning capacity (prefix 4 → 16, condition dropout); a differentiable
+contrastive objective requiring each brief to be cheaper under its own
+condition than under its neighbours'; and 2.5× the training budget. The NLL
+plateaus near 0.5 nats/token while the gap stays at zero. It is not a
+plumbing bug — on the Qwen path the prefix receives a gradient 20× larger
+than the LoRA adapters' and the NLL moves by 1.51 when the condition is
+zeroed — but the optimisation settles on the marginal distribution over
+plans rather than the conditional, and greedy decoding then emits the modal
+brief every time.
+
+**dar could never have answered this question.** Its trained policy is
+effectively state-independent: 1.2% action variation across states, and 8
+distinct action vectors in 64 states on the brief's quantisation grid. Its
+briefs are nearly identical, so a constant brief is near-optimal and the
+permutation gap is zero whatever the generator does. Every Explain number
+measured on dar — §7.5's comparison, the weight sweep, the certificate — was
+computed on a task with nothing to explain. NDWS (1,013 distinct plans in
+1,024 fires) is the only testbed here on which the question is even posed.
+
+What this leaves for the module: report the gap rather than F; retire dar as
+an Explain testbed and calibrate any replacement for action diversity; and
+treat the fix as a design change (cross-attention conditioning, or a
+structured head for the (patch, amplitude) list with prose generated around
+it) rather than a tuning exercise.
+
 ## 8. What survives, and what does not
 
 **Survives multi-seed scrutiny**
@@ -520,7 +608,8 @@ failure modes are measured and whose fix also repaired PPO-Lagrangian.
 * real-sample efficiency: 9× on dar, 5× on rdf, from the model-based design
 * FNO ≫ DeepONet ≫ GNOT, on both synthetic and real benchmark data
 * surrogate accuracy competitive with published PDEBench FNO error
-* trained-in explanation beating a genuine post-hoc control
+* ~~trained-in explanation beating a genuine post-hoc control~~ — **withdrawn**
+  by the permutation control (§7.12): the briefs are not state-specific
 * the direction of cross-family transfer
 
 * constraint violation cut ~7× by probe + margin (13 of 15 seed-runs clean,
@@ -528,14 +617,18 @@ failure modes are measured and whose fix also repaired PPO-Lagrangian.
 * joint training is safe when data-anchored: surrogate held-out error falls
   5–9× on all three testbeds, decision unchanged; unanchored, it destroys the
   surrogate on all three (§7.9)
-* Assumption 1 (L_G ≤ 1) after training; the conformal faithfulness
-  certificate at 90% on real Qwen, 3 of 3 seeds
+* Assumption 1 (L_G ≤ 1) after training; the conformal certificate's coverage
+  at 90% on real Qwen and on real fire plans, 3 of 3 seeds — as machinery; what
+  it certifies is only as good as the generator (§7.12)
 * resolution invariance to 128² (16,384 cells), 5 seeds
-* trained-in explanation on a real LM: 0.468 vs 0.182 post-hoc, t = +21
+* ~~trained-in explanation on a real LM: 0.468 vs 0.182 post-hoc~~ — withdrawn (§7.12)
 * the FNO's scope: operators for smooth fields, convolutions for sharp fronts
   (NDWS gate 0.12, U-Net > hybrid at t = +12.5)
 
 **Does not survive**
+
+* any claim that a brief explains the decision it was generated for — aligned
+  and shuffled faithfulness are equal on both testbeds (§7.12)
 
 * constraint satisfaction *as originally built* — 7.3% of evaluations violated
   because the dual was controlled on surrogate cost; fixed above

@@ -61,10 +61,10 @@ def zero_action_cost(env, episodes: int, horizon: int, seed: int) -> tuple[float
 
 
 def greedy_cost(testbed: str, grid: int, horizon: int, iterations: int,
-                device, seed: int, log_root: Path) -> dict[str, float]:
+                device, seed: int, log_root: Path, overrides: dict | None = None) -> dict[str, float]:
     """Train a reward-greedy planner (dual disabled) and report what it costs."""
     env_kwargs = dict(testbed=testbed, grid=grid, horizon=horizon, n_actuators=9,
-                      device=device, batched=True)
+                      device=device, batched=True, **(overrides or {}))
     train_env = make_env(dynamics="truth", **env_kwargs)
     eval_env = make_env(dynamics="truth", **env_kwargs)
     policy = GaussianFieldPolicy(train_env.obs_shape[0], train_env.action_dim)
@@ -94,6 +94,12 @@ def main() -> int:
     parser.add_argument("--fraction", type=float, default=0.35)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--u-max", type=float, default=None,
+                        help="override actuation amplitude, to sweep authority. swe's policy "
+                             "never left its initial behaviour at the shipped u_max = 0.04: "
+                             "the return gradient through the dynamics was effectively zero, "
+                             "so the testbed measured surrogates and not planners.")
+    parser.add_argument("--budget", type=float, default=None)
     parser.add_argument("--out", default="runs/calibration/limits.json")
     args = parser.parse_args()
 
@@ -104,15 +110,16 @@ def main() -> int:
 
     for testbed in args.testbeds:
         seed_everything(args.seed)
+        ov = {k: v for k, v in (("u_max", args.u_max), ("budget", args.budget)) if v is not None}
         env = make_env(testbed=testbed, dynamics="truth", grid=args.grid,
-                       horizon=args.horizon, n_actuators=9, device=device, batched=True)
+                       horizon=args.horizon, n_actuators=9, device=device, batched=True, **ov)
         current = env.task.cost_limit
 
         cost_zero, return_zero = zero_action_cost(
             env, args.episodes, args.horizon, args.seed
         )
         greedy = greedy_cost(testbed, args.grid, args.horizon, args.iterations,
-                             device, args.seed, log_root)
+                             device, args.seed, log_root, ov)
         cost_greedy, return_greedy = greedy["episode_cost"], greedy["return"]
 
         spread = cost_greedy - cost_zero
@@ -128,6 +135,12 @@ def main() -> int:
             "cost_reward_greedy": cost_greedy,
             "return_reward_greedy": return_greedy,
             "spread": spread,
+            # The test the shipped swe task fails: if a reward-greedy policy
+            # cannot separate its RETURN from doing nothing, the actuation has
+            # no authority over the objective and no planner result on this
+            # testbed means anything, whatever the cost limit is set to.
+            "return_separation": round(return_greedy - return_zero, 4),
+            "u_max": args.u_max if args.u_max is not None else env.task.u_max,
             "constraint_can_bind": binds,
             "proposed_limit": proposed,
             "current_limit_slack_multiple": (

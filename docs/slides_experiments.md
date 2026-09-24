@@ -7,8 +7,8 @@ stand-in backbone and are superseded by the real-backbone slide that follows.
 
 Phase 1 and 2a results (joint training, Eq. 8 rule, Lipschitz bound,
 faithfulness weight sweep, conformal certificate on Qwen) were fetched from
-Vista on 2026-09-21 and are on slides 13 and 14; the rdf planner fix and baselines are slide 12. Full tables in
-`runs/PHASE1_ANALYSIS.md`.
+Vista on 2026-09-21 and are on slides 14 and 15; the rdf planner fix and baselines are slide 12; planning on real wildfire data is slide 13. Full tables in
+`docs/results/PHASE1_ANALYSIS.md`.
 
 ---
 
@@ -229,7 +229,7 @@ Source: `runs/ndws_seeds/results_seeds.md`, report section 7.8.
 
 ## Slide 12. The planner on a second family: rdf
 
-Source: `runs/RDF_PLANNER_FIX.md`. dar cost limit 0.94; rdf cost limit 3.26 (reward-greedy cost 8.2).
+Source: `docs/results/RDF_PLANNER_FIX.md`. dar cost limit 0.94; rdf cost limit 3.26 (reward-greedy cost 8.2).
 
 **Three defects on rdf, each read from the training trace**
 
@@ -258,9 +258,28 @@ Same configuration on dar: return unchanged, 0% violations, worst case 3x smalle
 
 ---
 
-## Slide 13. Joint training and the theory checks
+## Slide 13. Planning on observed wildfire data
 
-dar, 5 seeds, paper budget, probe + margin on. Source: `runs/PHASE1_ANALYSIS.md`.
+Source: `docs/results/NDWS_PLANNING.md`. NDWS, 1,500 held-out fires, 3 seeds, three days ahead, budget 3% of the patch per day. Surrogate: the U-Net, forecast AUC-PR 0.26 to 0.28 on these fires (published 0.284).
+
+| policy | burn reduction | treated per day | over budget | share through the learned fuel response |
+|---|---|---|---|---|
+| random | 4.5% | 3.0% | 0 | 0.6% |
+| greedy: forecast today, treat the riskiest cells, repeat daily | 24.1 ± 3.8% | 3.0% | 0 | 5.7% |
+| PSPE per-instance: plan all three days jointly through the surrogate | 36.5 ± 1.0% | 3.0% | 0 | 19.3% |
+| PSPE amortised policy | 12.2 ± 4.5% | 2.2% | 17% | 2.5% |
+| no budget | 85.7% | 61.7% | all | 24.4% |
+
+- Planning through the surrogate beats the operational heuristic by 12 points at the same budget with no violations (paired t = 6.66)
+- The margin comes through the learned model: 19% of the planner's reduction survives with the imposed spread block switched off, against 6% for greedy
+- On the one-day problem greedy is the exact optimum; planning pays only across days
+- Not shown: any effect on a real fire. NDWS has no counterfactuals. The forecast is checked against observation; the treatment effect rests on the stated action model
+
+---
+
+## Slide 14. Joint training and the theory checks
+
+dar, 5 seeds, paper budget, probe + margin on. Source: `docs/results/PHASE1_ANALYSIS.md`.
 
 **Joint versus disaggregated (the paper's central comparison)**
 
@@ -299,7 +318,32 @@ dar, 5 seeds, paper budget, probe + margin on. Source: `runs/PHASE1_ANALYSIS.md`
 
 ---
 
-## Slide 14. Explain on Qwen: weight sweep and certificate
+## Slide 15. The permutation control: the briefs are not state-specific
+
+Source: `docs/results/EXPLAIN_PERMUTATION.md`. Score each brief against a different state's action instead of its own. If briefs are state-specific, aligned should beat shuffled. If the generator emits the same brief every time, the two are equal by construction.
+
+| testbed | arm | F aligned | F shuffled | gap |
+|---|---|---|---|---|
+| dar, seed 0 | trained-in | 0.2809 | 0.2805 | +0.0004 |
+| dar, seed 0 | post-hoc | 0.0034 | 0.0034 | 0.0000 |
+| dar, seed 2 | trained-in | 0.5657 | 0.5659 | -0.0002 |
+| NDWS fire plans, seed 0 | trained-in | 0.7439 | 0.7436 | +0.0003 |
+| NDWS fire plans, seed 2 | trained-in | 0.8630 | 0.8639 | -0.0009 |
+
+- Zero state-specific information, on both testbeds, for every arm including the post-hoc control
+- This withdraws the claim that trained-in explanations beat post-hoc. Both generators emit a near-constant brief; the trained one's is closer to the average action. That is format learning, not faithfulness
+- It also explains why the faithfulness term was always null: the generator never varied its output with the state, so the term had nothing to shape
+- The certificate machinery is unaffected and coverage still holds. What it certifies is a near-constant brief, which is an honest floor for the generator it was given
+- Three fixes were tried and all failed: more conditioning capacity, a differentiable contrastive objective, and 2.5x the training budget. NLL plateaus near 0.5 nats per token while the gap stays at zero
+- Not a plumbing bug: on Qwen the prefix gets a gradient 20x the LoRA adapters' and the NLL moves by 1.51 when the condition is zeroed. The optimisation settles on the marginal over plans, and greedy decoding emits the modal brief
+
+**dar could never have answered this question.** Its trained policy is effectively state-independent: 1.2% action variation across states, 8 distinct actions in 64 states on the brief grid. A constant brief is near-optimal there, so the gap is zero whatever the generator does. Every dar Explain number was measured on a task with nothing to explain. NDWS, with 1,013 distinct plans in 1,024 fires, is the only testbed here where the question is posed at all.
+
+- What to change: report the gap rather than F, retire dar as an Explain testbed, calibrate any replacement for action diversity, and treat the fix as a design change (cross-attention, or a structured head for the (patch, amplitude) list)
+
+---
+
+## Slide 16. Explain on Qwen: weight sweep and certificate
 
 3 seeds, Qwen2.5-0.5B. Source: `runs/faith_weights/`, `runs/conformal_real/`.
 
@@ -330,7 +374,7 @@ dar, 5 seeds, paper budget, probe + margin on. Source: `runs/PHASE1_ANALYSIS.md`
 
 ---
 
-## Slide 15. What survives, what does not
+## Slide 17. What survives, what does not
 
 **Survives**
 - Beats all four safe-RL baselines on return on dar (t = +3.84 to +17.95); parity with PPO-Lagrangian on rdf
@@ -341,16 +385,18 @@ dar, 5 seeds, paper budget, probe + margin on. Source: `runs/PHASE1_ANALYSIS.md`
 - Real-sample efficiency: 9x on dar, 5x on rdf
 - FNO above DeepONet above GNOT, on benchmark and synthetic data
 - Surrogate within reach of the published PDEBench number
-- Trained-in explanation beats post-hoc, on stub and on real Qwen (t = +21)
+- The conformal certificate's coverage on real data (3 of 3 seeds at 90% and 95%)
 - Resolution invariance from 64 to 128 squared
 - Direction of cross-family transfer
 - U-Net on real wildfire data at 97.5% of published
+- Constrained planning on real fire data: per-instance planning beats forecast-then-greedy by 12 points at the same budget
 
 **Does not**
 - Constraint satisfaction as originally built (7.3% versus 0%)
 - Physics loss improving final accuracy (speed only)
 - Adaptive weighting raising mean return (variance only)
-- The faithfulness loss term (null on stub and on Qwen)
+- The faithfulness loss term (null on stub, on Qwen, and on real fire plans)
+- Trained-in explanations beating post-hoc: withdrawn by the permutation control (slide 15)
 - LoRA adapters beating a frozen probe on reconstruction
 - Transfer magnitude into the wave family
 - The Fourier operator on sharp fire fronts (gate settles at 0.12)
@@ -362,5 +408,5 @@ dar, 5 seeds, paper budget, probe + margin on. Source: `runs/PHASE1_ANALYSIS.md`
 - A return edge on rdf: after the planner fix, PSPE and PPO-Lagrangian tie at matched safety (t = +0.82)
 
 **Not yet measured**
-- Flood testbed on real data, planning on real wildfire data, human study on real briefs
+- Flood testbed on real data, certified briefs on real fire plans, human study on real briefs
 - Safe-RL baselines on swe (blocked on the swe task redesign)

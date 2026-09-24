@@ -115,6 +115,14 @@ class PlannerConfig:
     # A dual that holds the MEAN cost at the limit violates on ~half of
     # evaluations by construction; the surrogate-error sigma does not see that.
     margin_episode_std: bool = False
+    # Conformal margin. `limit - k*sigma` is a reduction with no stated failure
+    # rate: measured across 15 seed-runs it left ~1% of evaluations violating,
+    # down from 7.3%, but nothing bounds that. Split conformal over the probe's
+    # own cost errors does: with n errors and level delta, the ceil((n+1)(1-delta))-th
+    # smallest error is a margin under which P(real cost > limit) <= delta,
+    # assuming the errors are exchangeable across probes.
+    margin_conformal: bool = False
+    margin_delta: float = 0.1
     seed: int = 0
     log_dir: str = "runs/plan"
 
@@ -183,6 +191,8 @@ class HybridPlannerTrainer:
         self.cost_bias = 0.0          # EMA of (real cost - surrogate cost)
         self.cost_bias_var = 0.0      # EMA of squared deviation, for the margin
         self.probe_episode_std = 0.0  # spread of real episode costs at the last probe
+        self.probe_errors: list[float] = []      # real minus surrogate cost, one per probe
+        self.probe_episode_dev: list[float] = []  # real episode cost minus its probe mean
         self.real_probe_transitions = 0
         self._probe_seed = self.cfg.seed + 20_000
         self.pathwise_bias_sq = 0.0
@@ -322,7 +332,15 @@ class HybridPlannerTrainer:
                 total += cost
         self.real_probe_transitions += episodes * self.cfg.horizon
         self.probe_episode_std = float(total.std(unbiased=False)) if episodes > 1 else 0.0
-        return float(total.mean())
+        # Deviations of individual real episodes from their probe mean. The
+        # conformal margin is a quantile of THESE, not of the surrogate's error:
+        # measured on rdf the surrogate is accurate (bias -0.08) while the
+        # violations come from the policy's own episode spread, so a quantile
+        # over model error produced a margin of 0.25 where 0.69 was needed and
+        # left 18.2% of evaluations violating.
+        mean = float(total.mean())
+        self.probe_episode_dev.extend(float(c) - mean for c in total)
+        return mean
 
     def _pathwise_grad_from(self, env: BatchedFieldEnv, state0: Tensor, multiplier: float) -> Tensor:
         """Flat pathwise gradient of the Lagrangian rolled out from `state0` in `env`."""
@@ -377,6 +395,7 @@ class HybridPlannerTrainer:
             # surrogate is differently wrong.
             self.cost_bias = 0.7 * self.cost_bias + 0.3 * error
             self.cost_bias_var = 0.7 * self.cost_bias_var + 0.3 * (error - self.cost_bias) ** 2
+            self.probe_errors.append(error)
             record = {
                 "dual/real_cost": real,
                 "dual/surrogate_cost": surrogate_cost,
@@ -389,11 +408,34 @@ class HybridPlannerTrainer:
         """Nominal limit, tightened by the measured spread of surrogate error."""
         if self.cfg.cost_margin_k <= 0:
             return self.env.task.cost_limit
+        if self.cfg.margin_conformal:
+            return max(0.0, self.env.task.cost_limit - self.conformal_margin())
         var = self.cost_bias_var
         if self.cfg.margin_episode_std:
             var = var + self.probe_episode_std ** 2
         sigma = var ** 0.5
         return max(0.0, self.env.task.cost_limit - self.cfg.cost_margin_k * sigma)
+
+    def conformal_margin(self) -> float:
+        """Split-conformal quantile of the probe's cost errors.
+
+        Returns 0 until enough probes exist for the level to be attainable:
+        ceil((n+1)(1-delta)) <= n requires n >= 1/delta - 1, below which no
+        finite quantile gives the guarantee and a margin would be theatre.
+        """
+        # Bound P(real episode cost > limit) <= delta. The cost of an episode is
+        # its probe mean plus a deviation; the dual holds the mean, so the margin
+        # has to cover the upper delta-quantile of the deviations, plus any
+        # systematic bias between surrogate and reality.
+        dev = self.probe_episode_dev
+        n = len(dev)
+        need = max(2, int(round(1.0 / self.cfg.margin_delta)) - 1)
+        if n < need:
+            return 0.0
+        rank = min(n, int(-(-(n + 1) * (1.0 - self.cfg.margin_delta) // 1)))
+        quantile = max(0.0, sorted(dev)[rank - 1])
+        bias = max(0.0, self.cost_bias)      # surrogate under-predicting cost
+        return quantile + bias
 
     # -- joint-training hooks (no-ops here) ---------------------------------- #
     def _before_policy_step(self, batch: RolloutBatch, pathwise: Tensor,

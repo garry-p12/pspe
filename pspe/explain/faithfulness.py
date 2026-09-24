@@ -36,27 +36,72 @@ import torch
 Tensor = torch.Tensor
 
 
-def kl_normal(p: torch.distributions.Normal, q: torch.distributions.Normal) -> Tensor:
-    """KL(p || q), summed over action dimensions -> (B,)."""
-    return torch.distributions.kl_divergence(p, q).sum(-1)
+def kl_normal(p: torch.distributions.Normal, q: torch.distributions.Normal,
+              per_dim: bool = False) -> Tensor:
+    """KL(p || q), summed over action dimensions -> (B,).
+
+    `per_dim` divides by the action dimension. Summed KL makes F = exp(-KL)
+    incomparable across action spaces and unusable above a few dimensions: on
+    the 64-patch firebreak plans every arm scored exactly 0 (KL 15 to 22)
+    while the reference brief scored 0.985, so the metric had no resolution
+    left to rank generators by. Per-dimension KL is the same quantity in
+    nats per actuator and keeps F on one scale whatever the plan's size."""
+    out = torch.distributions.kl_divergence(p, q).sum(-1)
+    return out / p.mean.shape[-1] if per_dim else out
 
 
 def faithfulness_score(
     policy_dist: torch.distributions.Normal,
     parsed_dist: torch.distributions.Normal,
+    per_dim: bool = False,
 ) -> tuple[Tensor, Tensor]:
-    """Return (F, KL) with F = exp(-KL), both shape (B,)."""
-    kl = kl_normal(policy_dist, parsed_dist).clamp(min=0.0)
+    """Return (F, KL) with F = exp(-KL), both shape (B,).
+
+    `per_dim` reports KL in nats per action dimension; see `kl_normal`. The
+    dar/rdf numbers in the report are the summed form (9 actuators); anything
+    with a large action space should use the per-dimension form, and must say
+    which it used, because the two are not comparable."""
+    kl = kl_normal(policy_dist, parsed_dist, per_dim=per_dim).clamp(min=0.0)
     return torch.exp(-kl), kl
 
 
+def contrastive_faithfulness(policy_dist: torch.distributions.Normal,
+                             parsed_dist: torch.distributions.Normal,
+                             per_dim: bool = False, temperature: float = 1.0) -> Tensor:
+    """-log softmax over states of the brief's own state, per brief -> (B,).
+
+    The permutation control showed briefs carrying no state-specific
+    information: aligned faithfulness equalled shuffled to four decimals on
+    every arm and both testbeds. This is that control turned into a loss. For
+    brief i, score it against every state j in the batch and require the
+    diagonal to win:
+
+        L_i = -log [ exp(-KL_ii / T) / sum_j exp(-KL_ij / T) ]
+
+    A constant brief scores every state alike and pays the full log B; only a
+    brief that matches its own state better than its neighbours' escapes.
+    """
+    b, k = parsed_dist.mean.shape
+    pol = torch.distributions.Normal(policy_dist.mean[:, None].expand(b, b, k),
+                                     policy_dist.stddev[:, None].expand(b, b, k))
+    par = torch.distributions.Normal(parsed_dist.mean[None].expand(b, b, k),
+                                     parsed_dist.stddev[None].expand(b, b, k))
+    kl = torch.distributions.kl_divergence(pol, par).sum(-1)      # (state j, brief i)
+    if per_dim:
+        kl = kl / k
+    logits = (-kl / temperature).transpose(0, 1)                  # (brief i, state j)
+    return torch.nn.functional.cross_entropy(
+        logits, torch.arange(b, device=logits.device), reduction="none")
+
+
 class FaithfulnessObjective:
-    """Combines the supervised and REINFORCE terms with a moving baseline."""
+    """Combines the supervised, REINFORCE and contrastive terms."""
 
     def __init__(self, weight_supervised: float = 1.0, weight_faithful: float = 1.0,
-                 baseline_ema: float = 0.9) -> None:
+                 baseline_ema: float = 0.9, weight_contrastive: float = 0.0) -> None:
         self.weight_supervised = weight_supervised
         self.weight_faithful = weight_faithful
+        self.weight_contrastive = weight_contrastive
         self.baseline_ema = baseline_ema
         self.baseline = 0.0
         self._initialised = False
@@ -68,6 +113,7 @@ class FaithfulnessObjective:
         score: Tensor,              # (B,) F of the sampled brief, detached
         use_faithfulness: bool = True,
         critic_score: Tensor | None = None,   # (B,) F of the greedy brief, if SCST
+        contrastive: Tensor | None = None,    # (B,) per-brief contrastive loss, differentiable
     ) -> tuple[Tensor, dict[str, float]]:
         score = score.detach()
         mean_score = float(score.mean())
@@ -94,7 +140,13 @@ class FaithfulnessObjective:
             reinforce = -(advantage * sample_logprob).mean()
             loss = loss + self.weight_faithful * reinforce
 
+        contrastive_value = 0.0
+        if contrastive is not None and self.weight_contrastive > 0:
+            loss = loss + self.weight_contrastive * contrastive.mean()
+            contrastive_value = float(contrastive.mean().detach())
+
         return loss, {
+            "loss/contrastive": contrastive_value,
             "loss/total": float(loss.detach()),
             "loss/supervised_nll": float(supervised_nll.mean().detach()),
             "loss/reinforce": float(reinforce.detach()),

@@ -1412,7 +1412,7 @@ initialisation, surrogate training, minibatch order — varies. Consequences:
   eval set within a seed), but the two families of runs are **not comparable on
   absolute return** (−2.448 vs −2.302 is an eval-set difference, not a budget
   difference — `docs/slides_experiments.md` slide 4 attributes it to a "quick
-  budget", which is wrong; `runs/PHASE1_ANALYSIS.md` is right that the budgets
+  budget", which is wrong; `docs/results/PHASE1_ANALYSIS.md` is right that the budgets
   are identical);
 * the 7.3% violation figure comes from one eval IC set replicated 5 times; the
   seed-passing baseline arm in `constraint_fix` shows 1.8% (one seed). Both are

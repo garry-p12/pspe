@@ -1,5 +1,5 @@
 from .brief import BriefContext, build_vocabulary, quantise, render_brief
-from .faithfulness import FaithfulnessObjective, faithfulness_score, kl_normal
+from .faithfulness import contrastive_faithfulness, FaithfulnessObjective, faithfulness_score, kl_normal
 from .model import ExplainConfig, ExplainModule, TinyCausalLM
 from .parser import FrozenBriefParser
 from .tokenizer import WordTokenizer

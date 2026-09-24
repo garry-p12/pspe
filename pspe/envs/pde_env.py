@@ -124,7 +124,8 @@ class PDEControlEnv(gym.Env):
         self.device = torch.device(device)
         self._testbed = make_testbed(testbed, grid=grid, device=self.device)
         self._task = task or make_task(testbed)
-        self._basis = GaussianActuatorBasis(n_actuators, grid, device=self.device)
+        self._basis = GaussianActuatorBasis(n_actuators, grid, device=self.device,
+                                            max_amplitude=self._task.actuator_amplitude)
         self._core = BatchedFieldEnv(
             self._testbed, self._task, self._basis, surrogate, dynamics, horizon, self.device
         )
@@ -182,18 +183,26 @@ def make_env(
     n_actuators: int = 9,
     device: torch.device | str = "cpu",
     batched: bool = False,
+    **task_overrides: float,
 ) -> PDEControlEnv | BatchedFieldEnv:
-    """One construction point for both env views."""
+    """One construction point for both env views.
+
+    `task_overrides` go to `make_task` — used to sweep actuation authority when
+    calibrating a testbed, which is how swe's dead task was diagnosed.
+    """
     if not batched:
         return PDEControlEnv(
             testbed=testbed, grid=grid, horizon=horizon, n_actuators=n_actuators,
             dynamics=dynamics, surrogate=surrogate, device=device,
+            task=make_task(testbed, **task_overrides) if task_overrides else None,
         )
     device_t = torch.device(device)
+    task = make_task(testbed, **task_overrides)
     return BatchedFieldEnv(
         testbed=make_testbed(testbed, grid=grid, device=device_t),
-        task=make_task(testbed),
-        basis=GaussianActuatorBasis(n_actuators, grid, device=device_t),
+        task=task,
+        basis=GaussianActuatorBasis(n_actuators, grid, device=device_t,
+                                    max_amplitude=task.actuator_amplitude),
         surrogate=surrogate,
         dynamics=dynamics,
         horizon=horizon,

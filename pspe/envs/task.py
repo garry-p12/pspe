@@ -74,6 +74,24 @@ class TaskSpec:
     n_subregions: int = 2         # R: domain split into R x R sub-regions
     w_equity: float = 1.0
     equity_limit: float = 0.05    # d_2, calibrated like cost_limit when enabled
+    # Actuation authority: peak amplitude of the actuator basis.
+    #
+    # Calibrating a testbed means checking BOTH that the cost separates (so the
+    # constraint binds) AND that the RETURN separates (so actuation can move the
+    # objective at all). The shipped calibration only checked the first, which
+    # is how swe went a whole project without anyone noticing its margin.
+    #
+    # Measured on swe: a trained planner beats doing nothing by +0.0122 out of
+    # an objective of 0.177 — about 7%. Raising this amplitude does NOT help:
+    # a hand-written damper's margin grows with it (5.5% at 1.0 -> 32.6% at 4.0)
+    # but a *stochastic policy* gains nothing, because the amplitude scales the
+    # useful signal and the exploration noise together (planner separation
+    # +0.0122 at 1.0, +0.0081 at 4.0). swe is therefore a low-authority task,
+    # and differences between planning methods on it sit inside that 7% band —
+    # which is exactly why its joint/disaggregated/unanchored arms all returned
+    # -0.1733. Left at 1.0; the fix is a different objective, not a louder
+    # actuator.
+    actuator_amplitude: float = 1.0
 
     def reward(self, state: Tensor, action: Tensor) -> Tensor:
         """(B, C, H, W), (B, K) -> (B,) task reward."""

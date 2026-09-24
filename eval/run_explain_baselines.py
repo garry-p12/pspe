@@ -60,6 +60,13 @@ def main() -> int:
                              "10 100 1000. At the default weight (1.0) the term's gradient is "
                              "real but two orders below the supervised term; this is the "
                              "sweep that says whether the objective can matter at all")
+    parser.add_argument("--contrastive", type=float, default=0.0,
+                        help="weight of the contrastive faithfulness term; adds a "
+                             "'contrastive@w' arm on top of the selected arms")
+    parser.add_argument("--arms", nargs="+", default=None,
+                        help="subset of arms, so each job fits a short backfill slot")
+    parser.add_argument("--n-permutation", type=int, default=128,
+                        help="briefs scored aligned and shuffled, for the state-specificity gap")
     parser.add_argument("--out", default="runs/explain_baselines")
     args = parser.parse_args()
 
@@ -78,7 +85,10 @@ def main() -> int:
         print("WARNING: untrained policy — F(b) is measured against a policy that "
               "does nothing interesting. Pass --policy for a reportable number.")
 
-    arms = dict(ARMS)
+    arms = {k: v for k, v in ARMS.items() if args.arms is None or k in args.arms}
+    if args.contrastive > 0:
+        arms[f"contrastive@w{args.contrastive:g}"] = dict(
+            use_faithfulness=True, posthoc=False, weight_contrastive=args.contrastive)
     for w in (args.faith_weights or []):
         arms[f"trained-in@w{w:g}"] = dict(use_faithfulness=True, posthoc=False, weight_faithful=w)
 
@@ -94,8 +104,17 @@ def main() -> int:
             device,
         )
         summary = trainer.train()
+        # Permutation control: the same briefs scored against another state's
+        # action. A generator that learned the format and a generic action
+        # scores the same shuffled as aligned; see docs/results/NDWS_EXPLAIN.md,
+        # where that is exactly what happened on 64-dimensional fire plans.
+        aligned = trainer.faithfulness_samples(args.n_permutation)
+        shuffled = trainer.faithfulness_samples_permuted(args.n_permutation)
         rows.append({
             "arm": name,
+            "F aligned": round(float(aligned.mean()), 4),
+            "F shuffled": round(float(shuffled.mean()), 4),
+            "state-specific gap": round(float(aligned.mean() - shuffled.mean()), 4),
             "F(b)": round(summary["eval/faithfulness"], 4),
             "F(b) reference": round(summary["eval/faithfulness_reference"], 4),
             "KL": round(summary["eval/kl"], 4),

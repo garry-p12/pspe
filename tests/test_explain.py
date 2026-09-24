@@ -142,3 +142,70 @@ def test_explain_stub_backbone_is_watermarked(tmp_path) -> None:
     summary = trainer.train()
     assert summary["backbone_is_stub"] is True
     assert summary["backbone"] == "tiny"
+
+
+def test_per_dim_kl_keeps_f_on_one_scale():
+    """Summed KL sends F to 0 as the action space grows; per-dimension does not."""
+    import torch
+    from pspe.explain.faithfulness import faithfulness_score
+    for k in (9, 64):
+        p = torch.distributions.Normal(torch.zeros(1, k), torch.full((1, k), 0.22))
+        q = torch.distributions.Normal(torch.full((1, k), 0.1), torch.full((1, k), 0.22))
+        f_sum, kl_sum = faithfulness_score(p, q)
+        f_dim, kl_dim = faithfulness_score(p, q, per_dim=True)
+        assert abs(float(kl_dim) - float(kl_sum) / k) < 1e-6
+        if k == 64:
+            assert float(f_sum) < 0.01 and float(f_dim) > 0.5
+
+
+def test_contrastive_loss_punishes_constant_briefs():
+    """A brief that ignores the state pays; a brief that matches it does not."""
+    import torch
+    from pspe.explain.faithfulness import contrastive_faithfulness
+    torch.manual_seed(0)
+    b, k = 8, 9
+    policy = torch.distributions.Normal(torch.randn(b, k), torch.full((b, k), 0.4))
+    constant = torch.distributions.Normal(torch.zeros(b, k), torch.full((b, k), 0.4))
+    perfect = torch.distributions.Normal(policy.mean.clone(), torch.full((b, k), 0.4))
+    assert float(contrastive_faithfulness(policy, perfect).mean()) < 1e-4
+    assert float(contrastive_faithfulness(policy, constant).mean()) > 2.0
+
+
+def test_condition_dropout_only_in_training():
+    import torch
+    from pspe.explain.model import ExplainConfig, ExplainModule
+    from pspe.explain.tokenizer import WordTokenizer
+    tok = WordTokenizer(["<pad>", "<bos>", "<eos>", "<unk>", "a"])
+    m = ExplainModule(tok, ExplainConfig(backbone="tiny", cond_dropout=1.0), cond_features=6)
+    cond = torch.randn(4, 6)
+    m.eval()
+    assert not torch.allclose(m._prefix_embeds(cond), m._prefix_embeds(torch.zeros_like(cond)))
+    m.train()
+    assert torch.allclose(m._prefix_embeds(cond), m._prefix_embeds(torch.zeros_like(cond)))
+
+
+def test_condition_contrastive_has_gradient_and_beats_log_b():
+    """The differentiable contrastive term must reach the prefix parameters."""
+    import math
+    import torch
+    from pspe.explain import ExplainConfig, ExplainTrainConfig
+    from pspe.explain.model import ExplainModule
+    from pspe.explain.tokenizer import WordTokenizer
+    from pspe.explain.trainer import ExplainTrainer
+
+    tok = WordTokenizer(["<pad>", "<bos>", "<eos>", "<unk>", "a", "b"])
+    trainer = ExplainTrainer.__new__(ExplainTrainer)          # no env needed for this path
+    trainer.cfg = ExplainTrainConfig(contrastive_temperature=1.0)
+    trainer.model = ExplainModule(tok, ExplainConfig(backbone="tiny", cond_dropout=0.0),
+                                  cond_features=6)
+    torch.manual_seed(0)
+    cond = torch.randn(4, 6)
+    toks, mask = tok.batch_encode(["a b", "b a", "a a", "b b"], max_len=8)
+    loss = trainer._condition_contrastive(cond, toks, mask.float())
+    assert loss.shape == (4,)
+    loss.mean().backward()
+    prefix_grad = sum(float(p.grad.abs().sum()) for p in trainer.model.prefix.parameters()
+                      if p.grad is not None)
+    assert prefix_grad > 0, "contrastive loss does not reach the prefix"
+    # An untrained model ignores the condition, so it should sit near log B.
+    assert abs(float(loss.mean()) - math.log(4)) < 1.0

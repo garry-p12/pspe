@@ -1,0 +1,1726 @@
+<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>PSPE: the complete experimental record</title><style>
+@page { size: A4; margin: 17mm 15mm; }
+:root{
+  --ink:#16202b; --muted:#5a6b7a; --faint:#8a99a6; --line:#ccd6de;
+  --accent:#1f4e79; --accent-soft:#eaf1f7; --ground:#ffffff; --panel:#f7f9fb;
+}
+*{box-sizing:border-box}
+body{ font-family:-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif;
+      font-size:9.7pt; line-height:1.48; color:var(--ink); background:var(--ground);
+      max-width:100%; margin:0; }
+h1{ font-size:20pt; letter-spacing:-.02em; color:var(--accent); margin:0 0 4px;
+    border-bottom:2.5px solid var(--accent); padding-bottom:7px; }
+h2{ font-size:13.5pt; margin:24px 0 8px; color:var(--accent);
+    border-bottom:1px solid var(--line); padding-bottom:3px; page-break-after:avoid; }
+h3{ font-size:11pt; margin:16px 0 6px; color:#1b3b56; page-break-after:avoid; }
+h4{ font-size:9.8pt; margin:12px 0 4px; page-break-after:avoid; }
+p{ margin:7px 0 }
+table{ border-collapse:collapse; width:100%; margin:9px 0 14px; font-size:8.3pt;
+       page-break-inside:avoid; }
+th{ background:var(--accent-soft); text-align:left; font-weight:600; color:#12395c }
+th,td{ border:1px solid var(--line); padding:3.5px 6px; vertical-align:top }
+tr:nth-child(even) td{ background:#fbfcfd }
+td:first-child{ }
+code{ background:#eef2f5; padding:1px 3px; border-radius:2px;
+      font-family:"SF Mono",Menlo,monospace; font-size:8.3pt; color:#123 }
+blockquote{ border-left:3px solid var(--accent); margin:11px 0; padding:6px 14px;
+            background:var(--panel); font-style:italic; color:#22384a }
+hr{ border:none; border-top:1px solid var(--line); margin:22px 0 }
+ul,ol{ margin:6px 0; padding-left:19px } li{ margin:2.5px 0 }
+strong{ color:#0d1b26 }
+del{ color:var(--faint) }
+.toc{ background:var(--panel); border:1px solid var(--line); border-radius:3px;
+      padding:12px 16px 14px; margin:18px 0 6px; font-size:8.6pt;
+      page-break-inside:avoid; }
+.toc > ul{ margin:0; padding:0; list-style:none;
+       display:flex; flex-wrap:wrap; gap:3px 22px }
+.toc > ul > li{ white-space:nowrap }
+.toc ul ul{ display:none }
+.toc li{ margin:1.5px 0; break-inside:avoid }
+.toc a{ color:var(--ink); text-decoration:none }
+.toc a:hover{ text-decoration:underline }
+.toc-title{ font-size:9pt; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+            color:var(--accent); margin:0 0 6px; column-span:all }
+</style></head><body><h1 id="pspe-the-complete-experimental-record">PSPE: the complete experimental record</h1><nav class="toc"><p class="toc-title">Contents</p><div class="toc">
+<ul>
+<li><a href="#executive-summary">Executive summary</a></li>
+<li><a href="#part-i-method">Part I — Method</a></li>
+<li><a href="#part-ii-results-by-module">Part II — Results by module</a></li>
+<li><a href="#part-iii-the-experiments">Part III — The experiments</a></li>
+<li><a href="#part-iv-what-survives-and-what-does-not">Part IV — What survives, and what does not</a></li>
+<li><a href="#part-v-measurement-defects-found-and-fixed">Part V — Measurement defects found and fixed</a></li>
+<li><a href="#part-vi-infrastructure-and-reproduction">Part VI — Infrastructure and reproduction</a></li>
+<li><a href="#part-vii-where-this-leaves-the-work">Part VII — Where this leaves the work</a></li>
+</ul>
+</div>
+</nav>
+<p><strong>Perceive – Simulate – Plan – Explain: constrained intervention design for
+PDE-governed systems.</strong> Consolidated results, updated 2026-09-24.</p>
+<p>Every number here is five seeds unless stated otherwise, reported as mean ±
+sample standard deviation, with paired <em>t</em> where two arms are compared
+(df = 4 for five seeds, so |t| &gt; 2.78 is p &lt; 0.05; df = 2 for three seeds, so
+|t| &gt; 4.30). Each section names the run directory its numbers come from.
+Detailed analyses live in <code>docs/results/</code>; this document is the single place
+where all of it is stated together, including the claims that did not hold.</p>
+<hr />
+<h2 id="executive-summary">Executive summary</h2>
+<p>PSPE is four modules trained around one loop: turn an observation of a
+physical hazard into a state estimate, roll a differentiable surrogate
+forward, choose an intervention under hard constraints, and write a brief a
+human can act on. This record covers everything measured on it.</p>
+<p><strong>Four contributions, as they stand after all testing:</strong></p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>contribution</th>
+<th>status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Safety by measurement.</strong> Model-based constrained planning fails silently because the dual controller trusts the surrogate's cost. Probing the real system and planning against a measured margin fixes most of it.</td>
+<td><strong>Holds.</strong> Two PDE families. Violations cut ~7x on dar (1.8% to 0%) and 85% to 5.5% on rdf. The same diagnosis repaired PPO-Lagrangian.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Sample efficiency.</strong> The planner acts inside the surrogate, so its real-world cost is the data the surrogate was fitted on.</td>
+<td><strong>Holds.</strong> 9x fewer real transitions than model-free safe RL on dar, 5x on rdf, at comparable return.</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Planning on observed data.</strong> Constrained firebreak planning through a surrogate fitted to real fire spread.</td>
+<td><strong>Holds, 5 seeds.</strong> +12.0 points of burn reduction over the operational forecast-then-greedy heuristic at identical budget, zero violations, paired t = 11.15. Advantage is 1.9–2.1x at the tightest budgets, widens when the imposed action physics is removed, and grows monotonically with horizon (t = 1.40 at 1 day, +14.3 at 5 days) — the mechanism, measured. Constrained-RL baselines on the same fires reach 4.6%, below the heuristic's 24.1%.</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Certified explanations.</strong> Briefs trained against the policy, with a conformal bound on their faithfulness.</td>
+<td><strong>Half withdrawn.</strong> The certificate's coverage holds on real data. The faithfulness claim does not: a permutation control shows the briefs carry no state-specific information.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The three findings that changed the project:</strong></p>
+<ol>
+<li>The planner's constraint violations came from controlling the dual on
+   surrogate cost while violation is realised under true dynamics. Measuring
+   reality periodically and planning against a margin is the fix, and it is
+   contribution 1.</li>
+<li>Joint Simulate+Plan training — the paper's original headline — never
+   changed a decision on any of three PDE families. Anchored to data it
+   improves the surrogate 5–9x; unanchored it destroys it. A clean negative
+   with a safety lesson.</li>
+<li>Explanation faithfulness was never being measured. A permutation control
+   (score each brief against a <em>different</em> state's action) shows zero gap on
+   every arm and both testbeds, and the synthetic testbed used for the
+   published numbers has a state-independent policy, so it could not have
+   detected the difference.</li>
+</ol>
+<hr />
+<h2 id="part-i-method">Part I — Method</h2>
+<p>Four modules, one loop.</p>
+<p><strong>Perceive.</strong> A frozen vision backbone (SigLIP) with LoRA adapters and two
+heads: a decoder that reconstructs the physical field, and a projection head
+aligned to caption embeddings by InfoNCE. Loss <code>L = w_reg L_reg + w_con L_con</code>.</p>
+<p><strong>Simulate.</strong> A Fourier Neural Operator: lift, then blocks combining a
+spectral path (FFT, keep modes k ≤ 12, learned complex weights, inverse FFT)
+with a pointwise 1x1 convolution, then project. Trained on one-step,
+rollout and physics-residual terms. Optionally spectrally normalised so its
+Lipschitz constant is bounded.</p>
+<p><strong>Plan.</strong> A tanh-squashed Gaussian policy over actuator amplitudes. The
+Lagrangian <code>-(r - λ c)</code> is differentiated two ways — pathwise through the
+surrogate (low variance, biased by surrogate error) and likelihood-ratio
+(unbiased, high variance) — and mixed at the variance-minimising weight. A
+PID-Lagrangian dual drives λ from measured cost. Constraints: intervention
+budget, pointwise safety, and a distributional equity term.</p>
+<p><strong>Explain.</strong> A frozen small LM (Qwen2.5-0.5B) with LoRA, conditioned on a
+prefix built from the planner's state and action. A frozen parser reads the
+generated brief back into an action distribution, and
+<code>F(b) = exp(-KL(π ‖ parse(b)))</code> scores the agreement. A split-conformal
+certificate bounds F on unseen states.</p>
+<p><strong>Testbeds.</strong> Three PDE families — <code>dar</code> (diffusion–advection–reaction),
+<code>swe</code> (shallow water), <code>rdf</code> (reaction–diffusion front) — plus two real
+datasets: PDEBench 2D shallow water, and Next Day Wildfire Spread (NDWS).</p>
+<hr />
+<h2 id="part-ii-results-by-module">Part II — Results by module</h2>
+<h3 id="perceive">Perceive</h3>
+<p>Real SigLIP backbone (<code>google/siglip-base-patch16-224</code>), 3 seeds
+(<code>runs/perception_real/</code>):</p>
+<table>
+<thead>
+<tr>
+<th>arm</th>
+<th>field rel L2</th>
+<th>retrieval accuracy</th>
+<th>trainable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PSPE — frozen + LoRA + contrastive</td>
+<td>0.0596 ± 0.027</td>
+<td><strong>0.754 ± 0.026</strong></td>
+<td>1.64 M</td>
+</tr>
+<tr>
+<td>probe — frozen backbone, decoder only</td>
+<td><strong>0.0345 ± 0.011</strong></td>
+<td>0.135 ± 0.009</td>
+<td>1.64 M</td>
+</tr>
+<tr>
+<td>CNN from scratch</td>
+<td>0.0564 ± 0.015</td>
+<td>0.130 ± 0.016</td>
+<td>0.56 M</td>
+</tr>
+</tbody>
+</table>
+<p>The frozen probe reconstructs best and beats the CNN (t = -4.87). The design
+wins on alignment instead: retrieval 0.754 vs 0.130, t = +37. Real SigLIP
+features are strong enough that adapters do not help reconstruction. The stub
+backbone gave the same shape (0.0524 / 0.0476 / 0.0422; retrieval 0.510 vs
+0.137).</p>
+<p><strong>Reading.</strong> PSPE's perception trades reconstruction accuracy for
+text–image alignment. It does not beat a plain CNN at estimating the field.</p>
+<h3 id="simulate">Simulate</h3>
+<p>PDEBench 2D shallow water, 512 real trajectories, 64², 20 epochs
+(<code>runs/simulate/</code>, <code>runs/pdebench/</code>):</p>
+<table>
+<thead>
+<tr>
+<th>operator</th>
+<th>rel L2 (1-step)</th>
+<th>rel L2 (rollout)</th>
+<th>params</th>
+<th>published FNO (nRMSE)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>FNO</strong></td>
+<td><strong>0.0018</strong></td>
+<td><strong>0.0098</strong></td>
+<td>1.19 M</td>
+<td>0.0044</td>
+</tr>
+<tr>
+<td>DeepONet</td>
+<td>0.0044</td>
+<td>0.0137</td>
+<td>0.09 M</td>
+<td>—</td>
+</tr>
+<tr>
+<td>GNOT</td>
+<td>0.0056</td>
+<td>0.0543</td>
+<td>0.31 M</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>Metrics differ (relative L2 vs nRMSE), so this is an anchor, not a
+like-for-like comparison. The operator ranking reproduces on synthetic data
+(FNO 0.057, DeepONet 0.256, GNOT 0.268, 5 seeds), which is the more robust
+claim.</p>
+<p><strong>Resolution invariance</strong> (<code>runs/resolution_seeds/</code>), one FNO trained at 64²
+and evaluated at three grids, 5 seeds:</p>
+<table>
+<thead>
+<tr>
+<th>grid</th>
+<th>cells</th>
+<th>rel L2</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>64²</td>
+<td>4,096</td>
+<td>0.0298 ± 0.014</td>
+</tr>
+<tr>
+<td>96²</td>
+<td>9,216</td>
+<td>0.0298 ± 0.014</td>
+</tr>
+<tr>
+<td>128²</td>
+<td>16,384</td>
+<td>0.0300 ± 0.014</td>
+</tr>
+</tbody>
+</table>
+<p>Flat to three decimals: genuine discretization invariance.</p>
+<p><strong>Observed wildfire spread</strong> (<code>runs/ndws_seeds/</code>), ~18k real 64 km patches,
+1.3% fire prevalence, AUC-PR on the validation split, 3 seeds:</p>
+<table>
+<thead>
+<tr>
+<th>model</th>
+<th>AUC-PR</th>
+<th>vs published 0.284</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>U-Net</strong></td>
+<td><strong>0.277 ± 0.002</strong></td>
+<td><strong>97.5%</strong></td>
+</tr>
+<tr>
+<td>Hybrid (U-Net + gated FNO)</td>
+<td>0.235 ± 0.005</td>
+<td>83%</td>
+</tr>
+<tr>
+<td>FNO alone (1 seed)</td>
+<td>0.200</td>
+<td>70%</td>
+</tr>
+<tr>
+<td>all-zeros floor</td>
+<td>0.011</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>The U-Net beats the hybrid on every seed (t = +12.5), and the hybrid's learned
+gate over its spectral path — free to take any value, initialised at zero —
+settles at <strong>0.12 on every seed</strong>. Offered the Fourier operator, the model
+declines it.</p>
+<p><strong>On the test split</strong> (<code>runs/ndws_test/</code>, 3 seeds, the split the published
+0.284 is reported on, with flip augmentation):</p>
+<table>
+<thead>
+<tr>
+<th>model</th>
+<th>test AUC-PR</th>
+<th>vs published 0.284</th>
+<th>spectral gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>U-Net</strong></td>
+<td><strong>0.3162 ± 0.017</strong></td>
+<td><strong>111%</strong></td>
+<td>—</td>
+</tr>
+<tr>
+<td>Hybrid (U-Net + gated FNO)</td>
+<td>0.2939 ± 0.003</td>
+<td>103%</td>
+<td>0.111</td>
+</tr>
+</tbody>
+</table>
+<p>The surrogate <strong>exceeds</strong> the published benchmark on its own split. Two
+conditions belong with that number: training used 8,000 patches rather than the
+full train split, and this run used flip augmentation (with the wind-direction
+channel corrected under the flip) which the validation runs did not. The
+spectral gate settles at 0.111 again, a third independent replication of the
+operator-scope finding.</p>
+<p><strong>Reading.</strong> The operator's scope, measured: excellent on smooth PDE fields
+and resolution-transferable; loses to convolutions on sharp fronts, because a
+spectral model truncates the high frequencies that <em>are</em> a fire front. PSPE
+survives this because it is a loop with a swappable surrogate.</p>
+<h3 id="plan">Plan</h3>
+<p><strong>Against safe RL on dar</strong> (<code>runs/seeds_v3/</code>), 5 seeds, cost limit 0.936:</p>
+<table>
+<thead>
+<tr>
+<th>method</th>
+<th>return</th>
+<th>cost</th>
+<th>violating evals</th>
+<th>worst</th>
+<th>real samples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>PSPE (adaptive α)</strong></td>
+<td><strong>-2.448 ± 0.029</strong></td>
+<td>0.412 ± 0.37</td>
+<td>7.3%</td>
+<td>1.109</td>
+<td>3,072</td>
+</tr>
+<tr>
+<td>PSPE (fixed α)</td>
+<td>-2.738 ± 0.365</td>
+<td>2.752 ± 3.6</td>
+<td>12.7%</td>
+<td>2.758</td>
+<td>3,072</td>
+</tr>
+<tr>
+<td>PPO-Lagrangian</td>
+<td>-2.558 ± 0.039</td>
+<td>0.266 ± 0.009</td>
+<td>0%</td>
+<td>0.297</td>
+<td>38,400</td>
+</tr>
+<tr>
+<td>CPO</td>
+<td>-2.541 ± 0.035</td>
+<td>0.263 ± 0.011</td>
+<td>0%</td>
+<td>0.277</td>
+<td>38,400</td>
+</tr>
+<tr>
+<td>Sauté RL</td>
+<td>-2.537 ± 0.024</td>
+<td>0.264 ± 0.008</td>
+<td>0%</td>
+<td>0.275</td>
+<td>38,400</td>
+</tr>
+<tr>
+<td>Primal-dual NPG</td>
+<td>-2.544 ± 0.026</td>
+<td>0.263 ± 0.008</td>
+<td>0%</td>
+<td>0.275</td>
+<td>38,400</td>
+</tr>
+</tbody>
+</table>
+<p>Beats every baseline on return (t = +3.84 to +17.95) at 12.5x fewer real
+transitions — but violates a limit they all respect. That failure and its fix
+are Part III.</p>
+<p><strong>Against safe RL on rdf</strong> (<code>runs/baselines_rdf/</code>, after the planner fix):</p>
+<table>
+<thead>
+<tr>
+<th>method</th>
+<th>return</th>
+<th>violating evals</th>
+<th>real samples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PPO-Lagrangian (stock gains)</td>
+<td>-7.66 ± 0.31</td>
+<td>1.8%</td>
+<td>38,400</td>
+</tr>
+<tr>
+<td>PPO-Lagrangian (with our dual fix)</td>
+<td>-7.69 ± 0.31</td>
+<td>0%</td>
+<td>38,400</td>
+</tr>
+<tr>
+<td>CPO / Sauté / NPG</td>
+<td>-7.97 to -8.08</td>
+<td>0%</td>
+<td>38,400</td>
+</tr>
+<tr>
+<td><strong>PSPE v2 (probe + margin)</strong></td>
+<td><strong>-7.49 ± 0.62</strong></td>
+<td>5.5%</td>
+<td>7,360</td>
+</tr>
+</tbody>
+</table>
+<p>Paired t vs PPO-Lagrangian: <strong>+0.82</strong>. Parity on return, 5.2x fewer real
+samples, and PPO-Lag has the better tail. CPO, Sauté and NPG are safe by
+inaction: their cost sits at the calibrated do-nothing level.</p>
+<p><strong>Reading.</strong> The return edge is a dar result, not a general one. Sample
+efficiency and the safety mechanism hold on both families.</p>
+<h3 id="explain">Explain</h3>
+<p>The full Explain story is Part III §5–6. In summary: the conformal
+certificate's coverage holds on real data, and every claim about the briefs
+being faithful to a particular decision has been withdrawn.</p>
+<hr />
+<h2 id="part-iii-the-experiments">Part III — The experiments</h2>
+<h3 id="1-the-constraint-failure-and-the-fix">1. The constraint failure, and the fix</h3>
+<p><strong>The failure.</strong> The planner exceeded the cost limit on 7.3% of evaluations
+(worst case 1.109 against 0.936) while every model-free baseline exceeded it
+on none. The mechanism is a property of model-based planning, not a coding
+error: the dual controller is updated from cost measured on <strong>surrogate</strong>
+rollouts, while violation is realised under the <strong>true</strong> dynamics. When the
+surrogate under-predicts cost, the policy is safe in-model and unsafe in
+reality.</p>
+<p><strong>The fix.</strong> Two mechanisms (<code>runs/constraint_fix/</code>), 5 seeds:</p>
+<ul>
+<li>a <strong>probe</strong> that rolls the current policy in the true environment every 20
+  iterations and feeds that cost to the dual, with the surrogate's cost
+  bias-corrected in between;</li>
+<li>a <strong>margin</strong> that plans against <code>limit - k σ</code>, σ being the measured spread
+  of surrogate cost error.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>arm</th>
+<th>return</th>
+<th>violating evals</th>
+<th>worst cost</th>
+<th>real samples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>baseline</td>
+<td>-2.302 ± 0.16</td>
+<td>1.8%</td>
+<td>0.75 (max 1.73)</td>
+<td>3,200</td>
+</tr>
+<tr>
+<td>probe only</td>
+<td>-2.307 ± 0.16</td>
+<td>1.8%</td>
+<td>0.56</td>
+<td>4,160</td>
+</tr>
+<tr>
+<td>margin only</td>
+<td>-2.302 ± 0.16</td>
+<td>1.8%</td>
+<td>0.75</td>
+<td>3,200</td>
+</tr>
+<tr>
+<td><strong>probe + margin</strong></td>
+<td><strong>-2.301 ± 0.17</strong></td>
+<td><strong>0% on all 5 seeds</strong></td>
+<td><strong>0.29</strong></td>
+<td>4,160</td>
+</tr>
+</tbody>
+</table>
+<p>Neither half works alone. The margin alone is <em>identical</em> to the baseline,
+because with no probe there is no measured error to derive a margin from:
+<strong>conservatism needs a measurement</strong>.</p>
+<p><strong>Honest rate.</strong> Across all 15 seed-runs that use probe + margin (the
+constraint-fix, alpha-rule and joint runs), 13 are clean and two had a single
+evaluation over the limit. So the headline is a ~7x reduction — about 1% of
+evaluations versus 7.3% — not a guarantee.</p>
+<p><strong>Attempting a guarantee, and getting the quantity wrong.</strong> A split-conformal
+margin should convert that reduction into a stated failure rate: with n probe
+observations and level delta, the ceil((n+1)(1-delta))-th order statistic is a
+margin under which P(cost &gt; limit) &lt;= delta. The first implementation
+conformalised the <strong>surrogate's cost error</strong> and made rdf <em>worse</em> — 18.2%
+violating against the 14.5% baseline, with a margin of 0.25 where the k-sigma
+rule had found 0.69:</p>
+<table>
+<thead>
+<tr>
+<th>testbed</th>
+<th>arm</th>
+<th>violating evals</th>
+<th>effective limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>dar</td>
+<td>probe + conformal margin</td>
+<td>0%</td>
+<td>0.769</td>
+</tr>
+<tr>
+<td>rdf</td>
+<td>baseline</td>
+<td>14.5%</td>
+<td>3.260</td>
+</tr>
+<tr>
+<td>rdf</td>
+<td>probe + conformal margin (over model error)</td>
+<td><strong>18.2%</strong></td>
+<td>3.010</td>
+</tr>
+</tbody>
+</table>
+<p>The diagnosis is that the bound was over the wrong distribution. On rdf the
+surrogate is accurate (cost bias −0.08); what violates the limit is the
+<strong>policy's own episode-to-episode spread</strong>, which a quantile over model error
+never sees.</p>
+<p><strong>Conformalising the right quantity</strong> — the deviations of individual real
+episode costs from their probe mean, plus any systematic surrogate bias — gives
+a margin that holds (<code>runs/constraint_fix_conf*/</code>, 5 seeds, δ = 0.1, probe
+every 10 iterations):</p>
+<table>
+<thead>
+<tr>
+<th>testbed</th>
+<th>arm</th>
+<th>violating evals</th>
+<th>target</th>
+<th>worst cost</th>
+<th>return</th>
+<th>effective limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>dar</td>
+<td>baseline</td>
+<td>0%</td>
+<td>—</td>
+<td>0.225</td>
+<td>−2.304</td>
+<td>0.936</td>
+</tr>
+<tr>
+<td>dar</td>
+<td><strong>probe + conformal margin</strong></td>
+<td><strong>0%</strong></td>
+<td>≤ 10%</td>
+<td>0.225</td>
+<td>−2.309</td>
+<td>0.676</td>
+</tr>
+<tr>
+<td>rdf</td>
+<td>baseline</td>
+<td>14.5%</td>
+<td>—</td>
+<td>4.00</td>
+<td>−7.184</td>
+<td>3.260</td>
+</tr>
+<tr>
+<td>rdf</td>
+<td><strong>probe + conformal margin</strong></td>
+<td><strong>7.3%</strong></td>
+<td>≤ 10%</td>
+<td>3.51</td>
+<td>−7.351</td>
+<td>2.777</td>
+</tr>
+</tbody>
+</table>
+<p>The bound holds on both families. Against the hand-tuned k-sigma margin it
+replaces (5.5% violating at return −7.49 on rdf), the conformal version gives
+slightly more violations but a <strong>stated failure rate</strong> rather than a tuned
+constant, and costs 0.14 less return. This is the form the claim should take:
+not "violations fell 7x", but "P(cost &gt; limit) ≤ δ, and at δ = 0.1 the realised
+rate was 7.3% and 0%".</p>
+<p>The failure is worth keeping: a margin is only as good as the distribution it
+bounds, and conformalising a conveniently available quantity rather than the
+one that violates gives a bound over the wrong thing.</p>
+<h3 id="2-the-planner-on-a-second-family-rdf">2. The planner on a second family: rdf</h3>
+<p>As shipped, the planner violated the rdf limit on <strong>85%</strong> of evaluations at
+2.5x the limit, in every arm, regardless of the probe. Three defects, each
+read off the training trace once the previous one was removed
+(<code>docs/results/RDF_PLANNER_FIX.md</code>):</p>
+<p><strong>Defect 1 — action saturation.</strong> The reward-greedy sprint drives the
+pre-tanh policy mean past |μ| ≈ 3, where tanh has no slope:</p>
+<table>
+<thead>
+<tr>
+<th>iteration</th>
+<th>cost</th>
+<th>λ</th>
+<th>α</th>
+<th>‖g_pathwise‖</th>
+<th>‖g_LR‖</th>
+<th>var_pathwise</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>20</td>
+<td>1.05</td>
+<td>0</td>
+<td>0.70</td>
+<td>0.55</td>
+<td>2.9</td>
+<td>1e-2</td>
+</tr>
+<tr>
+<td>40</td>
+<td>5.87</td>
+<td>0</td>
+<td>0.81</td>
+<td>1.9</td>
+<td>196</td>
+<td>0.7</td>
+</tr>
+<tr>
+<td>100</td>
+<td>8.08</td>
+<td>14.5</td>
+<td>0.95</td>
+<td>0.036</td>
+<td>5,160</td>
+<td>0.0</td>
+</tr>
+<tr>
+<td>198</td>
+<td>8.21</td>
+<td>38.5</td>
+<td>0.99</td>
+<td>0.036</td>
+<td>12,700</td>
+<td>0.0</td>
+</tr>
+</tbody>
+</table>
+<p>The pathwise gradient dies (norm 0.036, variance exactly zero); the
+variance-optimal mixing rule then <em>picks the dead branch</em> (α → 0.99), because
+zero variance looks like precision; and the likelihood-ratio branch explodes
+because every rollout returns the same value and the advantage normaliser
+divides by ~0. λ = 38 multiplies nothing. Fix: a soft wall
+<code>c·relu(|μ| - 1.5)²</code> on both branches and a floor on the advantage std.
+<strong>85% → 44%.</strong></p>
+<p><strong>Defect 2 — dual oscillation.</strong> λ collapses to zero whenever cost dips under
+the limit; the policy sprints greedy again and overshoots. Lowering the gain
+made it <em>worse</em> (60%). Raising the integral gain ×10 lets λ hold.
+<strong>44% → 14.5%.</strong></p>
+<p><strong>Defect 3 — tail violations.</strong> A dual that holds the <em>mean</em> at the limit
+violates on about half of evaluations by construction. The margin now also
+covers the policy's own episode-to-episode spread, measured at each probe.
+<strong>14.5% → 5.5%</strong>, worst case 3.23 against a 3.26 limit.</p>
+<p><strong>dar regression check.</strong> The same configuration on dar: return unchanged
+(-2.304 vs -2.302), 0% violations on every arm, worst case 3x smaller. One
+planner configuration now works on both families.</p>
+<h3 id="3-joint-simulateplan-training">3. Joint Simulate+Plan training</h3>
+<p>The paper's original contribution 1. One pretrained surrogate, deep-copied
+per arm, 5 seeds (<code>runs/joint/</code>, <code>runs/joint_swe/</code>, <code>runs/joint_rdf/</code>):</p>
+<table>
+<thead>
+<tr>
+<th>testbed</th>
+<th>arm</th>
+<th>return</th>
+<th>held-out surrogate rel L2 before → after</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>dar</td>
+<td>disaggregated</td>
+<td>-2.302 ± 0.17</td>
+<td>0.0048 → 0.0048</td>
+</tr>
+<tr>
+<td>dar</td>
+<td>joint, anchored</td>
+<td>-2.296 ± 0.18</td>
+<td>0.0048 → <strong>0.0005</strong></td>
+</tr>
+<tr>
+<td>dar</td>
+<td>joint, unanchored</td>
+<td>-2.369 ± 0.17</td>
+<td>0.0048 → <strong>0.975</strong></td>
+</tr>
+<tr>
+<td>swe</td>
+<td>disaggregated</td>
+<td>-0.1733 ± 0.010</td>
+<td>0.0246 → 0.0246</td>
+</tr>
+<tr>
+<td>swe</td>
+<td>joint, anchored</td>
+<td>-0.1733 ± 0.010</td>
+<td>0.0246 → <strong>0.0027</strong></td>
+</tr>
+<tr>
+<td>swe</td>
+<td>joint, unanchored</td>
+<td>-0.1733 ± 0.010</td>
+<td>0.0246 → <strong>1.14</strong></td>
+</tr>
+<tr>
+<td>rdf</td>
+<td>disaggregated</td>
+<td>-6.76 ± 0.69</td>
+<td>0.0024 → 0.0024</td>
+</tr>
+<tr>
+<td>rdf</td>
+<td>joint, anchored</td>
+<td>-6.70 ± 0.70</td>
+<td>0.0024 → <strong>0.0005</strong></td>
+</tr>
+<tr>
+<td>rdf</td>
+<td>joint, unanchored</td>
+<td>-7.46 ± 0.45</td>
+<td>0.0024 → <strong>0.83</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Paired t on return, joint vs disaggregated: <strong>+0.66</strong> (dar), identical (swe),
+<strong>+1.00</strong> (rdf). Unanchored vs disaggregated: -5.84 (dar), -2.41 (rdf).</p>
+<p><strong>Reading.</strong> Joint training never changes the decision. Anchored to data it
+improves the surrogate 5–9x on held-out trajectories — the planning gradient,
+scaled to a tenth of the data gradient, acts as extra training on the states
+the policy visits. Unanchored it destroys the surrogate. The claim "joint
+beats disaggregated" is not supported on any testbed; "joint is safe when
+anchored and destructive when not" is supported on all three.</p>
+<h3 id="3b-swe-a-testbed-that-could-not-rank-methods-and-why">3b. swe: a testbed that could not rank methods, and why</h3>
+<p><code>runs/calibration/swe_u*.json</code> plus direct probes. The calibration procedure
+checked that the <strong>cost</strong> separates between doing nothing and a reward-greedy
+policy, so the constraint binds. It never checked that the <strong>return</strong>
+separates, so actuation can move the objective. swe passed the first and failed
+the second for the whole project.</p>
+<table>
+<thead>
+<tr>
+<th>probe</th>
+<th>result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>400 random constant action vectors</td>
+<td>not one beats doing nothing</td>
+</tr>
+<tr>
+<td>hand-written state-feedback damper</td>
+<td>+0.0098 (5.5% of the objective)</td>
+</tr>
+<tr>
+<td>trained reward-greedy planner</td>
+<td>+0.0122 (7% of the objective)</td>
+</tr>
+</tbody>
+</table>
+<p>So the task is controllable and the planner does find control — it beats both
+doing nothing and the hand damper. The achievable band is simply ~7%, and the
+differences between planning methods live inside it. That is why swe's
+joint / disaggregated / unanchored arms all returned −0.1733 to four decimals.</p>
+<p><strong>A correction to earlier drafts of this report</strong>, which said the swe policy
+never leaves its initial behaviour: it does, and it improves. The band is too
+narrow to rank methods within, which is a different and more precise statement.</p>
+<p><strong>The fix that does not work.</strong> Raising actuator amplitude grows the margin for
+a <em>deterministic</em> controller (5.5% at amplitude 1.0 → 32.6% at 4.0) but gives a
+stochastic policy nothing, because amplitude scales the useful signal and the
+exploration noise together: planner separation is +0.0122 at amplitude 1.0 and
++0.0081 at 4.0. Amplitude was left at 1.0 and <code>return_separation</code> is now a
+first-class output of the calibration script.</p>
+<p><strong>What would work:</strong> an objective whose optimum is far from zero action —
+tracking a non-trivial target profile — rather than driving height to zero in a
+system where localised forcing only injects energy.</p>
+<h3 id="4-theory-checks">4. Theory checks</h3>
+<p><strong>Assumption 1 and Proposition 1</strong> (<code>runs/lipschitz/</code>), 5 seeds:</p>
+<table>
+<thead>
+<tr>
+<th>arm</th>
+<th>rel L2</th>
+<th>L_G</th>
+<th>L_G ≤ 1</th>
+<th>measured return bias</th>
+<th>Prop 1 bound, ∞-horizon</th>
+<th>bound at H = 12</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>default FNO</td>
+<td>0.069 ± 0.062</td>
+<td>0.985 ± 0.013</td>
+<td>4 of 5</td>
+<td>0.10</td>
+<td>422</td>
+<td>9.8</td>
+</tr>
+<tr>
+<td>spectrally normalised</td>
+<td>0.079 ± 0.026</td>
+<td>0.964 ± 0.003</td>
+<td>5 of 5</td>
+<td>0.11</td>
+<td>748</td>
+<td>17.3</td>
+</tr>
+</tbody>
+</table>
+<p>Assumption 1 holds after training (initial L_G was 1.61). The
+infinite-horizon bound is <strong>vacuous</strong> — 422 against a measured bias of 0.10,
+because the 1/(1-γ) prefactor at γ = 0.98 is 2,450. The finite-horizon form
+holds on every seed and is still 100x loose. Report the finite-horizon form
+and say it is loose.</p>
+<p><strong>Equation 8 mixing rule</strong> (<code>runs/alpha_rule/</code>), 5 seeds:</p>
+<table>
+<thead>
+<tr>
+<th>arm</th>
+<th>return</th>
+<th>violating evals</th>
+<th>final α</th>
+<th>measured B²</th>
+<th>real samples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>fixed α = 0.5</td>
+<td>-2.415 ± 0.30</td>
+<td>3.6%</td>
+<td>0.5</td>
+<td>—</td>
+<td>4,160</td>
+</tr>
+<tr>
+<td>variance rule</td>
+<td>-2.302 ± 0.17</td>
+<td>1.8%</td>
+<td>0.992</td>
+<td>—</td>
+<td>4,160</td>
+</tr>
+<tr>
+<td>Eq. 8 (measured bias)</td>
+<td>-2.299 ± 0.15</td>
+<td>0%</td>
+<td>0.992</td>
+<td>0.0013</td>
+<td>6,080</td>
+</tr>
+</tbody>
+</table>
+<p>The measured pathwise bias is ~0.001, so Eq. 8 and the variance-only rule
+choose the same α. Return t = +0.22. Eq. 8's zero-violation result comes from
+its 1,920 extra truth rollouts, not from the formula.</p>
+<p><strong>Adaptive α</strong> is a variance effect, not a mean effect: +0.290 return over
+fixed α but t = +1.66. What separates them is the tail — std 0.029 vs 0.365,
+and one fixed-α seed diverging to cost 8.1 with λ = 19.1.</p>
+<p><strong>Cross-family transfer</strong> (<code>runs/transfer_seeds/</code>), 5 seeds:</p>
+<table>
+<thead>
+<tr>
+<th>transfer</th>
+<th>fidelity gap</th>
+<th>measurable?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rdf → dar</td>
+<td>0.358 ± 0.033</td>
+<td>yes, ~11σ from zero</td>
+</tr>
+<tr>
+<td>swe → rdf</td>
+<td>0.311 ± 0.13</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>dar → rdf</td>
+<td>1.81 ± 1.1</td>
+<td>marginal</td>
+</tr>
+<tr>
+<td>swe → dar</td>
+<td>0.087 ± 0.14</td>
+<td>no, crosses zero</td>
+</tr>
+<tr>
+<td>rdf → swe</td>
+<td>10.5 ± 8.2</td>
+<td>no, σ ≈ mean</td>
+</tr>
+<tr>
+<td>dar → swe</td>
+<td>27.4 ± 26</td>
+<td>no, σ ≈ mean</td>
+</tr>
+</tbody>
+</table>
+<p>Direction survives (parabolic families transfer; transfer into the wave family
+collapses); magnitude does not. And forecast error decouples from decision
+loss: dar → swe has a fidelity gap of 27 and a planning gap of 0.007 ± 0.014
+(nothing), while dar → rdf has fidelity gap 1.8 and planning gap 0.58 ± 0.22
+(about 8% of return).</p>
+<p><strong>Ablations</strong> (5 seeds, full budget):</p>
+<table>
+<thead>
+<tr>
+<th>component</th>
+<th>on</th>
+<th>off</th>
+<th>t</th>
+<th>verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>physics-informed loss</td>
+<td>0.0567 ± 0.026</td>
+<td>0.0496 ± 0.044</td>
+<td>+0.52</td>
+<td>no effect on final accuracy</td>
+</tr>
+<tr>
+<td>frozen perception</td>
+<td>0.0681 ± 0.013</td>
+<td>0.0908 ± 0.017</td>
+<td>-3.97</td>
+<td>frozen wins</td>
+</tr>
+<tr>
+<td>faithfulness term</td>
+<td>0.643 ± 0.15</td>
+<td>0.598 ± 0.006</td>
+<td>+0.67</td>
+<td>no effect</td>
+</tr>
+</tbody>
+</table>
+<p>The physics loss buys convergence speed only (final rel L2 0.117 with it vs
+0.273 without at a quick budget).</p>
+<h3 id="5-planning-on-observed-wildfire-data">5. Planning on observed wildfire data</h3>
+<p>The first planning result whose dynamics are a model of what a real fire did
+(<code>docs/results/NDWS_PLANNING.md</code>). The NDWS U-Net, frozen, with an 8×8 grid of
+firebreak intensities per day under a 3%-of-patch daily crew budget, three
+days ahead, population-weighted burn as the objective. Action model, stated in
+code: a break removes fuel (NDVI -2σ × intensity, the learned model decides
+the effect) and blocks spread into treated cells (0.9 × intensity, imposed).
+1,500 held-out fires, 3 seeds:</p>
+<table>
+<thead>
+<tr>
+<th>policy</th>
+<th>burn reduction</th>
+<th>treated/day</th>
+<th>over budget</th>
+<th>via learned fuel channel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>random</td>
+<td>4.5 ± 0.3%</td>
+<td>3.0%</td>
+<td>0</td>
+<td>0.6%</td>
+</tr>
+<tr>
+<td>greedy: forecast today, treat riskiest cells, repeat daily</td>
+<td>24.1 ± 3.8%</td>
+<td>3.0%</td>
+<td>0</td>
+<td>5.7%</td>
+</tr>
+<tr>
+<td><strong>PSPE per-instance: plan three days jointly through the surrogate</strong></td>
+<td><strong>36.5 ± 1.0%</strong></td>
+<td>3.0%</td>
+<td>0</td>
+<td><strong>19.3%</strong></td>
+</tr>
+<tr>
+<td>PSPE amortised policy</td>
+<td>12.2 ± 4.5%</td>
+<td>2.2%</td>
+<td>17%</td>
+<td>2.5%</td>
+</tr>
+<tr>
+<td>unconstrained</td>
+<td>85.7 ± 4.5%</td>
+<td>61.7%</td>
+<td>100%</td>
+<td>24.4%</td>
+</tr>
+</tbody>
+</table>
+<p>Per-instance minus greedy, per seed: +9.6, +11.7, +15.9 points. Paired
+t (df 2) = <strong>6.66</strong>.</p>
+<p><strong>Extended to 5 seeds</strong> (<code>runs/ndws_plan/</code>, seeds 3–4 added):</p>
+<table>
+<thead>
+<tr>
+<th>policy</th>
+<th>burn reduction, 5 seeds</th>
+<th>per-seed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>greedy</td>
+<td>22.0 ± 4.4%</td>
+<td>28.0, 23.9, 20.4, 21.9, 15.9</td>
+</tr>
+<tr>
+<td><strong>PSPE per-instance</strong></td>
+<td><strong>34.0 ± 4.4%</strong></td>
+<td>37.6, 35.6, 36.3, 34.1, 26.5</td>
+</tr>
+<tr>
+<td>PSPE amortised</td>
+<td>10.4 ± 6.5%</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>Paired t (df 4) = <strong>11.15</strong>, mean gap +12.0 points. The two added seeds did not
+dilute the effect: the paired gap is stable from +9.6 to +15.9 across all five.</p>
+<h3 id="5a-the-crew-budget-sweep-pareto">5a. The crew budget sweep (Pareto)</h3>
+<p>Same fires and seeds, budget varied (<code>runs/ndws_plan_b*/</code>):</p>
+<table>
+<thead>
+<tr>
+<th>crew budget / day</th>
+<th>greedy</th>
+<th>PSPE per-instance</th>
+<th>ratio</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1%</td>
+<td>7.5 ± 1.4%</td>
+<td>14.3 ± 0.5%</td>
+<td><strong>1.91x</strong></td>
+</tr>
+<tr>
+<td>2%</td>
+<td>12.8 ± 2.0%</td>
+<td>26.2 ± 0.7%</td>
+<td><strong>2.05x</strong></td>
+</tr>
+<tr>
+<td>3%</td>
+<td>24.1 ± 3.8%</td>
+<td>36.5 ± 1.0%</td>
+<td>1.52x</td>
+</tr>
+<tr>
+<td>5%</td>
+<td>36.1 ± 5.0%</td>
+<td>53.0 ± 1.1%</td>
+<td>1.47x</td>
+</tr>
+<tr>
+<td>8%</td>
+<td>55.0 ± 5.5%</td>
+<td>69.4 ± 0.6%</td>
+<td>1.26x</td>
+</tr>
+</tbody>
+</table>
+<p>The advantage is <strong>largest where crews are scarcest</strong> and decays as the budget
+grows large enough that placement stops mattering. PSPE at a 1% budget matches
+greedy at close to 2%, i.e. roughly half the crews for the same outcome. The
+planner's variance is also consistently smaller (±0.5 to ±1.1 against ±1.4 to
+±5.5): it is not only better on average but steadier across fires.</p>
+<h3 id="5a2-constrained-rl-on-the-same-fires">5a2. Constrained RL on the same fires</h3>
+<p><code>runs/ndws_baselines_fair/</code>, 5 seeds. Every arm plans or learns against the
+same frozen U-Net under the same 3% daily budget and is scored by the same
+function on the same held-out fires. Sample efficiency does <strong>not</strong> apply here:
+there is no separate true environment, so every method draws from the same
+surrogate and this is a comparison of decision quality only.</p>
+<table>
+<thead>
+<tr>
+<th>method</th>
+<th>burn reduction @ matched budget</th>
+<th>treated/day</th>
+<th>fires over budget</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>greedy heuristic</td>
+<td>24.1 ± 3.8%</td>
+<td>3.00%</td>
+<td>0</td>
+</tr>
+<tr>
+<td>PPO-Lagrangian</td>
+<td>4.6 ± 0.4%</td>
+<td>4.32%</td>
+<td>58%</td>
+</tr>
+<tr>
+<td>CPO</td>
+<td>4.3 ± 0.1%</td>
+<td>2.84%</td>
+<td>6%</td>
+</tr>
+<tr>
+<td>Sauté RL</td>
+<td>4.7 ± 0.5%</td>
+<td>7.37%</td>
+<td>79%</td>
+</tr>
+<tr>
+<td>primal-dual NPG</td>
+<td>4.6 ± 0.1%</td>
+<td>3.26%</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><strong>PSPE per-instance</strong></td>
+<td><strong>36.5 ± 1.0%</strong></td>
+<td>3.00%</td>
+<td>0</td>
+</tr>
+</tbody>
+</table>
+<p>The constrained-RL methods land near random placement (4.5%) and below the
+heuristic. The reason is amortisation, not the constraint: one policy has to
+serve 1,024 distinct fires from 200 iterations, which is the same failure our
+own amortised arm shows (10.4%). On a per-instance decision problem this
+diverse, decision-time optimisation is the right tool and a learned policy is
+not.</p>
+<p><strong>A near-miss worth recording.</strong> The first version of this comparison had all
+four baselines treating 22–38% of the sector against the 3% budget on every
+fire, which looked like a structural finding about constrained RL in
+high-dimensional action spaces. It was an artefact: under the squared intensity
+map a randomly initialised policy emits 25% treatment, and the agents had
+barely moved off initialisation, while PSPE's optimiser <em>starts</em> at the budget
+and projects onto it every step. With <code>--fair-init</code> giving the baselines the
+same starting point, PPO-Lagrangian holds 2.99% after three iterations. The
+structural claim was withdrawn before it was made. See
+<code>docs/results/ROBUSTNESS_NOTES.md</code>.</p>
+<h3 id="5a3-horizon-ablation-planning-pays-only-when-the-decision-is-sequential">5a3. Horizon ablation: planning pays only when the decision is sequential</h3>
+<p><code>runs/ndws_horiz_h*/</code>, <strong>5 seeds</strong> per horizon, budget 3%/day:</p>
+<table>
+<thead>
+<tr>
+<th>horizon</th>
+<th>greedy</th>
+<th>PSPE per-instance</th>
+<th>gap</th>
+<th>paired t (df 4)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 day</td>
+<td>24.8 ± 1.1%</td>
+<td>25.4 ± 1.7%</td>
+<td>+0.6</td>
+<td><strong>1.40 — not significant</strong></td>
+</tr>
+<tr>
+<td>2 days</td>
+<td>24.2 ± 3.6%</td>
+<td>32.6 ± 3.4%</td>
+<td>+8.5</td>
+<td>10.74</td>
+</tr>
+<tr>
+<td>3 days</td>
+<td>22.0 ± 4.4%</td>
+<td>34.1 ± 4.4%</td>
+<td>+12.1</td>
+<td>11.08</td>
+</tr>
+<tr>
+<td>5 days</td>
+<td>17.7 ± 4.3%</td>
+<td>32.0 ± 5.8%</td>
+<td><strong>+14.3</strong></td>
+<td>8.99</td>
+</tr>
+</tbody>
+</table>
+<p>(Significance threshold at df 4 is |t| &gt; 2.78.)</p>
+<p>At a one-day horizon the two are statistically indistinguishable (t = 1.40),
+which is the prediction, not a disappointment: the one-day objective is
+separable over cells, so treating the highest-risk cells within budget is its
+<em>exact</em> optimum and no planner can beat it. The moment the decision becomes
+sequential the statistic jumps by an order of magnitude (t = 10.74 at two
+days), and the gap grows monotonically with horizon while the heuristic
+<strong>degrades</strong> (24.8% → 17.7%) because it keeps optimising for today while the
+fire moves.</p>
+<p>A result that is insignificant exactly where theory says it must be, and
+significant exactly where theory says it should be, is stronger evidence for
+the mechanism than any single large number.</p>
+<p>This is the mechanism behind the headline result, measured rather than
+asserted: planning buys nothing on a myopic problem, and its value grows with
+how far ahead the decision reaches.</p>
+<h3 id="5b-fuel-only-ablation-does-the-result-rest-on-the-imposed-physics">5b. Fuel-only ablation: does the result rest on the imposed physics?</h3>
+<p>The action model has two mechanisms — a <strong>learned</strong> one (fuel removed from the
+NDVI channel, the surrogate decides the effect) and an <strong>imposed</strong> one (spread
+into treated cells suppressed by hand). Setting <code>block = 0</code> removes the imposed
+half entirely (<code>runs/ndws_plan_fuelonly/</code>, 3 seeds, budget 3%):</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>greedy</th>
+<th>PSPE per-instance</th>
+<th>gap</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>both mechanisms</td>
+<td>24.1 ± 3.8%</td>
+<td>36.5 ± 1.0%</td>
+<td>+12.4 (t = 6.66)</td>
+</tr>
+<tr>
+<td><strong>learned fuel response only</strong></td>
+<td><strong>5.7 ± 2.9%</strong></td>
+<td><strong>19.4 ± 1.6%</strong></td>
+<td><strong>+13.6 (t = 5.93)</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Removing the hand-written physics costs the heuristic 76% of its effect and the
+planner 47%, and the <strong>gap widens</strong>. The planner's advantage therefore does not
+rest on the part of the action model that was specified rather than learned —
+it comes from exploiting the surrogate's own fuel response, which is what the
+claim requires. This is the ablation a reviewer asks for, and it survives.</p>
+<p><strong>Reading.</strong> Decision-time planning beats the operational heuristic by twelve
+points at the same budget with no violations, and the margin comes through the
+learned model: 19% of the planner's reduction survives with the imposed block
+term switched off, against 6% for greedy. Greedy treats today's risk; the
+planner treats where the model says the fire will be on day three. On the
+one-day version of the problem greedy is the <em>exact</em> optimum of a separable
+objective and nothing beats it — planning earns its keep only across days. The
+amortised policy is the wrong tool on a distribution this diverse.</p>
+<p><strong>Not shown:</strong> any effect on a real fire. NDWS records what fires did without
+firebreaks; there are no counterfactuals. The forecast is validated against
+observation (AUC-PR 0.264–0.280 on these same held-out fires); the treatment
+effect rests on the stated action model.</p>
+<h3 id="6-explanation-the-certificate-holds-the-faithfulness-claim-does-not">6. Explanation: the certificate holds, the faithfulness claim does not</h3>
+<p><strong>What was claimed.</strong> Trained-in briefs beat a genuine post-hoc control: on
+dar with Qwen, 0.468 ± 0.16 vs 0.182 ± 0.16, t = +21.3; on real fire plans,
+0.814 ± 0.039 vs 0.741 ± 0.005, t = +3.61. A split-conformal certificate holds
+at 90% and 95% coverage on 3 of 3 seeds, with a non-vacuous floor
+(F ≥ 0.706 at δ = 0.1 on real fire plans).</p>
+<p><strong>The control that broke it.</strong> Score each brief against a <strong>different</strong>
+state's action distribution. If briefs are state-specific, aligned F should
+exceed shuffled F. If the generator emits the same brief regardless of state,
+the two are equal by construction:</p>
+<table>
+<thead>
+<tr>
+<th>testbed</th>
+<th>arm</th>
+<th>F aligned</th>
+<th>F shuffled</th>
+<th>gap</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>dar, seed 0</td>
+<td>trained-in</td>
+<td>0.2809</td>
+<td>0.2805</td>
+<td>+0.0004</td>
+</tr>
+<tr>
+<td>dar, seed 0</td>
+<td>post-hoc</td>
+<td>0.0034</td>
+<td>0.0034</td>
+<td>0.0000</td>
+</tr>
+<tr>
+<td>dar, seed 1</td>
+<td>trained-in</td>
+<td>0.5570</td>
+<td>0.5570</td>
+<td>0.0000</td>
+</tr>
+<tr>
+<td>dar, seed 2</td>
+<td>trained-in</td>
+<td>0.5657</td>
+<td>0.5659</td>
+<td>-0.0002</td>
+</tr>
+<tr>
+<td>NDWS, seed 0</td>
+<td>trained-in</td>
+<td>0.7439</td>
+<td>0.7436</td>
+<td>+0.0003</td>
+</tr>
+<tr>
+<td>NDWS, seed 1</td>
+<td>trained-in</td>
+<td>0.7673</td>
+<td>0.7674</td>
+<td>-0.0001</td>
+</tr>
+<tr>
+<td>NDWS, seed 2</td>
+<td>trained-in</td>
+<td>0.8630</td>
+<td>0.8639</td>
+<td>-0.0009</td>
+</tr>
+</tbody>
+</table>
+<p>Zero state-specific information, on both testbeds, for every arm including the
+post-hoc control. The sampled briefs confirm it: the same actuators at the
+same amplitudes for different states, with only the cost and reward lines
+varying.</p>
+<p><strong>Three fixes, all negative</strong> (<code>docs/results/EXPLAIN_PERMUTATION.md</code>):</p>
+<ol>
+<li><em>More conditioning capacity</em> — prefix 4 → 16 vectors, cond_dim 64 → 256,
+   deeper projection, 10% condition dropout. No effect.</li>
+<li><em>A differentiable contrastive objective</em> — each brief must be cheaper under
+   its own condition than under its neighbours'. Unit-tested to reach the
+   prefix parameters. In training the loss sat at log B, the value for a model
+   that ignores its condition, and in one seed rose.</li>
+<li><em>2.5x the training budget</em> — 500 iterations, gap logged every 100:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>iteration</th>
+<th>NLL/token (plain)</th>
+<th>gap</th>
+<th>NLL/token (contrastive)</th>
+<th>gap</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>100</td>
+<td>0.662</td>
+<td>+0.0015</td>
+<td>0.669</td>
+<td>+0.0012</td>
+</tr>
+<tr>
+<td>200</td>
+<td>0.544</td>
+<td>+0.0027</td>
+<td>0.542</td>
+<td>-0.0004</td>
+</tr>
+<tr>
+<td>300</td>
+<td>0.757</td>
+<td>-0.0097</td>
+<td>0.533</td>
+<td>-0.0019</td>
+</tr>
+<tr>
+<td>400</td>
+<td>1.000</td>
+<td>+0.0000</td>
+<td>0.515</td>
+<td>+0.0041</td>
+</tr>
+<tr>
+<td>500</td>
+<td>0.524</td>
+<td>-0.0229</td>
+<td>0.674</td>
+<td>-0.0209</td>
+</tr>
+</tbody>
+</table>
+<p>NLL plateaus near 0.5 nats/token; the gap never leaves zero.</p>
+<p><strong>Not a plumbing bug.</strong> On the Qwen path the prefix receives a gradient of
+norm 1.1e5 (against 4.6e3 for the LoRA adapters), the NLL moves by 1.51 when
+the condition is zeroed, and prefix embeddings differ across rows. The model
+<em>can</em> use the condition; the optimisation settles on the marginal distribution
+over actions rather than the conditional, and greedy decoding then emits the
+modal brief every time.</p>
+<p><strong>The testbed could not have answered the question.</strong> The trained dar policy
+is effectively state-independent: across 64 states the action std is <strong>1.2%</strong>
+of the action magnitude, and on the brief's 0.05 quantisation grid those 64
+states give <strong>8 distinct action vectors</strong>. Its briefs are nearly identical, its
+supervised NLL reaches 0.05 nats/token, and a constant brief is close to
+correct. On dar the permutation gap is zero no matter what the generator does.
+Every Explain number measured on dar was computed on a task with nothing to
+explain. NDWS — 1,013 distinct plans across 1,024 fires, across-fire intensity
+std 3.06x the mean — is the only testbed here where the question is posed.</p>
+<p><strong>What stands.</strong> The certificate machinery: coverage holds at 90% and 95% on
+3 of 3 seeds on real data, and the floor it reports is honest about the
+generator it was given. Certifying a constant brief is not a defect of the
+certificate.</p>
+<p><strong>What to change.</strong> Report the gap (aligned minus shuffled), not F. Retire dar
+as an Explain testbed and calibrate any replacement for action diversity.
+Treat the fix as a design change — cross-attention conditioning, or a
+structured head for the (patch, amplitude) list with prose generated around it
+— not a tuning exercise.</p>
+<hr />
+<h2 id="part-iv-what-survives-and-what-does-not">Part IV — What survives, and what does not</h2>
+<p><strong>Survives multi-seed scrutiny</strong></p>
+<ul>
+<li>Return advantage over four safe-RL baselines <strong>on dar</strong> (t = +3.84 to +17.95)</li>
+<li>Real-sample efficiency: 9x on dar, 5x on rdf</li>
+<li>FNO ≫ DeepONet ≫ GNOT, on synthetic and real benchmark data</li>
+<li>Surrogate accuracy competitive with published PDEBench FNO error</li>
+<li>Resolution invariance to 128² (16,384 cells)</li>
+<li>Constraint violations cut ~7x by probe + margin; 13 of 15 seed-runs clean</li>
+<li>A conformal margin with a <strong>stated failure rate</strong>: at δ = 0.1 the realised
+  violation rate was 0% (dar) and 7.3% (rdf), both inside the bound</li>
+<li>Joint training is safe when data-anchored (surrogate improves 5–9x, decision
+  unchanged) and destructive when not, on all three testbeds</li>
+<li>Assumption 1 (L_G ≤ 1) after training</li>
+<li>The conformal certificate's coverage, on synthetic and real data</li>
+<li>The FNO's scope: operators for smooth fields, convolutions for sharp fronts
+  (NDWS gate 0.12, U-Net &gt; hybrid at t = +12.5)</li>
+<li>U-Net on real wildfire data at 97.5% of published AUC-PR</li>
+<li>Constrained planning on real fire data: +12.0 points over forecast-then-greedy
+  (5 seeds, t = 11.15), 1.9–2.1x the heuristic's reduction at tight budgets</li>
+<li>That planning advantage <strong>without</strong> the imposed action physics: the gap widens
+  to +13.6 points when only the learned fuel response is active</li>
+<li>The mechanism behind it: the advantage is insignificant at a one-day horizon
+  (where greedy is the exact optimum, t = 1.40) and grows monotonically to
+  +14.3 at five days, while the heuristic degrades</li>
+</ul>
+<p><strong>Does not survive</strong></p>
+<ul>
+<li>Constraint satisfaction <em>as originally built</em> — 7.3% of evaluations violated</li>
+<li>Constraint satisfaction as a <em>guarantee</em> — the fix is a 7x reduction, with
+  two excursions in 15 seed-runs</li>
+<li>A return edge on rdf — parity with PPO-Lagrangian at matched safety</li>
+<li>Joint training <em>beating</em> the disaggregated pipeline on return</li>
+<li>Equation 8 improving on the variance-only α (measured B² is too small)</li>
+<li>Proposition 1's infinite-horizon bound as a usable number (4,000x loose)</li>
+<li>The physics-informed loss improving asymptotic accuracy</li>
+<li>Adaptive α improving mean return (it improves the tail)</li>
+<li>The faithfulness objective contributing beyond supervised brief training</li>
+<li>PSPE perception beating a CNN or a frozen probe on reconstruction</li>
+<li>Any specific magnitude for transfer into the wave family</li>
+<li><strong>Any claim that a brief explains the decision it was generated for</strong></li>
+<li><code>swe</code> as a planning testbed — not because the policy fails to act (it beats
+  doing nothing by +0.0122, better than a hand-written damper) but because the
+  entire span between doing nothing and the best achievable return is ~7% of
+  the objective, so method differences sit inside it</li>
+<li><code>dar</code> as an Explain testbed — its policy is state-independent</li>
+</ul>
+<p><strong>Not yet measured</strong></p>
+<ul>
+<li>Flood testbed on real data; human study on real briefs</li>
+<li>Safe-RL baselines on swe (blocked on the swe task redesign)</li>
+<li>NDWS test-split numbers with focal loss</li>
+<li>Safe-RL baselines on swe (blocked on its redesign)</li>
+</ul>
+<hr />
+<h2 id="part-v-measurement-defects-found-and-fixed">Part V — Measurement defects found and fixed</h2>
+<p>This project's most transferable output may be the list of ways its own
+measurements were wrong. Each was found by a check that should be standard.</p>
+<table>
+<thead>
+<tr>
+<th>defect</th>
+<th>effect</th>
+<th>how it was caught</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Constraint read from one final evaluation snapshot</td>
+<td>Identical runs scored "0% violation" or "100%" on timing luck</td>
+<td>Multi-seed reruns disagreeing</td>
+</tr>
+<tr>
+<td>Evaluation perturbed training through the global RNG</td>
+<td>Baseline returns shifted -2.51 → -2.30</td>
+<td>Forking the RNG changed the baseline</td>
+</tr>
+<tr>
+<td>Optional-dependency tests skipped silently</td>
+<td>A "tested" loader failed on first real use</td>
+<td><code>importorskip</code> audit</td>
+</tr>
+<tr>
+<td>Truth solver unstable above 64²</td>
+<td>NaN at every resolution above the training grid</td>
+<td>Resolution sweep</td>
+</tr>
+<tr>
+<td>Faithfulness REINFORCE had exactly zero gradient</td>
+<td>Samples never parsed; every score equalled the parser fallback</td>
+<td>Parse-rate diagnostic</td>
+</tr>
+<tr>
+<td>Cost limits uncalibrated</td>
+<td>The dual never activated; five unconstrained learners tying</td>
+<td>Measuring do-nothing and greedy cost</td>
+</tr>
+<tr>
+<td><code>F = exp(-KL)</code> with KL summed over dimensions</td>
+<td>Every arm scored exactly 0.0 at 64 actions while the reference scored 0.985</td>
+<td>Running Explain on a large action space</td>
+</tr>
+<tr>
+<td>Faithfulness never measured state-specificity</td>
+<td>A constant brief scores as well as a correct one</td>
+<td><strong>Permutation control</strong></td>
+</tr>
+<tr>
+<td>dar's policy is state-independent</td>
+<td>The Explain testbed had nothing to explain</td>
+<td>Measuring action diversity across states</td>
+</tr>
+<tr>
+<td>Conformal margin bounded the surrogate's error, not the policy's spread</td>
+<td>Violations rose to 18.2% on rdf, worse than no margin at all</td>
+<td>Running it on a testbed where the surrogate is accurate but the policy is variable</td>
+</tr>
+<tr>
+<td>Baselines compared against their own initialisation</td>
+<td>Four constrained-RL methods "failed structurally" at 22–38% of a 3% budget</td>
+<td>Solving for the initial action the parameterisation implies</td>
+</tr>
+<tr>
+<td>Testbed calibrated for a binding constraint but not a controllable objective</td>
+<td>swe ranked planning methods inside a 7% band for the whole project</td>
+<td>Measuring return separation, not just cost separation</td>
+</tr>
+</tbody>
+</table>
+<p>Seven of these checks, their standing rules, and the three results they
+overturned <em>before</em> publication are collected in
+<code>docs/results/ROBUSTNESS_NOTES.md</code>.</p>
+<p><strong>The general lesson.</strong> Every metric that compares a generated artefact to a
+target should ship with a permutation control, and every testbed should be
+calibrated for the variation the metric needs before it is used. Without
+those, "the metric went up" and "the model learned the task" are
+indistinguishable — and in this project they were, for three rounds of
+scrutiny including a real-backbone replication and a conformal certificate.</p>
+<hr />
+<h2 id="part-vi-infrastructure-and-reproduction">Part VI — Infrastructure and reproduction</h2>
+<p><strong>Protocol.</strong> 5 seeds by default, mean ± sample std, paired <em>t</em>-tests. 171
+tests including regression tests for each measurement defect above. One
+command per sweep (<code>eval/run_seeds.py</code>), with aggregation by run or arm key.</p>
+<p><strong>Compute.</strong> TACC Vista (GH200). Jobs are packed — all seeds of one experiment
+concurrently on one GPU — because a single short job backfills into gaps a
+multi-node array never fits. A 5-seed sweep takes about 10 minutes against
+~9 hours on one CPU. Time limits matter more than node counts: 25–30 minute
+jobs backfill within minutes when hour-long jobs wait hours.</p>
+<p><strong>Key scripts.</strong></p>
+<table>
+<thead>
+<tr>
+<th>purpose</th>
+<th>command</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Multi-seed sweep</td>
+<td><code>python eval/run_seeds.py --seeds 0 1 2 3 4 --full</code></td>
+</tr>
+<tr>
+<td>Constraint fix / planner v2</td>
+<td><code>python eval/run_constraint_fix.py --sat-coef 1 --adv-floor 1e-2 --dual-ema 0.7 --ki 0.5 --margin-episode-std</code></td>
+</tr>
+<tr>
+<td>Joint vs disaggregated</td>
+<td><code>python eval/run_joint.py --beta 0.1</code></td>
+</tr>
+<tr>
+<td>NDWS surrogate</td>
+<td><code>python eval/run_ndws.py --epochs 18 --n-train 8000</code></td>
+</tr>
+<tr>
+<td>NDWS planning</td>
+<td><code>python eval/run_ndws_planning.py --horizon 3</code></td>
+</tr>
+<tr>
+<td>NDWS briefs + certificate</td>
+<td><code>python eval/run_ndws_explain.py --arms trained-in</code></td>
+</tr>
+<tr>
+<td>Permutation control</td>
+<td><code>python eval/run_explain_baselines.py --n-permutation 128</code></td>
+</tr>
+<tr>
+<td>Vista submission</td>
+<td><code>sbatch --export=ALL,EXPERIMENT=&lt;name&gt;[,TESTBED=,ARMS=,CW=] scripts/tacc/vista_packed.slurm</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Detailed analyses.</strong></p>
+<table>
+<thead>
+<tr>
+<th>file</th>
+<th>contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/results/PHASE1_ANALYSIS.md</code></td>
+<td>Joint training, Eq. 8, Lipschitz/Prop 1, faithfulness weight sweep, conformal on dar</td>
+</tr>
+<tr>
+<td><code>docs/results/PHASE3_ANALYSIS.md</code></td>
+<td>Constraint fix and joint training on swe and rdf</td>
+</tr>
+<tr>
+<td><code>docs/results/RDF_PLANNER_FIX.md</code></td>
+<td>The three-defect diagnosis, the dar regression, rdf safe-RL baselines</td>
+</tr>
+<tr>
+<td><code>docs/results/NDWS_PLANNING.md</code></td>
+<td>Constrained firebreak planning on observed fire data</td>
+</tr>
+<tr>
+<td><code>docs/results/NDWS_EXPLAIN.md</code></td>
+<td>Briefs and certificate on real fire plans</td>
+</tr>
+<tr>
+<td><code>docs/results/EXPLAIN_PERMUTATION.md</code></td>
+<td>The permutation control and three failed fixes</td>
+</tr>
+<tr>
+<td><code>docs/technical_report.md</code></td>
+<td>Full narrative report with method and literature</td>
+</tr>
+<tr>
+<td><code>docs/slides_experiments.md</code></td>
+<td>Slide-by-slide version of the experimental section</td>
+</tr>
+<tr>
+<td><code>docs/figures/</code></td>
+<td>Architecture, module and application diagrams</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="part-vii-where-this-leaves-the-work">Part VII — Where this leaves the work</h2>
+<p><strong>The defensible framing.</strong> Not "joint training of four modules beats
+disaggregated pipelines" — that was tested on three PDE families and is false.
+The framing the evidence supports is:</p>
+<blockquote>
+<p>Learned surrogates make constrained planning cheap, but the planner
+inherits every error the surrogate makes, silently. Measure the real system
+periodically, plan against the measured error, and the violations mostly go
+away at no return cost and a fraction of the real-world samples. Where the
+decision is genuinely sequential, planning through the surrogate beats the
+operational heuristic on real data. And the parts that do not work — joint
+training, the faithfulness objective, the explanation module's conditioning
+— are reported with the measurements that show why.</p>
+</blockquote>
+<p><strong>Three contributions stand.</strong> Safety by measurement; sample efficiency;
+planning on observed data. Each is multi-seed, mechanism-explained, and
+reproduced across testbeds where applicable.</p>
+<p><strong>One is halved.</strong> The explanation module has a working certificate and an
+open conditioning problem, both measured.</p>
+<p><strong>The immediate next experiments</strong>, in order of value:</p>
+<ol>
+<li>~~NDWS test-split numbers~~ — <strong>done</strong>, and the surrogate exceeds the
+   published figure (§Simulate). Remaining: numbers with focal loss, to close the 0.277 → 0.284 gap on
+   the split the published figure uses.</li>
+<li>~~The swe task redesign~~ — <strong>attempted and characterised</strong> (§3b). The
+   actuator-amplitude fix does not work on a stochastic policy; a new objective
+   would be needed. Retired as a comparison testbed with a measured reason.</li>
+<li>The former item 2 — more actuation authority until the do-nothing and
+   greedy costs separate — or its retirement as a planning testbed.</li>
+<li>The Explain redesign (structured head for the action list), which is a
+   different module and possibly a different paper.</li>
+</ol>
+<p><em>Done since the first draft of this report:</em> the NDWS test-split result
+(§Simulate), the swe characterisation (§3b), the NDWS result extended to five
+seeds (§5), the crew-budget Pareto sweep (§5a), constrained-RL baselines on the
+same fires (§5a2), the horizon ablation at five seeds that shows the mechanism (§5a3), the
+fuel-only ablation (§5b), and a working conformal margin (§1). The robustness
+checks that overturned two results before they were reported are in
+<code>docs/results/ROBUSTNESS_NOTES.md</code>.</p></body></html>

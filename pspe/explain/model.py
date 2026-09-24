@@ -38,8 +38,17 @@ class ExplainConfig:
     depth: int = 4
     heads: int = 4
     max_len: int = 96
-    n_prefix: int = 4
-    cond_dim: int = 64
+    # The state reaches a frozen backbone only through these prefix vectors.
+    # At n_prefix = 4 the model ignored them entirely: briefs were constant
+    # across states and aligned faithfulness equalled shuffled to four
+    # decimals (docs/results/EXPLAIN_PERMUTATION.md). More prefix capacity is
+    # the first half of the fix; the second is the contrastive objective.
+    n_prefix: int = 16
+    cond_dim: int = 256
+    # Probability of zeroing the condition during training. A brief generated
+    # from a zeroed condition cannot be right, so the supervised term can no
+    # longer be minimised by memorising the template alone.
+    cond_dropout: float = 0.1
     lora_r: int = 8
     lora_alpha: int = 16
     quant: str = "none"
@@ -105,7 +114,9 @@ class ExplainModule(nn.Module):
         self.tokenizer = tokenizer
         self.backbone, self.width, self._is_hf = self._build_backbone(len(tokenizer))
         self.prefix = nn.Sequential(
+            nn.LayerNorm(cond_features),
             nn.Linear(cond_features, self.cfg.cond_dim), nn.GELU(),
+            nn.Linear(self.cfg.cond_dim, self.cfg.cond_dim), nn.GELU(),
             nn.Linear(self.cfg.cond_dim, self.cfg.n_prefix * self.width),
         )
         # Briefs live in OUR closed vocabulary (what the frozen parser reads),
@@ -231,6 +242,10 @@ class ExplainModule(nn.Module):
         return self.backbone(inputs_embeds)
 
     def _prefix_embeds(self, condition: Tensor) -> Tensor:
+        if self.training and self.cfg.cond_dropout > 0:
+            keep = (torch.rand(condition.shape[0], 1, device=condition.device)
+                    >= self.cfg.cond_dropout).float()
+            condition = condition * keep
         return self.prefix(condition).view(condition.shape[0], self.cfg.n_prefix, self.width)
 
     # -- training forward ---------------------------------------------------- #

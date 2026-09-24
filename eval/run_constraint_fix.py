@@ -81,6 +81,10 @@ def main() -> int:
     parser.add_argument("--ki", type=float, default=0.05)
     parser.add_argument("--kd", type=float, default=0.1)
     parser.add_argument("--margin-episode-std", action="store_true")
+    parser.add_argument("--margin-conformal", action="store_true",
+                        help="replace the k-sigma margin with a split-conformal quantile of the "
+                             "probe's cost errors, which carries a stated failure rate")
+    parser.add_argument("--margin-delta", type=float, default=0.1)
     parser.add_argument("--out", default="runs/constraint_fix")
     args = parser.parse_args()
 
@@ -134,6 +138,8 @@ def main() -> int:
                               dual_normalize=args.dual_normalize, lr_policy=args.lr_policy,
                               kp=args.kp, ki=args.ki, kd=args.kd,
                               margin_episode_std=args.margin_episode_std,
+                              margin_conformal=args.margin_conformal,
+                              margin_delta=args.margin_delta,
                               **overrides),
             eval_env=eval_env,
             logger=RunLogger(root / name, use_tensorboard=False),

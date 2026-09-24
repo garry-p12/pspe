@@ -70,6 +70,79 @@ case "${EXPERIMENT:?set EXPERIMENT=cfix|expl|res}" in
         --baseline-ki "$KIV" --seed $s --device "$DEV" --out "runs/baselines$SFX$KSFX/seed_$s" \
         > "runs/baselines${SFX}${KSFX}_seed_$s.log" 2>&1 &
     done ;;
+  ndwsplan) # constrained firebreak planning on real NDWS data, 3 seeds packed; HORIZON (default 3)
+    for s in 0 1 2; do
+      python -u eval/run_ndws_planning.py --seed $s --horizon "${HORIZON:-3}" --device "$DEV" \
+        --out "runs/ndws_planning/seed_$s" > "runs/ndws_planning_seed_$s.log" 2>&1 &
+    done ;;
+  sweauth)  # swe actuation-authority sweep: at what u_max does the task become a
+            # control problem at all? Reports return separation, not just cost.
+    for u in 0.04 0.10 0.20 0.35 0.50; do
+      python -u scripts/calibrate_constraints.py --testbeds swe --grid 64 --horizon 12 \
+        --iterations 120 --u-max $u --budget "${BUDGET:-0.10}" --device "$DEV" \
+        --out "runs/calibration/swe_u$u.json" > "runs/swe_auth_u$u.log" 2>&1 &
+    done ;;
+  ndwstest) # NDWS on the TEST split with focal loss, the split the published number uses
+    for s in 0 1 2; do
+      python -u eval/run_ndws.py --epochs 18 --n-train 8000 --n-eval 1500 --seed $s \
+        --models unet hybrid --published-aucpr 0.284 --test --augment \
+        --pos-weight "${POSW:-9.7}" --device "$DEV" \
+        --out "runs/ndws_test/seed_$s" > "runs/ndws_test_seed_$s.log" 2>&1 &
+    done ;;
+  ndwspart) # planning under partial observation: the twin's sync step on real data
+    for s in 0 1 2; do
+      python -u eval/run_ndws_partial.py --seed $s --horizon 3 --device "$DEV" \
+        --unet-ckpt "runs/ndws_planning/seed_$s/unet.pt" \
+        --rates ${RATES:-0.0 0.15 0.35 0.6} --n-eval "${NEVAL:-800}" \
+        --out "runs/ndws_partial${OUTSFX:-}/seed_$s" > "runs/ndws_partial${OUTSFX:-}_seed_$s.log" 2>&1 &
+    done ;;
+  ndwsbase) # constrained-RL baselines on the wildfire task. FAIR=1 starts them at
+            # an action that meets the budget, which is where PSPE's optimiser starts.
+    for s in ${SEEDS:-0 1 2}; do
+      python -u eval/run_ndws_baselines.py --seed $s --horizon "${HORIZON:-3}" --device "$DEV" \
+        --iterations "${ITERS:-200}" ${FAIR:+--fair-init} \
+        --unet-ckpt "runs/ndws_planning/seed_$s/unet.pt" \
+        --out "runs/ndws_baselines${OUTSFX:-}/seed_$s" > "runs/ndws_baselines${OUTSFX:-}_seed_$s.log" 2>&1 &
+    done ;;
+  ndwshoriz) # horizon ablation: does planning only pay when the decision is sequential?
+    for s in ${SEEDS:-0 1 2}; do
+      for h in 1 2 3 5; do
+        python -u eval/run_ndws_planning.py --seed $s --horizon $h --device "$DEV" \
+          --unet-ckpt "runs/ndws_planning/seed_$s/unet.pt" \
+          --out "runs/ndws_horiz_h$h/seed_$s" > "runs/ndws_horiz_h${h}_seed_$s.log" 2>&1
+      done &
+    done ;;
+  ndwsplan2) # NDWS planning, parameterised: SEEDS, BUDGET, BLOCK. One job = all seeds packed.
+    for s in ${SEEDS:-0 1 2}; do
+      CK=""; [ -f "runs/ndws_planning/seed_$s/unet.pt" ] && CK="--unet-ckpt runs/ndws_planning/seed_$s/unet.pt"
+      python -u eval/run_ndws_planning.py --seed $s --horizon 3 --device "$DEV" \
+        --budget "${BUDGET:-0.03}" --block "${BLOCK:-0.9}" $CK \
+        --out "runs/ndws_plan${OUTSFX:-}/seed_$s" > "runs/ndws_plan${OUTSFX:-}_seed_$s.log" 2>&1 &
+    done ;;
+  cfixconf) # conformal margin instead of k-sigma, on TESTBED, 5 seeds
+    for s in 0 1 2 3 4; do
+      python -u eval/run_constraint_fix.py --testbed "$TB" --seed $s --grid 64 --epochs 20 \
+        --iterations 200 --probe-every 10 --sat-coef 1.0 --adv-floor 1e-2 --dual-ema 0.7 --ki 0.5 \
+        --margin-conformal --margin-delta "${DELTA:-0.1}" --device "$DEV" \
+        --out "runs/constraint_fix_conf$SFX/seed_$s" > "runs/constraint_fix_conf${SFX}_seed_$s.log" 2>&1 &
+    done ;;
+  ndwslong) # does the permutation gap open with a real training budget? one seed,
+            # ITERS iterations, gap logged every 100 so the slope is visible.
+    python -u eval/run_ndws_explain.py --seed 0 --horizon 3 --device "$DEV" \
+      --arms trained-in --iterations "${ITERS:-500}" --gap-every 100 \
+      --contrastive "${CW:-0}" --explain-batch 8 \
+      --unet-ckpt runs/ndws_planning/seed_0/unet.pt --backbone Qwen/Qwen2.5-0.5B-Instruct \
+      --out "runs/ndws_explain_long${OUTSFX:-}/seed_0" > "runs/ndws_explain_long${OUTSFX:-}.log" 2>&1 &
+    ;;
+  ndwsexpl) # certified briefs for the NDWS firebreak plans, 3 seeds packed (Qwen).
+            # ARMS selects which arms run, so a job fits a short backfill slot:
+            # "trained-in" (with the certificate) is ~21 min, the others ~11.
+    for s in 0 1 2; do
+      python -u eval/run_ndws_explain.py --seed $s --horizon 3 --device "$DEV" \
+        --arms ${ARMS:-trained-in no-faithful post-hoc} --contrastive "${CW:-0}" \
+        --unet-ckpt "runs/ndws_planning/seed_$s/unet.pt" --backbone Qwen/Qwen2.5-0.5B-Instruct \
+        --out "runs/ndws_explain${OUTSFX:-}/seed_$s" > "runs/ndws_explain${OUTSFX:-}_seed_$s.log" 2>&1 &
+    done ;;
   expl)
     for s in 0 1 2; do
       ( CKPT="runs/explain_real_v2/seed_$s/policy.pt"
@@ -79,6 +152,24 @@ case "${EXPERIMENT:?set EXPERIMENT=cfix|expl|res}" in
           --device "$DEV" --backbone Qwen/Qwen2.5-0.5B-Instruct --policy "$CKPT" \
           --seed $s --out runs/explain_real_v2/seed_$s
       ) > runs/explain_v2_seed_$s.log 2>&1 &
+    done ;;
+  contrast) # does the contrastive term make briefs state-specific? CW sets its weight
+    for s in 0 1 2; do
+      ( CKPT="runs/explain_real_v2/seed_$s/policy.pt"
+        python -u eval/run_explain_baselines.py --testbed dar --grid 64 --iterations 200 \
+          --device "$DEV" --backbone Qwen/Qwen2.5-0.5B-Instruct --policy "$CKPT" \
+          --arms trained-in --contrastive "${CW:-1.0}" \
+          --seed $s --out "runs/explain_contrast${OUTSFX:-}/seed_$s"
+      ) > "runs/explain_contrast${OUTSFX:-}_seed_$s.log" 2>&1 &
+    done ;;
+  perm)    # permutation control on the dar Explain arms: is F state-specific?
+    for s in 0 1 2; do
+      ( CKPT="runs/explain_real_v2/seed_$s/policy.pt"
+        python -u eval/run_explain_baselines.py --testbed dar --grid 64 --iterations 200 \
+          --device "$DEV" --backbone Qwen/Qwen2.5-0.5B-Instruct --policy "$CKPT" \
+          --arms ${ARMS:-trained-in no-faithful post-hoc} \
+          --seed $s --out "runs/explain_perm${OUTSFX:-}/seed_$s"
+      ) > "runs/explain_perm${OUTSFX:-}_seed_$s.log" 2>&1 &
     done ;;
   expl2)   # Phase 1b + 1d on Qwen: conformal certificate + faithfulness weight sweep
     for s in 0 1 2; do

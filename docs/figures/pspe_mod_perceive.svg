@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="628.2pt" height="457.92pt" viewBox="0 0 628.2 457.92" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-24T17:04:39.805528</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.1, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 457.92 
+L 628.2 457.92 
+L 628.2 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 26.73 64.999149 
+L 601.47 64.999149 
+Q 607.05 64.999149 607.05 59.101277 
+L 607.05 23.714043 
+Q 607.05 17.81617 601.47 17.81617 
+L 26.73 17.81617 
+Q 21.15 17.81617 21.15 23.714043 
+L 21.15 59.101277 
+Q 21.15 64.999149 26.73 64.999149 
+z
+" clip-path="url(#p7adf5dbe1b)" style="fill: #2b5d8c"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 25.614 193.572766 
+L 602.586 193.572766 
+Q 607.05 193.572766 607.05 188.854468 
+L 607.05 82.692766 
+Q 607.05 77.974468 602.586 77.974468 
+L 25.614 77.974468 
+Q 21.15 77.974468 21.15 82.692766 
+L 21.15 188.854468 
+Q 21.15 193.572766 25.614 193.572766 
+z
+" clip-path="url(#p7adf5dbe1b)" style="fill: #dbe9f6; stroke: #2b5d8c; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 25.614 368.149787 
+L 301.266 368.149787 
+Q 305.73 368.149787 305.73 363.431489 
+L 305.73 223.062128 
+Q 305.73 218.34383 301.266 218.34383 
+L 25.614 218.34383 
+Q 21.15 218.34383 21.15 223.062128 
+L 21.15 363.431489 
+Q 21.15 368.149787 25.614 368.149787 
+z
+" clip-path="url(#p7adf5dbe1b)" style="fill: #eef7f2; stroke: #1f6b4f; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 326.934 368.149787 
+L 602.586 368.149787 
+Q 607.05 368.149787 607.05 363.431489 
+L 607.05 223.062128 
+Q 607.05 218.34383 602.586 218.34383 
+L 326.934 218.34383 
+Q 322.47 218.34383 322.47 223.062128 
+L 322.47 363.431489 
+Q 322.47 368.149787 326.934 368.149787 
+z
+" clip-path="url(#p7adf5dbe1b)" style="fill: #fdf0f0; stroke: #a12a2a; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="font-weight: 700; font-size: 15.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #ffffff" x="39.564" y="45.434027" transform="rotate(-0 39.564 45.434027)">PERCEIVE</text>
+   </g>
+   <g id="text_2">
+    <!-- $\hat u_t = m_t\,y_t + (1-m_t)\,\Phi(\tilde u_t,\, y_t)$ -->
+    <g style="fill: #ffffff" transform="translate(424.761 44.593695)">
+     <text>
+      <tspan x="1.1875" y="-1" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">^</tspan>
+      <tspan x="14.020161" y="-0.625" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">=</tspan>
+      <tspan x="55.661101" y="-0.625" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">+</tspan>
+      <tspan x="67.871802" y="-0.625" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">(</tspan>
+      <tspan x="72.724097" y="-0.625" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">1</tspan>
+      <tspan x="108.531326" y="-0.625" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">)</tspan>
+      <tspan x="115.467002" y="-0.625" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">©</tspan>
+      <tspan x="124.494102" y="-0.625" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">(</tspan>
+      <tspan x="129.940147" y="-0.578125" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">~</tspan>
+      <tspan x="158.910962" y="-0.625" style="font-size: 12.5px; font-family: 'cmr10'; fill: #ffffff">)</tspan>
+      <tspan x="0" y="-0.625" style="font-size: 12.5px; font-family: 'cmmi10'; fill: #ffffff">u</tspan>
+      <tspan x="26.230861" y="-0.625" style="font-size: 12.5px; font-family: 'cmmi10'; fill: #ffffff">m</tspan>
+      <tspan x="43.160764" y="-0.625" style="font-size: 12.5px; font-family: 'cmmi10'; fill: #ffffff">y</tspan>
+      <tspan x="93.684805" y="-0.625" style="font-size: 12.5px; font-family: 'cmmi10'; fill: #ffffff">m</tspan>
+      <tspan x="129.346397" y="-0.625" style="font-size: 12.5px; font-family: 'cmmi10'; fill: #ffffff">u</tspan>
+      <tspan x="140.86655" y="-0.625" style="font-size: 12.5px; font-family: 'cmmi10'; fill: #ffffff">;</tspan>
+      <tspan x="148.910632" y="-0.625" style="font-size: 12.5px; font-family: 'cmmi10'; fill: #ffffff">y</tspan>
+      <tspan x="7.647753" y="1.249995" style="font-size: 8.75px; font-family: 'cmmi10'; fill: #ffffff">t</tspan>
+      <tspan x="37.204982" y="1.249995" style="font-size: 8.75px; font-family: 'cmmi10'; fill: #ffffff">t</tspan>
+      <tspan x="49.288694" y="1.249995" style="font-size: 8.75px; font-family: 'cmmi10'; fill: #ffffff">t</tspan>
+      <tspan x="104.658926" y="1.249995" style="font-size: 8.75px; font-family: 'cmmi10'; fill: #ffffff">t</tspan>
+      <tspan x="136.99415" y="1.249995" style="font-size: 8.75px; font-family: 'cmmi10'; fill: #ffffff">t</tspan>
+      <tspan x="155.038561" y="1.249995" style="font-size: 8.75px; font-family: 'cmmi10'; fill: #ffffff">t</tspan>
+      <tspan x="81.474104" y="-0.625" style="font-size: 12.5px; font-family: 'cmsy10'; fill: #ffffff">¡</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_3">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #2b5d8c" x="36.216" y="98.057929" transform="rotate(-0 36.216 98.057929)">WHAT IT DOES</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="36.216" y="123.956966" transform="rotate(-0 36.216 123.956966)">A frozen vision backbone with LoRA adapters, a field decoder and a contrastive text head.</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="36.216" y="149.907604" transform="rotate(-0 36.216 149.907604)">Under occlusion a self supervised estimator fills the cells the satellite did not see.</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="36.216" y="175.858242" transform="rotate(-0 36.216 175.858242)">Occlusion is generated spatially correlated, so a blob covers the front, not stray pixels.</text>
+   </g>
+   <g id="text_7">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #1f6b4f" x="36.216" y="238.427291" transform="rotate(-0 36.216 238.427291)">WHAT HELD UP</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="36.216" y="263.094792" transform="rotate(-0 36.216 263.094792)">Losing 60 percent of the observation</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="36.216" y="285.506707" transform="rotate(-0 36.216 285.506707)">costs 6.6 of 41 points, and still beats</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="36.216" y="307.918622" transform="rotate(-0 36.216 307.918622)">the full state heuristic by a wide margin.</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="36.216" y="330.330537" transform="rotate(-0 36.216 330.330537)">The frozen backbone beats a trained one,</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="36.216" y="352.742451" transform="rotate(-0 36.216 352.742451)">t of 3.97, and buys alignment of 0.754.</text>
+   </g>
+   <g id="text_13">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #a12a2a" x="337.536" y="238.427291" transform="rotate(-0 337.536 238.427291)">WHAT DID NOT</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="337.536" y="263.094792" transform="rotate(-0 337.536 263.094792)">Reconstruction is 100 times better on</text>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="337.536" y="285.506707" transform="rotate(-0 337.536 285.506707)">hidden cells, yet the decision was worse</text>
+   </g>
+   <g id="text_16">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="337.536" y="307.918622" transform="rotate(-0 337.536 307.918622)">in 0 of 9 configurations. Of 4.3 points</text>
+   </g>
+   <g id="text_17">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="337.536" y="330.330537" transform="rotate(-0 337.536 330.330537)">lost, 3.4 are a representation artefact</text>
+   </g>
+   <g id="text_18">
+    <text style="font-size: 8.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #222222" x="337.536" y="352.742451" transform="rotate(-0 337.536 352.742451)">and 0.86 a real cost under a hard budget.</text>
+   </g>
+   <g id="text_19">
+    <text style="font-style: italic; font-size: 8.9px; font-family: 'DejaVu Sans'; fill: #666666" transform="translate(22.266 392.042439)">Bounded by one property of this field: fire covers 1.3 percent of cells, so assuming nothing burns where you cannot</text>
+    <text style="font-style: italic; font-size: 8.9px; font-family: 'DejaVu Sans'; fill: #666666" transform="translate(22.266 407.172439)">see is close to the base rate and costs almost nothing. On a dense field such as flood depth this could invert,</text>
+    <text style="font-style: italic; font-size: 8.9px; font-family: 'DejaVu Sans'; fill: #666666" transform="translate(22.266 422.302439)">which is the next experiment worth running.</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p7adf5dbe1b">
+   <rect x="7.2" y="7.2" width="613.8" height="443.52"/>
+  </clipPath>
+ </defs>
+</svg>
