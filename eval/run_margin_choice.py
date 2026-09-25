@@ -59,11 +59,17 @@ from pspe.simulate.solvers import make_testbed  # noqa: E402
 from pspe.utils import RunLogger, get_device, project_path, seed_everything  # noqa: E402
 
 # name -> (apply a margin at all, margin_mode)
+#
+# Order matters when a wall-clock limit can truncate the job: whatever runs last
+# is what gets lost. `residual` is the recipe under test and `none` is the
+# baseline every contrast needs, so those two run first. A stage-2 job elsewhere
+# in this project died at its limit with three of four arms done and lost
+# precisely the arm the experiment was for.
 ARMS = {
+    "residual":    (True,  "residual"),
     "none":        (False, "residual"),
     "model_error": (True,  "model_error"),
     "episode":     (True,  "episode"),
-    "residual":    (True,  "residual"),
 }
 
 

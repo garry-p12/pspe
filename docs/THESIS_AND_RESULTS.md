@@ -659,42 +659,50 @@ standing in for it.
 
 **Against a model-based safe-RL baseline.** Every other safe-RL baseline in
 this project is model-free, which makes "fewer real transitions than model-free
-methods" close to tautological for a model-based planner (§9.2). CAP
-(Ma et al., AAAI 2022) is the closest method that also plans in a learned model
-and also corrects for it being wrong: it inflates the cost estimate by ensemble
+methods" near-tautological for a model-based planner (§9.2). CAP (Ma et al.,
+AAAI 2022) is the closest method that also plans in a learned model and also
+corrects for it being wrong, inflating the cost estimate by ensemble
 disagreement, `c = mean + k·std` over five surrogates, with `k` adapted from the
 same periodic real probe we use. `eval/run_cap_baseline.py` transplants that
-cost-penalty onto our planner — same dual, testbed, limit, evaluation protocol
-and **probe budget** — so only the correction mechanism differs. It is not a
+penalty onto our planner — same dual, testbed, limit, evaluation protocol and
+**probe budget** — so only the correction mechanism differs. It is not a
 reimplementation of the paper, and the docstring says so.
 
-At a matched real-sample budget (6,400 training transitions plus 1,920 probe,
-identical for both), rdf, full-fidelity surrogate:
+Matched real-sample budget (6,400 training transitions plus 1,920 probe), rdf,
+full-fidelity surrogate:
 
 | method | violating | seeds |
 |---|---|---|
 | no margin | 0.1317 | 5 |
 | model-error conformal | 0.1415 | 5 |
-| **CAP (ensemble penalty)** | **0.1301** | 3 |
-| **ours (residual)** | **0.0781** | 5 |
+| **CAP (ensemble penalty)** | **0.1199** | 12 |
+| **ours (residual)** | **0.0780** | 10 |
 
-CAP lands at 0.130 against 0.132 for no margin at all — like the matched-pair
-conformal recipe, it provides essentially nothing in this regime. Its adapted
-`k` settled between 0.5 and 1.46, so the mechanism was active; ensemble
-disagreement simply is not the quantity that breaches this limit, for the same
-reason model error is not.
+| contrast | z |
+|---|---|
+| CAP vs no margin | **−0.43** |
+| ours vs no margin | **+3.68** |
+| **ours vs CAP** | **+2.08** |
 
-**Not yet conclusive.** Ours against CAP is **z = +1.54** on 3 CAP seeds against
-5 of ours — the right direction, short of significance. Three further CAP seeds
-are running. Until they report, the honest statement is that CAP performs like
-no margin while ours does not, and that the contrast between the two is not yet
-separable from noise.
+**CAP provides no measurable benefit over applying no margin at all.** Its
+adapted `k` settled between 0.50 and 1.46, so the mechanism was active rather
+than inert; ensemble disagreement simply is not the quantity that breaches this
+limit, for the same structural reason model error is not. Ours improves
+significantly on both.
+
+**The general form of the finding.** Two mechanistically different uncertainty
+corrections — a conformal quantile over model error, and an ensemble-variance
+penalty — both reduce to doing nothing on an expectation constraint, while
+conformalising against the quantity the dual controls works. The common cause
+is that both estimate *how wrong the model is*, and under an expectation
+constraint that is not what carries the policy over the limit. This is a
+stronger claim than a baseline comparison and is what the abstract should say.
 
 **A caveat in CAP's favour.** It matches on real samples but uses five times the
-training compute, since the ensemble is five models fitted to the same data.
-A compute-matched comparison would be less generous to it, and a
-sample-matched one is the right choice for a claim about constraint
-satisfaction rather than efficiency.
+training compute, the ensemble being five models fitted to the same data. A
+compute-matched comparison would be less generous to it; a sample-matched one is
+the right choice for a claim about constraint satisfaction rather than
+efficiency, and is the one reported.
 
 **ρ > 1 across the entire sweep.** Measured ρ = σ/ε ranges 1.20 to 96.24, and
 all 15 runs exceed 1 — even the worst surrogate tested (rel L2 0.82, worse than

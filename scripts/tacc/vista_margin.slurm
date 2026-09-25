@@ -61,7 +61,7 @@ case "${EXPERIMENT:?set EXPERIMENT=sweep|ndws|synth}" in
       # A ladder in BOTH knobs. Subsetting alone cannot span the range: rdf
       # has 96 trajectories, so every fraction below ~0.09 clamped to the old
       # floor of 8 and produced the same surrogate under a different name.
-      for f in 1:0.08 2:0.2 5:0.4 10:0.7 20:1.0; do
+      for f in ${FIDELITIES:-1:0.08 2:0.2 5:0.4 10:0.7 20:1.0}; do
         tag="${f//[:.]/_}"
         # EVAL_EVERY 5 gives ~41 evaluations per run against 11 at the default,
         # so the violation rate can resolve a delta of 0.1 instead of landing

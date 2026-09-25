@@ -1,7 +1,6 @@
 % Drop-in replacements and additions for the ICML draft.
-% Numbers marked \TOFILL{} are pending the runs described in
-% paper/REVISION_NOTES.md sections 6 and 7.
-\newcommand{\TOFILL}[1]{\textbf{[#1]}}
+% All numbers are measured; provenance is in docs/THESIS_AND_RESULTS.md and the
+% run directory named in each paragraph. Nothing here is a placeholder.
 
 % =====================================================================
 % 1. CONTRIBUTION 1, restated. The draft says the default fails "whenever
@@ -68,6 +67,27 @@ question for different controllers, and the CMDP dual is the case where they
 part company.
 \end{remark}
 
+\begin{proposition}[When a margin is usable at all]\label{prop:feasible}
+Let $s$ be the span of the constrained quantity between the constraint-optimal
+and objective-optimal policies, $b$ the model-reality bias,
+$\sigma_{\mathrm{agg}}$ the spread of the quantity violation is declared on,
+and place the limit at $d = d_{\mathrm{best}} + f s$. Since the margin is a
+quantile of the residuals rather than the bias alone, $d_{\mathrm{eff}}$ is
+reachable by the policy only if
+\begin{equation}
+  b + z_\delta\,\sigma_{\mathrm{agg}} \;<\; f\,s .
+  \label{eq:feasible}
+\end{equation}
+Otherwise the constraint is unachievable however well the margin is calibrated,
+and a violation rate cannot distinguish that case from a miscalibrated one.
+\end{proposition}
+
+\begin{remark}[$f$ is the trade-off, not a free parameter]
+It sets how tightly the constraint binds and how much room a margin has, in
+opposite directions. Reporting $f$, $b$ and $s$ together is the minimum for a
+reader to judge whether a margin could have worked at all.
+\end{remark}
+
 \begin{remark}[Weaker than the draft's assumption]
 Equation~\eqref{eq:residual} requires one exchangeable sample.  The
 deviations-plus-bias construction requires an exchangeable sample
@@ -83,28 +103,63 @@ than claim the assumption holds.
 %    deferred to future work, and without it a reviewer can dismiss the
 %    18.2% result as a mis-tuned implementation.
 % =====================================================================
-\subsection{Which recipe, and when: a fidelity sweep}
+\subsection{Which recipe, and when}
 \label{sec:crossover}
 
 Section~5 showed the default failing where the surrogate is accurate. If that
-is structural rather than an artefact of our implementation, then degrading
-the surrogate should hand the advantage back. We sweep surrogate fidelity by
-training budget (epochs $\times$ fraction of trajectories), holding everything
-else fixed, and run all four margins at each level. Fidelity ranges from
-relative $L_2$ \TOFILL{lo} to \TOFILL{hi} on held-out trajectories.
+is structural rather than an artefact of our implementation, degrading the
+surrogate should hand the advantage back. We sweep surrogate fidelity by
+training budget---$1$ epoch on $20$ trajectories through $20$ epochs on
+$256$---holding everything else fixed, and run all four margins at each level
+over five seeds. Held-out relative $L_2$ ranges from $0.82$ to $0.011$.
 
-Write $\rho = \sigma_{\mathrm{ep}} / |b|$ for the ratio of the policy's
-episode-cost spread to the surrogate's cost bias. The account in
-Section~\ref{sec:residual} predicts that the default suffices when $\rho \ll
-1$, because the bias it bounds is then the dominant mechanism, and undercovers
-when $\rho \gg 1$. Table~\TOFILL{tab} and Figure~\TOFILL{fig} report the
-crossover.
+Write $\rho = \sigma_{\mathrm{ep}} / \varepsilon$ for the policy's episode-cost
+spread over the surrogate's per-instance cost error. Coverage at level $\delta$
+requires a margin of $b + z_\delta \sigma_{\mathrm{ep}}$; the matched-pair
+quantile supplies approximately $b + z_\delta \varepsilon$; the bias cancels.
+The default therefore covers exactly when $\varepsilon \ge \sigma_{\mathrm{ep}}$,
+with the crossing at $\rho = 1$.
 
-\TOFILL{Results paragraph: crossover point, whether model\_error meets delta
-at low fidelity, whether residual holds across the range, return cost of each.}
+\begin{table}[t]
+\caption{Violation rate by regime, $25$ runs, $41$ evaluations each,
+$\delta = 0.1$. Where the model's per-instance error dominates the default is
+correct; where the policy's spread dominates it coincides with applying no
+margin at all.}
+\label{tab:crossover}
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+& none & model err. & deviations & \textbf{ours} \\
+\midrule
+$\rho<8$ \small(17 runs) & $0.116$ & $\mathbf{0.072}$ & $0.060$ & $0.060$ \\
+$\rho\ge8$ \small(8 runs) & $0.140$ & $\mathbf{0.140}$ & $0.067$ & $0.073$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-This turns the paper's claim from ``the default is wrong'' into a diagnostic:
-measure $\rho$, which costs one probe, and choose accordingly.
+Table~\ref{tab:crossover} reports the outcome. Below the crossing the default
+holds $\delta$ and is statistically indistinguishable from ours ($z = 0.86$);
+the recipe is not wrong in general, which is what makes this a condition of use
+rather than a criticism. Above it the default returns $0.140$ against $0.140$
+for no margin at all---the same value to three decimals---and exceeds the level
+it states, while ours holds $0.073$ ($z = 2.78$). Ours improves on no margin in
+both regimes ($z = 3.68$ and $z = 2.78$).
+
+The coincidence at high $\rho$ is the sharpest form of the result. The margin is
+not merely loose: the quantity it conformalises has stopped carrying
+information about what breaches the limit, so tightening by it changes nothing.
+
+\paragraph{Against a model-based baseline.}
+Our other safe-RL baselines are model-free, which makes a sample-efficiency
+comparison uninformative for a model-based planner. CAP
+\citep{ma2022cap} is the closest method that also plans in a learned model and
+corrects for its error, penalising by ensemble disagreement
+$c = \bar{c} + k\,\mathrm{sd}(c)$ with $k$ adapted from real data. We transplant
+that penalty onto our planner at an identical probe budget, so only the
+correction mechanism differs. At matched real samples it reaches $0.130$
+against $0.132$ for no margin, with its adapted $k$ between $0.5$ and $1.46$:
+the mechanism is active, but ensemble disagreement is not the quantity that
+breaches this limit, for the same reason model error is not.
 
 % =====================================================================
 % 4. NEW SUBSECTION for Section 6. The draft states outright that Section 6
@@ -117,11 +172,12 @@ Section~6 enforced the crew budget by projection, so it exercised the planner
 and not the margin. We close that gap without weakening the limitation of
 Section~7.
 
-The model/reality gap is built from two models of the same real fire spread at
-different quality. $G$, the planner's surrogate, is trained briefly; $F$, a
-stronger model with a different seed and width, stands in for reality, and we
-report its held-out AUC-PR against observed fire (\TOFILL{G} and \TOFILL{F}
-respectively) so the reader can see what ``reality'' is worth here. This is
+The model/reality gap cannot be built from a second trained model on this task.
+Over four settings of crew budget and model capacity the bias ran $2.0$ to
+$4.9\times$ the entire span the planner can move the constrained quantity over,
+so the constraint was unachievable and no margin could be assessed. More crew
+made it worse, both the objective-optimal and constraint-optimal plans
+converging on the same floor. This is
 sim2sim: $F$ is a model, and no observational record contains a fire where a
 firebreak was cut on our instruction. What it supplies is a model/reality cost
 gap that nobody tuned, over dynamics fitted to real fires rather than to a PDE
@@ -142,8 +198,27 @@ is a mean. This is exactly the regime Section~\ref{sec:residual} predicts the
 matched-pair recipe cannot cover: the across-fire scatter that pushes batch
 means over the limit appears in both $c_i$ and $g_i$ and cancels.
 
-\TOFILL{Results paragraph: violation rate per arm against delta, margin sizes,
-objective cost of each margin.}
+\paragraph{Outcome: the task fails the precondition.}
+Run either side of the threshold, the margin exceeded the feasible headroom at
+every perturbation: at the smallest, headroom $0.0034$ against a required
+margin of $0.0164$; at the largest, $0.0062$ against $0.0877$, which is $93\%$
+of the limit itself. Violation stayed at $0.65$ to $0.80$ for every arm
+including ours, because $d_{\mathrm{eff}}$ sits below anything the planner can
+reach.
+
+This is a property of the task. The constrained quantity's batch-to-batch
+spread is comparable to the planner's entire authority over it, so no margin
+covering that spread fits the headroom---at any perturbation, with any limit
+placement. The only remaining lever, averaging over larger evaluation batches,
+would need $1{,}903$ fires per batch against the $1{,}500$ held out, and would
+leave under one batch from which to estimate a $10\%$ rate. Miscalibration, an
+under-converged dual and insufficient crew were each tested and none was the
+cause.
+
+We report this as a worked example of a system that fails
+Proposition~\ref{prop:feasible} rather than omitting it. A reader deciding
+whether the method applies to their problem is better served by a case that
+fails the condition than by another that passes it.
 
 % =====================================================================
 % 5. SECTION 2 replacement paragraph. The draft mischaracterises Prinster
