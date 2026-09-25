@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 import statistics
+from collections.abc import Sequence
 from pathlib import Path
+
+import numpy as np
 from typing import Any
 
 # metric key -> (display name, lower_is_better)
@@ -150,3 +153,54 @@ def aggregate_seeds(
         display_rows.append(row)
         stats[name] = run_stats
     return display_rows, stats
+
+
+# --------------------------------------------------------------------------- #
+# Reporting that matches what we cite
+#
+# Agarwal et al. (NeurIPS 2021) argue that point estimates over a handful of
+# runs hide most of the uncertainty, and recommend the interquartile mean with
+# stratified bootstrap intervals. This project cites that paper and then
+# reports mean +/- std over 3 to 5 seeds, which is the practice it argues
+# against. These helpers close that gap; `seed_report` is the one to call.
+# --------------------------------------------------------------------------- #
+def iqm(values: Sequence[float]) -> float:
+    """Interquartile mean: the mean of the middle 50% of runs.
+
+    More robust than the mean to a single diverged seed and less wasteful than
+    the median, which is why it is the recommended summary.
+    """
+    v = np.sort(np.asarray(values, dtype=float))
+    if v.size < 4:                       # too few to trim meaningfully
+        return float(v.mean())
+    lo, hi = int(np.floor(v.size * 0.25)), int(np.ceil(v.size * 0.75))
+    return float(v[lo:hi].mean())
+
+
+def bootstrap_ci(values: Sequence[float], *, alpha: float = 0.05,
+                 n_boot: int = 10_000, statistic=iqm, seed: int = 0
+                 ) -> tuple[float, float]:
+    """Percentile bootstrap interval for `statistic` over runs.
+
+    Resampling is over runs, which is the unit of independence here. With very
+    few runs the interval is wide; that is the honest outcome rather than a
+    defect of the method.
+    """
+    v = np.asarray(values, dtype=float)
+    if v.size < 2:
+        return (float("nan"), float("nan"))
+    rng = np.random.default_rng(seed)
+    draws = rng.choice(v, size=(n_boot, v.size), replace=True)
+    stats = np.array([statistic(d) for d in draws])
+    return (float(np.quantile(stats, alpha / 2)),
+            float(np.quantile(stats, 1 - alpha / 2)))
+
+
+def seed_report(values: Sequence[float], *, alpha: float = 0.05,
+                digits: int = 4, seed: int = 0) -> str:
+    """`IQM [lo, hi]` over runs, for tables. Falls back to the raw value at n=1."""
+    v = np.asarray(values, dtype=float)
+    if v.size == 1:
+        return f"{v[0]:.{digits}f} (1 run)"
+    lo, hi = bootstrap_ci(v, alpha=alpha, seed=seed)
+    return f"{iqm(v):.{digits}f} [{lo:.{digits}f}, {hi:.{digits}f}]"

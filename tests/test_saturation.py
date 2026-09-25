@@ -90,6 +90,22 @@ def test_conformal_margin_is_the_right_quantile_and_waits_for_data():
     rank = math.ceil((10 + 1) * 0.9)                          # = 10
     expected = sorted(tr.probe_episode_dev)[rank - 1] + max(0.0, tr.cost_bias)
     assert abs(tr.conformal_margin() - expected) < 1e-9
+
+    # The default must stay "episode": it produced the published constraint-fix
+    # numbers, and re-running those scripts has to reproduce them rather than
+    # quietly report the newer recipe's result.
+    assert tr.cfg.margin_mode == "episode"
+
+    # The other two recipes read their own samples and ignore this one.
+    tr.cfg.margin_mode = "residual"
+    assert tr.conformal_margin() == 0.0, "residual must not read episode deviations"
+    tr.probe_residual = [0.05 * j for j in range(1, 11)]
+    assert abs(tr.conformal_margin() - sorted(tr.probe_residual)[rank - 1]) < 1e-9
+
+    tr.cfg.margin_mode = "model_error"
+    tr.probe_model_err = [-0.3] * 10        # absolute residual: still charges a margin
+    assert abs(tr.conformal_margin() - 0.3) < 1e-9
+    tr.cfg.margin_mode = "episode"          # restore for the rest of the test
     # It must cover the policy's own spread, which is what actually violates.
     tr.probe_episode_dev = [0.0] * 9 + [0.9]
     assert tr.conformal_margin() > 0.5

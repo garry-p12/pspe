@@ -26,6 +26,7 @@ import torch.nn as nn
 from ..envs.pde_env import BatchedFieldEnv
 from ..utils.common import constraint_summary, peak_memory_mb, timer
 from ..utils.logging import RunLogger
+from . import margins
 from .hybrid_gradient import HybridGradientEstimator
 from .lagrangian import PIDLagrangian
 from .policy import FieldCritic, GaussianFieldPolicy
@@ -123,6 +124,27 @@ class PlannerConfig:
     # assuming the errors are exchangeable across probes.
     margin_conformal: bool = False
     margin_delta: float = 0.1
+    # WHICH distribution the conformal quantile is taken over. This is the
+    # question the paper asks, so the three answers are selectable:
+    #
+    #   "model_error" the field's default. Matched-pair residuals
+    #                 c_F(i) - c_G(i): same initial condition, same action
+    #                 noise, one rollout in each environment. The policy's own
+    #                 spread appears in both terms and cancels, which is
+    #                 exactly why this undercovers when G is accurate.
+    #   "episode"     quantile of c_F(i) - mean(c_F), plus max(0, bias) as a
+    #                 separate deterministic correction.
+    #   "residual"    quantile of c_F(i) - mean(c_G): the realised cost minus
+    #                 the quantity the dual actually controls. One quantile
+    #                 covers bias and spread together, and the coverage
+    #                 statement needs no separate bias term.
+    #
+    # The default stays "episode" because that is what produced the published
+    # constraint-fix numbers, and a re-run of those scripts must reproduce
+    # them rather than quietly report something better. "residual" is the
+    # recommended form and is selected explicitly by the experiments that
+    # compare the three.
+    margin_mode: str = "episode"
     seed: int = 0
     log_dir: str = "runs/plan"
 
@@ -193,6 +215,8 @@ class HybridPlannerTrainer:
         self.probe_episode_std = 0.0  # spread of real episode costs at the last probe
         self.probe_errors: list[float] = []      # real minus surrogate cost, one per probe
         self.probe_episode_dev: list[float] = []  # real episode cost minus its probe mean
+        self.probe_model_err: list[float] = []    # matched pair: real minus surrogate, per episode
+        self.probe_residual: list[float] = []     # real episode cost minus the surrogate's mean
         self.real_probe_transitions = 0
         self._probe_seed = self.cfg.seed + 20_000
         self.pathwise_bias_sq = 0.0
@@ -320,27 +344,67 @@ class HybridPlannerTrainer:
         env = self.eval_env
         if env is None:
             return float("nan")
+        seed = self._probe_seed
+        self._probe_seed += 1
+
+        # The probe is PAIRED: the same initial conditions and the same action
+        # noise are rolled in both environments, so the per-episode difference
+        # isolates the dynamics. Common random numbers are the fairest possible
+        # treatment of the model-error recipe we argue against — without them
+        # its residuals would be inflated by sampling noise it is not
+        # responsible for.
+        state0 = self._probe_initial(env, episodes, seed)
+        true_costs = self._rollout_costs(env, state0, seed)
+        self.real_probe_transitions += episodes * self.cfg.horizon
+
+        surr_costs = None
+        if self.env is not None and self.env is not env:
+            keep_state, keep_t = self.env.state, getattr(self.env, "t", 0)
+            try:
+                surr_costs = self._rollout_costs(self.env, state0, seed)
+            finally:
+                self.env.state, self.env.t = keep_state, keep_t
+
+        self.probe_episode_std = (float(true_costs.std(unbiased=False))
+                                  if episodes > 1 else 0.0)
+        mean = float(true_costs.mean())
+        self.probe_episode_dev.extend(float(c) - mean for c in true_costs)
+        if surr_costs is not None:
+            surr_mean = float(surr_costs.mean())
+            # Matched pairs: the policy's spread is present in both terms and
+            # cancels. This is the quantity the default recipe conformalises.
+            self.probe_model_err.extend(
+                float(a) - float(b) for a, b in zip(true_costs, surr_costs))
+            # Realised cost against the quantity the dual controls. Bias and
+            # spread both survive here, which is the point.
+            self.probe_residual.extend(float(c) - surr_mean for c in true_costs)
+        return mean
+
+    @torch.no_grad()
+    def _probe_initial(self, env, episodes: int, seed: int) -> Tensor:
         devices = [self.device] if self.device.type == "cuda" else []
         with torch.random.fork_rng(devices=devices):
-            gen = torch.Generator().manual_seed(self._probe_seed)
-            self._probe_seed += 1
-            state = env.reset(episodes, gen)
-            total = torch.zeros(episodes, device=state.device)
+            gen = torch.Generator().manual_seed(seed)
+            return env.reset(episodes, gen).clone()
+
+    @torch.no_grad()
+    def _rollout_costs(self, env, state0: Tensor, seed: int) -> Tensor:
+        """Per-episode cost of the current policy in `env` from `state0`.
+
+        Seeded identically per call so two environments see the same action
+        noise; states still diverge, which is the effect being measured.
+        """
+        devices = [self.device] if self.device.type == "cuda" else []
+        with torch.random.fork_rng(devices=devices):
+            torch.manual_seed(seed)
+            env.set_state(state0.clone())
+            state = env.state
+            total = torch.zeros(state0.shape[0], device=state0.device)
             for _ in range(self.cfg.horizon):
                 action, _ = self.policy.sample(state)
                 state, _, cost, _ = env.step(action)
                 total += cost
-        self.real_probe_transitions += episodes * self.cfg.horizon
-        self.probe_episode_std = float(total.std(unbiased=False)) if episodes > 1 else 0.0
-        # Deviations of individual real episodes from their probe mean. The
-        # conformal margin is a quantile of THESE, not of the surrogate's error:
-        # measured on rdf the surrogate is accurate (bias -0.08) while the
-        # violations come from the policy's own episode spread, so a quantile
-        # over model error produced a margin of 0.25 where 0.69 was needed and
-        # left 18.2% of evaluations violating.
-        mean = float(total.mean())
-        self.probe_episode_dev.extend(float(c) - mean for c in total)
-        return mean
+        return total.detach()
 
     def _pathwise_grad_from(self, env: BatchedFieldEnv, state0: Tensor, multiplier: float) -> Tensor:
         """Flat pathwise gradient of the Lagrangian rolled out from `state0` in `env`."""
@@ -417,25 +481,18 @@ class HybridPlannerTrainer:
         return max(0.0, self.env.task.cost_limit - self.cfg.cost_margin_k * sigma)
 
     def conformal_margin(self) -> float:
-        """Split-conformal quantile of the probe's cost errors.
+        """Split-conformal margin over whichever distribution `margin_mode` names.
 
-        Returns 0 until enough probes exist for the level to be attainable:
-        ceil((n+1)(1-delta)) <= n requires n >= 1/delta - 1, below which no
-        finite quantile gives the guarantee and a margin would be theatre.
+        Delegates to `pspe.plan.margins`, which the wildfire experiment also
+        calls, so the two settings provably share one implementation.
         """
-        # Bound P(real episode cost > limit) <= delta. The cost of an episode is
-        # its probe mean plus a deviation; the dual holds the mean, so the margin
-        # has to cover the upper delta-quantile of the deviations, plus any
-        # systematic bias between surrogate and reality.
-        dev = self.probe_episode_dev
-        n = len(dev)
-        need = max(2, int(round(1.0 / self.cfg.margin_delta)) - 1)
-        if n < need:
-            return 0.0
-        rank = min(n, int(-(-(n + 1) * (1.0 - self.cfg.margin_delta) // 1)))
-        quantile = max(0.0, sorted(dev)[rank - 1])
-        bias = max(0.0, self.cost_bias)      # surrogate under-predicting cost
-        return quantile + bias
+        return margins.margin(
+            self.cfg.margin_mode, self.cfg.margin_delta,
+            model_err=self.probe_model_err,
+            deviations=self.probe_episode_dev,
+            residuals=self.probe_residual,
+            bias=self.cost_bias,
+        )
 
     # -- joint-training hooks (no-ops here) ---------------------------------- #
     def _before_policy_step(self, batch: RolloutBatch, pathwise: Tensor,

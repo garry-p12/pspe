@@ -1,0 +1,168 @@
+% Drop-in replacements and additions for the ICML draft.
+% Numbers marked \TOFILL{} are pending the runs described in
+% paper/REVISION_NOTES.md sections 6 and 7.
+\newcommand{\TOFILL}[1]{\textbf{[#1]}}
+
+% =====================================================================
+% 1. CONTRIBUTION 1, restated. The draft says the default fails "whenever
+%    the model is accurate and the policy is variable". That is the symptom.
+%    The cause is structural, and saying it turns a finding into a rule.
+% =====================================================================
+\paragraph{Contribution 1 (revised).}
+\textbf{A structural account of when the default is wrong.}
+Matched-pair residuals $c_i - g_i$ cancel any scatter common to both terms.
+When the controller holds a \emph{per-instance} quantity $g_i$ at the limit,
+as a control barrier function does pointwise, that cancellation is exactly
+right. A Lagrangian dual in a CMDP holds an \emph{expectation}
+$\mathbb{E}[c]$, so $g_i$ is not the controlled quantity and the per-instance
+scatter that breaches $d$ cancels out of the calibration set. The default is
+sound in the setting it was developed for and unsound here, and the
+distinction can be stated in advance rather than discovered.
+
+% =====================================================================
+% 2. SECTION 4.4 replacement. One quantile, one assumption, no bias term,
+%    and the matched-pair recipe falls out as the special case.
+% =====================================================================
+\subsection{Our margin: conformalise against the controlled quantity}
+\label{sec:residual}
+
+Let $\hat g$ denote the quantity the dual actually holds at the limit: the
+model's estimate of $J_C$ for the current policy. The probe returns realised
+episode costs $c_1,\dots,c_m$ under $F$ for that same policy. We calibrate on
+\begin{equation}
+  s_i \;=\; c_i - \hat g,
+  \qquad
+  q \;=\; s_{(\lceil (n+1)(1-\delta)\rceil)},
+  \qquad
+  d_{\mathrm{eff}} \;=\; d - q ,
+  \label{eq:residual}
+\end{equation}
+pooling $s_i$ across probes. A single order statistic absorbs both mechanisms
+of Section~4.1: systematic bias shifts every $s_i$, and episode spread
+disperses them. No separate bias term is required.
+
+\begin{assumption}[Exchangeable residuals]\label{as:exch}
+A new evaluation episode has cost $c = \hat g_{\mathrm{eval}} + s$, where $s$
+is exchangeable with the calibration residuals $s_1,\dots,s_n$.
+\end{assumption}
+
+\begin{proposition}\label{prop:cov}
+Under Assumption~\ref{as:exch}, if the dual holds the model's estimate at the
+tightened limit, $\hat g_{\mathrm{eval}} \le d_{\mathrm{eff}}$, then
+$\mathbb{P}[c > d] \le \delta$, marginally over the calibration draw.
+\end{proposition}
+
+\begin{proof}
+$\hat g_{\mathrm{eval}} \le d - q$ implies $\{c > d\} \subseteq \{s > q\}$. By
+exchangeability the rank of $s$ among $\{s_1,\dots,s_n,s\}$ is uniform, so
+$\mathbb{P}[s \le s_{(k)}] \ge k/(n+1) \ge 1-\delta$ for
+$k = \lceil (n+1)(1-\delta)\rceil$ \citep{lei2018splitconformal}.
+\end{proof}
+
+\begin{remark}[The default is the special case]
+If the controller holds a per-instance quantity, so that $\hat g$ is replaced
+by $g_i$ for each calibration episode, then $s_i = c_i - g_i$ is precisely the
+matched-pair residual of Section~4.3 and Proposition~\ref{prop:cov} recovers
+the standard guarantee. The two recipes are not rivals; they answer the same
+question for different controllers, and the CMDP dual is the case where they
+part company.
+\end{remark}
+
+\begin{remark}[Weaker than the draft's assumption]
+Equation~\eqref{eq:residual} requires one exchangeable sample.  The
+deviations-plus-bias construction requires an exchangeable sample
+\emph{and} a bias estimate that carries no coverage statement of its own.
+Assumption~\ref{as:exch} is still strong across a learning run, since the
+policy moves between probes; this is the drift adaptive conformal inference
+was designed for \citep{gibbs2021aci}, and we report the empirical rate rather
+than claim the assumption holds.
+\end{remark}
+
+% =====================================================================
+% 3. NEW SUBSECTION for Section 5. This is the head-to-head the draft
+%    deferred to future work, and without it a reviewer can dismiss the
+%    18.2% result as a mis-tuned implementation.
+% =====================================================================
+\subsection{Which recipe, and when: a fidelity sweep}
+\label{sec:crossover}
+
+Section~5 showed the default failing where the surrogate is accurate. If that
+is structural rather than an artefact of our implementation, then degrading
+the surrogate should hand the advantage back. We sweep surrogate fidelity by
+training budget (epochs $\times$ fraction of trajectories), holding everything
+else fixed, and run all four margins at each level. Fidelity ranges from
+relative $L_2$ \TOFILL{lo} to \TOFILL{hi} on held-out trajectories.
+
+Write $\rho = \sigma_{\mathrm{ep}} / |b|$ for the ratio of the policy's
+episode-cost spread to the surrogate's cost bias. The account in
+Section~\ref{sec:residual} predicts that the default suffices when $\rho \ll
+1$, because the bias it bounds is then the dominant mechanism, and undercovers
+when $\rho \gg 1$. Table~\TOFILL{tab} and Figure~\TOFILL{fig} report the
+crossover.
+
+\TOFILL{Results paragraph: crossover point, whether model\_error meets delta
+at low fidelity, whether residual holds across the range, return cost of each.}
+
+This turns the paper's claim from ``the default is wrong'' into a diagnostic:
+measure $\rho$, which costs one probe, and choose accordingly.
+
+% =====================================================================
+% 4. NEW SUBSECTION for Section 6. The draft states outright that Section 6
+%    validates the planner and not the margin. This closes that gap.
+% =====================================================================
+\subsection{The margin on real fire dynamics}
+\label{sec:ndwsmargin}
+
+Section~6 enforced the crew budget by projection, so it exercised the planner
+and not the margin. We close that gap without weakening the limitation of
+Section~7.
+
+The model/reality gap is built from two models of the same real fire spread at
+different quality. $G$, the planner's surrogate, is trained briefly; $F$, a
+stronger model with a different seed and width, stands in for reality, and we
+report its held-out AUC-PR against observed fire (\TOFILL{G} and \TOFILL{F}
+respectively) so the reader can see what ``reality'' is worth here. This is
+sim2sim: $F$ is a model, and no observational record contains a fire where a
+firebreak was cut on our instruction. What it supplies is a model/reality cost
+gap that nobody tuned, over dynamics fitted to real fires rather than to a PDE
+we wrote.
+
+The crew budget remains a hard projection. The \emph{constraint} is an
+expectation, as in any CMDP, and conflicts with the objective: we minimise
+total burned area subject to population-weighted burn staying below $d$, which
+bind whenever sparing a large empty area costs a small populated one. The
+limit is calibrated between what the objective-optimal planner ($\lambda=0$)
+leaves on the populated area and what a town-focused planner achieves, so
+meeting it costs a real share of the objective. A single multiplier, shared
+across fires and driven by the batch mean under $G$, prices the constraint
+while each fire is still planned at decision time.
+
+Violation is measured per evaluation batch, because the constrained quantity
+is a mean. This is exactly the regime Section~\ref{sec:residual} predicts the
+matched-pair recipe cannot cover: the across-fire scatter that pushes batch
+means over the limit appears in both $c_i$ and $g_i$ and cancels.
+
+\TOFILL{Results paragraph: violation rate per arm against delta, margin sizes,
+objective cost of each margin.}
+
+% =====================================================================
+% 5. SECTION 2 replacement paragraph. The draft mischaracterises Prinster
+%    et al., which is the closest prior work to ours.
+% =====================================================================
+\paragraph{Conformal prediction for control (revised).}
+Split conformal prediction \citep{vovk2005alrw,lei2018splitconformal,
+angelopoulos2023gentle} gives finite-sample, distribution-free coverage under
+exchangeability; adaptive conformal inference \citep{gibbs2021aci} relaxes
+exchangeability under drift. In control, the dominant instantiation calibrates
+a quantile of the error between the learned dynamics and the true system and
+tightens a barrier or Lyapunov constraint by it
+\citep{lindemann2023safeplanning,zhou2025acpsafe,
+mirzaeedodangeh2026robustcbf}, with cumulative bounds for nonstationary
+constraints \citep{tomashevskiy2026proactive}. A separate strand calibrates
+against a reference \emph{policy} rather than a model
+\citep{prinster2026cpc}, which shares our instinct that the calibration target
+should be the controlled object; we differ in conformalising realised cost
+against the quantity a Lagrangian dual holds, which yields a CMDP budget
+rather than a behavioural-change budget. Our setting is a CMDP with an
+episode-cost budget rather than CBF-constrained continuous control, and we
+have not reproduced the failure in theirs.

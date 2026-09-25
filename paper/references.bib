@@ -1,0 +1,272 @@
+% PSPE / conformal-margin paper. Every entry below was verified against the
+% publisher or arXiv listing in September 2026. The eleven entries that were
+% placeholders reading "VERIFY authors" in the first draft are marked [was
+% placeholder] so they can be checked off.
+%
+% NOTE: the first draft cited the firebreak DRL work twice, as an arXiv
+% preprint and as an Applied Soft Computing paper. They are the same work by
+% the same group; only the published version is kept below.
+
+% ---------- constrained and model-based safe RL ----------------------------
+@inproceedings{achiam2017cpo,
+  title     = {Constrained Policy Optimization},
+  author    = {Achiam, Joshua and Held, David and Tamar, Aviv and Abbeel, Pieter},
+  booktitle = {ICML}, year = {2017}}
+
+@inproceedings{stooke2020pid,
+  title     = {Responsive Safety in Reinforcement Learning by {PID} {L}agrangian Methods},
+  author    = {Stooke, Adam and Achiam, Joshua and Abbeel, Pieter},
+  booktitle = {ICML}, year = {2020}}
+
+@inproceedings{sootla2022saute,
+  title     = {Saut\'e {RL}: Almost Surely Safe Reinforcement Learning Using State Augmentation},
+  author    = {Sootla, Aivar and Cowen-Rivers, Alexander I. and Jafferjee, Taher and
+               Wang, Ziyan and Mguni, David and Wang, Jun and Ammar, Haitham Bou},
+  booktitle = {ICML}, year = {2022}}
+
+@inproceedings{ding2020npg,
+  title     = {Natural Policy Gradient Primal-Dual Method for Constrained {M}arkov Decision Processes},
+  author    = {Ding, Dongsheng and Zhang, Kaiqing and Ba{\c{s}}ar, Tamer and Jovanovi{\'c}, Mihailo R.},
+  booktitle = {NeurIPS}, year = {2020}}
+
+@techreport{ray2019safetygym,
+  title  = {Benchmarking Safe Exploration in Deep Reinforcement Learning},
+  author = {Ray, Alex and Achiam, Joshua and Amodei, Dario},
+  institution = {OpenAI}, year = {2019}}
+
+@article{ji2023omnisafe,
+  title   = {{OmniSafe}: An Infrastructure for Accelerating Safe Reinforcement Learning Research},
+  author  = {Ji, Jiaming and Zhou, Jiayi and Zhang, Borong and Dai, Juntao and Pan, Xuehai and
+             Sun, Ruiyang and Huang, Weidong and Geng, Yiran and Liu, Mickel and Yang, Yaodong},
+  journal = {arXiv:2305.09304}, year = {2023}}
+
+@inproceedings{thomas2021smbpo,
+  title     = {Safe Reinforcement Learning by Imagining the Near Future},
+  author    = {Thomas, Garrett and Luo, Yuping and Ma, Tengyu},
+  booktitle = {NeurIPS}, year = {2021}}
+
+@inproceedings{ma2022cap,
+  title     = {Conservative and Adaptive Penalty for Model-Based Safe Reinforcement Learning},
+  author    = {Ma, Yecheng Jason and Shen, Andrew and Bastani, Osbert and Jayaraman, Dinesh},
+  booktitle = {AAAI}, year = {2022}}
+
+@inproceedings{jayant2022cppo,
+  title     = {Model-based Safe Deep Reinforcement Learning via a Constrained Proximal
+               Policy Optimization Algorithm},
+  author    = {Jayant, Ashish Kumar and Bhatnagar, Shalabh},
+  booktitle = {NeurIPS}, year = {2022}}
+
+@inproceedings{huang2024safedreamer,
+  title     = {{SafeDreamer}: Safe Reinforcement Learning with World Models},
+  author    = {Huang, Weidong and Ji, Jiaming and Xia, Chunhe and Zhang, Borong and Yang, Yaodong},
+  booktitle = {ICLR}, year = {2024}}
+
+@inproceedings{bharadhwaj2021csc,
+  title     = {Conservative Safety Critics for Exploration},
+  author    = {Bharadhwaj, Homanga and Kumar, Aviral and Rhinehart, Nicholas and
+               Levine, Sergey and Shkurti, Florian and Garg, Animesh},
+  booktitle = {ICLR}, year = {2021}}
+
+% ---------- conformal prediction -------------------------------------------
+@book{vovk2005alrw,
+  title     = {Algorithmic Learning in a Random World},
+  author    = {Vovk, Vladimir and Gammerman, Alexander and Shafer, Glenn},
+  publisher = {Springer}, year = {2005}}
+
+@article{lei2018splitconformal,
+  title   = {Distribution-Free Predictive Inference for Regression},
+  author  = {Lei, Jing and G'Sell, Max and Rinaldo, Alessandro and
+             Tibshirani, Ryan J. and Wasserman, Larry},
+  journal = {Journal of the American Statistical Association}, year = {2018}}
+
+@article{angelopoulos2023gentle,
+  title   = {Conformal Prediction: A Gentle Introduction},
+  author  = {Angelopoulos, Anastasios N. and Bates, Stephen},
+  journal = {Foundations and Trends in Machine Learning}, year = {2023}}
+
+@inproceedings{gibbs2021aci,
+  title     = {Adaptive Conformal Inference Under Distribution Shift},
+  author    = {Gibbs, Isaac and Cand{\`e}s, Emmanuel},
+  booktitle = {NeurIPS}, year = {2021}}
+
+@article{lindemann2023safeplanning,
+  title   = {Safe Planning in Dynamic Environments Using Conformal Prediction},
+  author  = {Lindemann, Lars and Cleaveland, Matthew and Shim, Gihyun and Pappas, George J.},
+  journal = {arXiv:2210.10254}, year = {2023}}
+
+% [was placeholder: "ACP safe RL"]
+@article{zhou2025acpsafe,
+  title   = {Computationally and Sample Efficient Safe Reinforcement Learning Using
+             Adaptive Conformal Prediction},
+  author  = {Zhou, Hao and Zhang, Yanze and Luo, Wenhao},
+  journal = {arXiv:2503.17678}, year = {2025}}
+
+% [was placeholder: "Conformal Policy Control"]
+% NB: this does NOT conformalise dynamics-model error; it calibrates permissible
+% behavioural change against a safe reference policy. See paper/RELATED_WORK_FIXES.md.
+@article{prinster2026cpc,
+  title   = {Conformal Policy Control},
+  author  = {Prinster, Drew and Fannjiang, Clara and Park, Ji Won and Cho, Kyunghyun and
+             Liu, Anqi and Saria, Suchi and Stanton, Samuel},
+  journal = {arXiv:2603.02196}, year = {2026}}
+
+% [was placeholder: "Robust Conformal CBF"]
+@article{mirzaeedodangeh2026robustcbf,
+  title   = {Robust Conformal {CBF} and {CLF} Controllers via Iterative Policy Updates},
+  author  = {Mirzaeedodangeh, Omid and Shekhtman, Eliot and Matni, Nikolai and Lindemann, Lars},
+  journal = {arXiv:2606.15366}, year = {2026}}
+
+% [was placeholder: "Proactive Safety Constraints"]
+@inproceedings{tomashevskiy2026proactive,
+  title     = {Proactive Context-Forecasted Safety Constraints for Nonstationary
+               Reinforcement Learning},
+  author    = {Tomashevskiy, Tim},
+  booktitle = {Conference on Lifelong Learning Agents (CoLLAs)}, year = {2026}}
+
+% ---------- objective mismatch and decision-aware models --------------------
+@inproceedings{lambert2020mismatch,
+  title     = {Objective Mismatch in Model-based Reinforcement Learning},
+  author    = {Lambert, Nathan and Amos, Brandon and Yadan, Omry and Calandra, Roberto},
+  booktitle = {L4DC}, year = {2020}}
+
+% [was placeholder: "Unified View of Objective Mismatch"]
+@article{wei2023unified,
+  title   = {A Unified View on Solving Objective Mismatch in Model-Based Reinforcement Learning},
+  author  = {Wei, Ran and Lambert, Nathan and McDonald, Anthony and Garcia, Alfredo and
+             Calandra, Roberto},
+  journal = {arXiv:2310.06253}, year = {2023}}
+
+@inproceedings{grimm2020ve,
+  title     = {The Value Equivalence Principle for Model-Based Reinforcement Learning},
+  author    = {Grimm, Christopher and Barreto, Andr{\'e} and Singh, Satinder and Silver, David},
+  booktitle = {NeurIPS}, year = {2020}}
+
+@inproceedings{farahmand2017vaml,
+  title     = {Value-Aware Loss Function for Model-based Reinforcement Learning},
+  author    = {Farahmand, Amir-massoud and Barreto, Andr{\'e} and Nikovski, Daniel},
+  booktitle = {AISTATS}, year = {2017}}
+
+@inproceedings{donti2017taskbased,
+  title     = {Task-based End-to-end Model Learning in Stochastic Optimization},
+  author    = {Donti, Priya L. and Amos, Brandon and Kolter, J. Zico},
+  booktitle = {NeurIPS}, year = {2017}}
+
+@article{elmachtoub2022spo,
+  title   = {Smart ``Predict, then Optimize''},
+  author  = {Elmachtoub, Adam N. and Grigas, Paul},
+  journal = {Management Science}, year = {2022}}
+
+@inproceedings{amos2017optnet,
+  title     = {{OptNet}: Differentiable Optimization as a Layer in Neural Networks},
+  author    = {Amos, Brandon and Kolter, J. Zico},
+  booktitle = {ICML}, year = {2017}}
+
+% ---------- planning and amortisation --------------------------------------
+@article{byravan2022amortization,
+  title   = {Evaluating Model-Based Planning and Planner Amortization for Continuous Control},
+  author  = {Byravan, Arunkumar and Hasenclever, Leonard and Trochim, Piotr and
+             Mirza, Mehdi and Ialongo, Alessandro Davide and Tassa, Yuval and
+             Springenberg, Jost Tobias and Abdolmaleki, Abbas and Heess, Nicolas and
+             Merel, Josh and Riedmiller, Martin},
+  journal = {arXiv:2110.03363}, year = {2022}}
+
+@inproceedings{hansen2022tdmpc,
+  title     = {Temporal Difference Learning for Model Predictive Control},
+  author    = {Hansen, Nicklas and Wang, Xiaolong and Su, Hao},
+  booktitle = {ICML}, year = {2022}}
+
+% ---------- neural operators ------------------------------------------------
+@inproceedings{li2021fno,
+  title     = {Fourier Neural Operator for Parametric Partial Differential Equations},
+  author    = {Li, Zongyi and Kovachki, Nikola and Azizzadenesheli, Kamyar and
+               Liu, Burigede and Bhattacharya, Kaushik and Stuart, Andrew and
+               Anandkumar, Anima},
+  booktitle = {ICLR}, year = {2021}}
+
+@inproceedings{ronneberger2015unet,
+  title     = {{U-Net}: Convolutional Networks for Biomedical Image Segmentation},
+  author    = {Ronneberger, Olaf and Fischer, Philipp and Brox, Thomas},
+  booktitle = {MICCAI}, year = {2015}}
+
+@inproceedings{herde2024poseidon,
+  title     = {Poseidon: Efficient Foundation Models for {PDE}s},
+  author    = {Herde, Maximilian and Raoni{\'c}, Bogdan and Rohner, Tobias and
+               K{\"a}ppeli, Roger and Molinaro, Roberto and de B{\'e}zenac, Emmanuel and
+               Mishra, Siddhartha},
+  booktitle = {NeurIPS}, year = {2024}}
+
+% ---------- wildfire ---------------------------------------------------------
+@article{huot2022ndws,
+  title   = {Next Day Wildfire Spread: A Machine Learning Dataset to Predict Wildfire
+             Spreading from Remote-Sensing Data},
+  author  = {Huot, Fantine and Hu, R. Lily and Goyal, Nita and Sankar, Tharun and
+             Ihme, Matthias and Chen, Yi-Fan},
+  journal = {IEEE Transactions on Geoscience and Remote Sensing}, year = {2022}}
+
+@inproceedings{gerard2023wildfirespreadts,
+  title     = {{WildfireSpreadTS}: A Dataset of Multi-Modal Time Series for
+               Wildfire Spread Prediction},
+  author    = {Gerard, Sebastian and Zhao, Yu and Sullivan, Josephine},
+  booktitle = {NeurIPS Datasets and Benchmarks}, year = {2023}}
+
+% [was placeholder: "Modular Wildfire Mechanisms"]
+@article{esparza2026modular,
+  title   = {Modular Deep Learning Mechanisms for Auditable Next-Day Wildfire Spread Prediction},
+  author  = {Esparza, Miguel and Ayanzadeh, Aydin and Mousavi, Ahmad and Mostafavi, Ali},
+  journal = {arXiv:2609.17763}, year = {2026}}
+
+% [was placeholder: "WildfireSpreadBench"]
+@article{gopakumar2026bench,
+  title   = {{WildfireSpreadBench}: The Metric Decides the Model in Wildfire Spread Prediction},
+  author  = {Gopakumar, Arin and Pannozzo, Marco},
+  journal = {arXiv:2609.22191}, year = {2026}}
+
+% [was placeholder x2: "Firebreak DRL" and "Firebreak DRL (ASOC)" were the same work]
+@article{murray2025firebreak,
+  title   = {Deep Reinforcement Learning for Optimal Firebreak Placement in Forest Fire Prevention},
+  author  = {Murray, Lucas and Castillo, Tatiana and Mart{\'i}n de Diego, Isaac and
+             Weber, Richard and Gonz{\'a}lez-Olabarria, Jos{\'e} Ram{\'o}n and
+             Garc{\'i}a-Gonzalo, Jordi and Weintraub, Andr{\'e}s and Carrasco, Jaime},
+  journal = {Applied Soft Computing}, volume = {175}, pages = {113043}, year = {2025}}
+
+% [was placeholder: "Graph Firebreak Planning"]
+@article{yemshanov2025graph,
+  title   = {A Graph-Based Optimization Framework for Firebreak Planning in
+             Wildfire-Prone Landscapes},
+  author  = {Yemshanov, Denys and Liu, Ning and Neilson, Eric W. and
+             Thompson, Daniel and Koch, Frank H.},
+  journal = {Ecological Informatics}, volume = {90}, year = {2025}}
+
+% [was placeholder: "Helitack RL"]
+@article{mathur2026helitack,
+  title   = {Spatiotemporal Wildfire Prediction and Reinforcement Learning for
+             Helitack Suppression},
+  author  = {Mathur, Shaurya and Manjunath, Shreyas Bellary and Kulkarni, Nitin and
+             Vereshchaka, Alina},
+  journal = {arXiv:2601.14238}, year = {2026}}
+
+@article{pais2021cell2fire,
+  title   = {{Cell2Fire}: A Cellular Automata Based Forest Fire Growth Model to Support
+             Tactical Wildfire Suppression Decision Making},
+  author  = {Pais, Cristobal and Carrasco, Jaime and Martell, David L. and
+             Weintraub, Andres and Woodruff, David L.},
+  journal = {Frontiers in Forests and Global Change}, year = {2021}}
+
+% ---------- evaluation rigour -------------------------------------------------
+@inproceedings{agarwal2021precipice,
+  title     = {Deep Reinforcement Learning at the Edge of the Statistical Precipice},
+  author    = {Agarwal, Rishabh and Schwarzer, Max and Castro, Pablo Samuel and
+               Courville, Aaron and Bellemare, Marc G.},
+  booktitle = {NeurIPS}, year = {2021}}
+
+@inproceedings{henderson2018matters,
+  title     = {Deep Reinforcement Learning that Matters},
+  author    = {Henderson, Peter and Islam, Riashat and Bachman, Philip and Pineau, Joelle and
+               Precup, Doina and Meger, David},
+  booktitle = {AAAI}, year = {2018}}
+
+@inproceedings{adebayo2018sanity,
+  title     = {Sanity Checks for Saliency Maps},
+  author    = {Adebayo, Julius and Gilmer, Justin and Muelly, Michael and Goodfellow, Ian and
+               Hardt, Moritz and Kim, Been},
+  booktitle = {NeurIPS}, year = {2018}}
