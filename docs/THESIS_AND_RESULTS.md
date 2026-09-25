@@ -615,61 +615,86 @@ This evidence is **continuous**, so it is not subject to the resolution limit
 below, and it is arguably better than a violation rate: it measures the cause
 rather than inferring it from a coarse binary outcome.
 
-**The violation rate, at adequate resolution.** The first sweep used
-`eval_every 20`, giving 11 evaluations per run, so every rate was a multiple of
-1/11 and δ = 0.1 fell between 1/11 and 2/11 — unmeasurable. Rerun at
-`eval_every 5` (`runs/margin_choice_hires/`), 41 evaluations per run, the
-attainable values become 0.000, 0.024, 0.049, 0.073, **0.098**, 0.122 … so the
-level sits on the grid.
-
-Pooled over all 15 runs, 615 evaluations per arm:
-
-| arm | violating | count |
-|---|---|---|
-| none | 0.1090 | 67/615 |
-| model_error | 0.0830 | 51/615 |
-| episode | 0.0586 | 36/615 |
-| **residual** | **0.0602** | 37/615 |
-
-`residual` against `none` is **z = 3.07** — the margin reduces violations from
-10.9% to 6.0%, and that is the core safety claim at adequate power.
-
-**But pooling hides the claim, because the claim is conditional.** Splitting by
-the ρ measured in each run:
+**The violation rate, at adequate resolution and power.** The first sweep used
+`eval_every 20` — 11 evaluations per run, so every rate was a multiple of 1/11
+and δ = 0.1 was not attainable. Rerun at `eval_every 5` and extended to 5 seeds
+(`runs/margin_choice_hires/`, 25 runs, 41 evaluations each):
 
 | | `none` | `model_error` | `episode` | `residual` |
 |---|---|---|---|---|
-| ρ < 8, 10 runs, 410 evals | 0.1171 | **0.0659** | 0.0586 | 0.0561 |
-| ρ ≥ 8, 5 runs, 205 evals | 0.0927 | **0.1171** | 0.0586 | 0.0683 |
+| **ρ < 8**, 17 runs, 697 evals | 0.1162 | **0.0718** | 0.0603 | 0.0603 |
+| **ρ ≥ 8**, 8 runs, 328 evals | 0.1403 | **0.1402** | 0.0671 | 0.0732 |
 
-This is the predicted pattern and it is worth stating exactly:
+| contrast | ρ < 8 | ρ ≥ 8 |
+|---|---|---|
+| `model_error` vs `residual` | z = +0.86 | **z = +2.78** |
+| `none` vs `residual` | **z = +3.68** | **z = +2.78** |
+
+**The claim, confirmed at significance.**
 
 * Where the model's per-instance error dominates (ρ < 8) the default **works**:
-  0.0659, comfortably inside δ = 0.1, and indistinguishable from ours
-  (z = 0.58). The recipe is not wrong in general.
-* Where the policy's spread dominates (ρ ≥ 8) the default **breaks its stated
-  rate**: 0.1171 against δ = 0.10, and worse than applying no margin at all
-  (0.0927). Ours holds at 0.0683.
+  0.0718, inside δ = 0.1, and statistically indistinguishable from ours
+  (z = 0.86). The recipe is not wrong in general, and saying so is what makes
+  this a condition rather than a complaint.
+* Where the policy's spread dominates (ρ ≥ 8) the default is **worth nothing**:
+  0.1402 against 0.1403 for applying no margin at all — the same number to
+  three decimal places — and above the level it states. Ours holds 0.0732.
+  The contrast is z = 2.78.
 
-**Significance, stated honestly.** Only the pooled `none` vs `residual`
-contrast reaches conventional significance (z = 3.07). Within the high-ρ
-stratum, `model_error` vs `residual` is **z = 1.70** — the right direction,
-short of 1.96, on 205 evaluations per arm. Two more seeds at that stratum would
-give the ~1.33× data needed to settle it. The qualitative fact that the default
-exceeds δ while ours does not is visible; the contrast between them is not yet
+That the default and the no-margin baseline coincide at high ρ is the sharpest
+form of the finding. It is not that the margin is loose; it is that the
+quantity it conformalises has stopped carrying information about what breaches
+the limit, so tightening by it changes nothing.
+
+Our recipe reduces violations against no margin in **both** regimes
+(z = 3.68 and z = 2.78) and holds δ in both.
+
+**On the pre-registration.** `paper/REVISION_NOTES.md` §8e set this as the test
+before any of it ran. At 11 evaluations it could not be run and the margin
+collapse was reported instead, flagged at the time as a post-hoc substitute.
+The test has now been run as written, at adequate resolution and power, and the
+pattern it predicted is the pattern observed. The substitution caveat is
+withdrawn; the margin-collapse evidence below supports this result rather than
+standing in for it.
+
+**Against a model-based safe-RL baseline.** Every other safe-RL baseline in
+this project is model-free, which makes "fewer real transitions than model-free
+methods" close to tautological for a model-based planner (§9.2). CAP
+(Ma et al., AAAI 2022) is the closest method that also plans in a learned model
+and also corrects for it being wrong: it inflates the cost estimate by ensemble
+disagreement, `c = mean + k·std` over five surrogates, with `k` adapted from the
+same periodic real probe we use. `eval/run_cap_baseline.py` transplants that
+cost-penalty onto our planner — same dual, testbed, limit, evaluation protocol
+and **probe budget** — so only the correction mechanism differs. It is not a
+reimplementation of the paper, and the docstring says so.
+
+At a matched real-sample budget (6,400 training transitions plus 1,920 probe,
+identical for both), rdf, full-fidelity surrogate:
+
+| method | violating | seeds |
+|---|---|---|
+| no margin | 0.1317 | 5 |
+| model-error conformal | 0.1415 | 5 |
+| **CAP (ensemble penalty)** | **0.1301** | 3 |
+| **ours (residual)** | **0.0781** | 5 |
+
+CAP lands at 0.130 against 0.132 for no margin at all — like the matched-pair
+conformal recipe, it provides essentially nothing in this regime. Its adapted
+`k` settled between 0.5 and 1.46, so the mechanism was active; ensemble
+disagreement simply is not the quantity that breaches this limit, for the same
+reason model error is not.
+
+**Not yet conclusive.** Ours against CAP is **z = +1.54** on 3 CAP seeds against
+5 of ours — the right direction, short of significance. Three further CAP seeds
+are running. Until they report, the honest statement is that CAP performs like
+no margin while ours does not, and that the contrast between the two is not yet
 separable from noise.
 
-This also **re-derives the RDF finding by an independent route**: §3.2 found
-model-error conformalisation at 18.2% against a 14.5% no-margin baseline on one
-testbed at one fidelity. Here the same reversal appears across a fidelity
-ladder, conditional on ρ, which is a stronger form of the same claim.
-
-**On the pre-registration.** `paper/REVISION_NOTES.md` §8e set this as the
-test, and at 11 evaluations it could not be run; the margin collapse was
-reported instead and flagged as a post-hoc substitute. This rerun **restores
-the pre-registered test at adequate power**, and the pattern it predicted is
-the pattern observed. The margin-collapse evidence below now supports it rather
-than standing in for it.
+**A caveat in CAP's favour.** It matches on real samples but uses five times the
+training compute, since the ensemble is five models fitted to the same data.
+A compute-matched comparison would be less generous to it, and a
+sample-matched one is the right choice for a claim about constraint
+satisfaction rather than efficiency.
 
 **ρ > 1 across the entire sweep.** Measured ρ = σ/ε ranges 1.20 to 96.24, and
 all 15 runs exceed 1 — even the worst surrogate tested (rel L2 0.82, worse than

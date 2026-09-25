@@ -13,6 +13,7 @@
 #
 #   sbatch -A ATM23014 --export=ALL,EXPERIMENT=sweep scripts/tacc/vista_margin.slurm
 #   sbatch -A ATM23014 --export=ALL,EXPERIMENT=ndws  scripts/tacc/vista_margin.slurm
+#   sbatch -A ATM23014 --export=ALL,EXPERIMENT=cap     scripts/tacc/vista_margin.slurm
 #   sbatch -A ATM23014 --export=ALL,EXPERIMENT=calib   scripts/tacc/vista_margin.slurm
 #   sbatch -A ATM23014 --export=ALL,EXPERIMENT=perturb scripts/tacc/vista_margin.slurm
 #   sbatch -A ATM23014 --export=ALL,EXPERIMENT=perturbarms,SHIFTS='0.01 0.04 0.16' scripts/tacc/vista_margin.slurm
@@ -37,7 +38,7 @@ if [ "$DEV" = cuda ]; then
   nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 fi
 SEEDS="${SEEDS:-0 1 2}"
-mkdir -p runs/margin_choice runs/margin_choice_hires runs/ndws_margin runs/margin_synthetic runs/ndws_calib runs/ndws_perturb
+mkdir -p runs/cap runs/margin_choice runs/margin_choice_hires runs/ndws_margin runs/margin_synthetic runs/ndws_calib runs/ndws_perturb
 
 case "${EXPERIMENT:?set EXPERIMENT=sweep|ndws|synth}" in
   sweep)
@@ -140,6 +141,22 @@ case "${EXPERIMENT:?set EXPERIMENT=sweep|ndws|synth}" in
           > "runs/ndws_perturb/s${s}_sh${sh}.log" 2>&1 &
       done
     done ;;
+  cap)
+    # The model-based safe-RL baseline. Every other safe-RL baseline in this
+    # repo is model-free, which makes a sample-efficiency comparison against
+    # them close to tautological for a model-based planner. CAP plans in a
+    # learned model and corrects for it being wrong, which is the thing our
+    # margin does, so it is the comparison that carries information.
+    #
+    # Same probe budget, same planner, same dual, same limit, same evaluation
+    # protocol as our arms: only the correction mechanism differs.
+    for s in $SEEDS; do
+      python eval/run_cap_baseline.py --testbed "${TESTBED:-rdf}" --grid 64 \
+        --epochs 20 --members "${MEMBERS:-5}" --iterations 200 \
+        --probe-every 20 --probe-episodes 16 --eval-every 5 \
+        --seed "$s" --device "$DEV" --out "runs/cap/${TESTBED:-rdf}_s${s}" \
+        > "runs/cap/${TESTBED:-rdf}_s${s}.log" 2>&1 &
+    done ;;
   synth)
     python eval/run_margin_synthetic.py --trials 2000 --n-cal 200 --n-test 20000 \
       --rho 0.1 0.25 0.5 0.8 1.0 1.25 2.0 4.0 10.0 \
@@ -147,8 +164,19 @@ case "${EXPERIMENT:?set EXPERIMENT=sweep|ndws|synth}" in
     ;;
 esac
 
-wait
-echo "=== done: $EXPERIMENT ==="
-for f in runs/margin_choice/*/results.md runs/ndws_margin/*/results.md runs/margin_synthetic/results.md; do
+# Collect whatever the python processes returned, so a real failure is still
+# visible. Without this the summary below decides the exit status instead.
+rc=0
+for pid in $(jobs -p); do wait "$pid" || rc=1; done
+
+echo "=== done: $EXPERIMENT (python rc=$rc) ==="
+for f in runs/cap/*/results.md runs/margin_choice*/*/results.md \
+         runs/ndws_margin/*/results.md runs/ndws_perturb/*/results.md \
+         runs/margin_synthetic/results.md; do
   [ -f "$f" ] && { echo "--- $f ---"; cat "$f"; }
 done
+
+# The summary loop must not set the exit status. Its final `[ -f ]` returns 1
+# whenever the last glob matches nothing, which marked five completed jobs as
+# FAILED while their results sat on disk.
+exit "$rc"
