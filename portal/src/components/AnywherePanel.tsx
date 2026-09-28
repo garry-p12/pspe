@@ -467,8 +467,15 @@ export function AnywherePanel({
           <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
             The best allocation of A${budgetM}M changes flood depth by{" "}
             {plan.reduction_pct.toFixed(2)}%, which this model cannot
-            distinguish from doing nothing. Try candidate sites closer to where
-            the water actually runs, or a larger budget.
+            distinguish from doing nothing.
+          </p>
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">
+            That is often the right answer rather than a failure. The storm is
+            applied as rain falling across the whole area, and a levee can only
+            redirect water that arrives from somewhere — it has nothing to block
+            when the rain lands on both sides of it. Embankments earn their cost
+            where terrain funnels water along a path, not on flat ground that
+            floods everywhere at once.
           </p>
           <p className="anno mt-2.5 leading-relaxed">
             {plan.scenarios_solved} options solved on this terrain in{" "}
