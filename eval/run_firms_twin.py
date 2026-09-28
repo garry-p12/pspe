@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from eval.metrics import markdown_table  # noqa: E402
 from eval.run_ndws import average_precision  # noqa: E402
 from pspe.simulate.real.firms import load_sequences  # noqa: E402
+from pspe.simulate.real import wsts  # noqa: E402
 from pspe.utils import get_device, project_path, seed_everything  # noqa: E402
 
 
@@ -162,6 +163,28 @@ def run_fire(model, seq, device, mode: str, adapt_lr: float, horizon: int):
     return {h: float(np.mean(v)) if v else float("nan") for h, v in scores.items()}
 
 
+def folds(seqs, scheme: str):
+    """(name, held-out sequences) pairs for the chosen cross-validation.
+
+    Leave-one-fire-out is right for eight fires and impossible for 607: it
+    fits one model per fire per seed. WildfireSpreadTS's own documentation
+    recommends cross-validation across years, because the distribution shifts
+    between them -- so that is both the affordable protocol and the one the
+    benchmark asks for, which is the point of moving to it.
+    """
+    if scheme == "fire":
+        return [(s.name, [s]) for s in seqs]
+    # The MODAL year, not the first date's. WildfireSpreadTS groups fires into
+    # year directories, but a fire filed under 2018 can have its first frame in
+    # late December 2017 -- keying on dates[0] then invents a one-fire "2017"
+    # fold, which is not a train/test split of anything.
+    by_year: dict[str, list] = {}
+    for s in seqs:
+        years = [d[:4] for d in s.dates]
+        by_year.setdefault(max(set(years), key=years.count), []).append(s)
+    return [(y, by_year[y]) for y in sorted(by_year)]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--grid", type=int, default=64)
@@ -172,33 +195,62 @@ def main() -> int:
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     ap.add_argument("--device", default="auto")
     ap.add_argument("--out", default="runs/firms_twin")
+    ap.add_argument("--source", default="firms", choices=["firms", "wsts"],
+                    help="firms: 8 fires fetched live. wsts: WildfireSpreadTS, 607 fires")
+    ap.add_argument("--wsts-root", default="data/wsts/WildfireSpreadTS")
+    ap.add_argument("--cv", default=None, choices=["fire", "year"],
+                    help="held-out unit; default is fire for firms, year for wsts")
+    ap.add_argument("--max-fires", type=int, default=None,
+                    help="cap the number of sequences, for smoke tests")
+    ap.add_argument("--min-observed", type=int, default=4,
+                    help="drop sequences the satellite barely saw")
     args = ap.parse_args()
+    if args.cv is None:
+        args.cv = "fire" if args.source == "firms" else "year"
 
     device = get_device(args.device)
     root = project_path(args.out); root.mkdir(parents=True, exist_ok=True)
-    seqs = load_sequences(grid=args.grid)
-    print(f"{len(seqs)} fires: " + ", ".join(
-        f"{s.name}({int(s.observed.sum())}/{len(s.dates)}d)" for s in seqs), flush=True)
+    if args.source == "wsts":
+        seqs = wsts.load_sequences(args.wsts_root, grid=args.grid,
+                                   max_fires=args.max_fires,
+                                   min_observed=args.min_observed)
+    else:
+        seqs = load_sequences(grid=args.grid)
+    if len(seqs) < 2:
+        raise SystemExit(f"only {len(seqs)} usable sequences from {args.source}")
+    obs = [int(s.observed.sum()) for s in seqs]
+    print(f"{len(seqs)} fires from {args.source}; observed days "
+          f"min {min(obs)} median {int(np.median(obs))} max {max(obs)}", flush=True)
+    if len(seqs) <= 12:
+        print("  " + ", ".join(f"{s.name}({int(s.observed.sum())}/{len(s.dates)}d)"
+                               for s in seqs), flush=True)
 
     MODES = ["open", "state sync", "state+model"]
     acc = {m: {h: [] for h in range(1, args.horizon + 1)} for m in MODES}
     per_fire = []
 
+    split = folds(seqs, args.cv)
+    print(f"{len(split)} {args.cv}-fold(s): " + ", ".join(
+        f"{n}({len(h)})" for n, h in split), flush=True)
     for seed in args.seeds:
-        for held in seqs:                              # leave one fire out
-            train = [s for s in seqs if s.name != held.name]
+        for fold_name, held_group in split:
+            names = {s.name for s in held_group}
+            train = [s for s in seqs if s.name not in names]
+            if not train:
+                continue
             model = fit(train, device, args.epochs, seed, args.width)
-            row = {"seed": seed, "fire": held.name,
-                   "observed days": int(held.observed.sum())}
-            for m in MODES:
-                sc = run_fire(model, held, device, m, args.adapt_lr, args.horizon)
-                for h, v in sc.items():
-                    if v == v:
-                        acc[m][h].append(v)
-                    row[f"{m} h{h}"] = round(v, 4) if v == v else None
-            per_fire.append(row)
-            print(f"[seed {seed}] {held.name}: " + "  ".join(
-                f"{m} h1 {row.get(m + ' h1')}" for m in MODES), flush=True)
+            for held in held_group:
+                row = {"seed": seed, "fold": fold_name, "fire": held.name,
+                       "observed days": int(held.observed.sum())}
+                for m in MODES:
+                    sc = run_fire(model, held, device, m, args.adapt_lr, args.horizon)
+                    for h, v in sc.items():
+                        if v == v:
+                            acc[m][h].append(v)
+                        row[f"{m} h{h}"] = round(v, 4) if v == v else None
+                per_fire.append(row)
+            print(f"[seed {seed}] fold {fold_name}: {len(held_group)} fires scored, "
+                  f"{len(train)} in train", flush=True)
 
     # Paired across fires: the fires differ enormously in size and behaviour, so
     # the spread across them says nothing about whether the loop helps. What
@@ -247,7 +299,8 @@ def main() -> int:
     table = (markdown_table(rows) + "\n\nPaired across fires:\n\n" + markdown_table(paired)
              + "\n\nPer fire and seed:\n\n" + markdown_table(per_fire))
     (root / "results.md").write_text(
-        table + f"\n\n{len(seqs)} fires, leave-one-fire-out, seeds {args.seeds}. "
+        table + f"\n\n{len(seqs)} fires from {args.source}, held out by {args.cv}, "
+        f"seeds {args.seeds}. "
         "Scored as average precision of the predicted fire against the observed "
         "detections, on observed days only.\n")
     (root / "results.json").write_text(json.dumps(

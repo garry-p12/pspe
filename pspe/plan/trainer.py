@@ -217,6 +217,11 @@ class HybridPlannerTrainer:
         self.probe_episode_dev: list[float] = []  # real episode cost minus its probe mean
         self.probe_model_err: list[float] = []    # matched pair: real minus surrogate, per episode
         self.probe_residual: list[float] = []     # real episode cost minus the surrogate's mean
+        # Which iteration each calibration score came from. Split conformal
+        # assumes the scores are exchangeable, and a learning run is a moving
+        # policy, so that assumption is testable only if the order survives.
+        self.probe_iteration: list[int] = []
+        self._probe_it = 0
         self.real_probe_transitions = 0
         self._probe_seed = self.cfg.seed + 20_000
         self.pathwise_bias_sq = 0.0
@@ -378,6 +383,7 @@ class HybridPlannerTrainer:
             # Realised cost against the quantity the dual controls. Bias and
             # spread both survive here, which is the point.
             self.probe_residual.extend(float(c) - surr_mean for c in true_costs)
+            self.probe_iteration.extend([self._probe_it] * len(true_costs))
         return mean
 
     @torch.no_grad()
@@ -452,6 +458,7 @@ class HybridPlannerTrainer:
         if not self.cfg.real_cost_every or self.eval_env is None:
             return surrogate_cost, {}
         if it % self.cfg.real_cost_every == 0:
+            self._probe_it = it
             real = self.probe_real_cost(self.cfg.real_cost_episodes)
             error = real - surrogate_cost
             # EMA rather than a full history: the bias is non-stationary, since

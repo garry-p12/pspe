@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/* PSPE portal — instrument-panel palette. Dark by default because every view is
+   a map or a raster, and light chrome around dark geospatial imagery reads as
+   unfinished. Tokens are defined once here and referenced everywhere; no
+   component hard-codes a colour. */
+:root {
+  --bg:        #0a0d12;
+  --bg-raised: #11151c;
+  --bg-inset:  #070a0e;
+  --line:      #1d232d;
+  --line-soft: #161b23;
+
+  --ink:       #e8edf4;
+  --ink-mute:  #93a0b4;
+  --ink-faint: #5d6a7d;
+
+  --accent:      #38bdf8;   /* water / flood */
+  --accent-warm: #fb923c;   /* fire */
+  --ok:          #34d399;
+  --warn:        #fbbf24;
+  --bad:         #f87171;
+
+  --badge-observed:  #34d399;
+  --badge-validated: #38bdf8;
+  --badge-projection:#fbbf24;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-inset: var(--bg-inset);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-ink: var(--ink);
+  --color-ink-mute: var(--ink-mute);
+  --color-ink-faint: var(--ink-faint);
+  --color-accent: var(--accent);
+  --color-accent-warm: var(--accent-warm);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-sans-stack);
+  --font-mono: var(--font-mono-stack);
+}
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans-stack);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numerals must line up in every table and readout. */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Uppercase micro-labels used throughout the chrome. */
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+.rule { border-color: var(--line); }
+
+/* MapLibre's own chrome, retoned to the panel palette. */
+.maplibregl-ctrl-attrib {
+  background: rgba(10, 13, 18, 0.82) !important;
+  color: var(--ink-faint) !important;
+  font-size: 10px !important;
+}
+.maplibregl-ctrl-attrib a { color: var(--ink-mute) !important; }
+.maplibregl-canvas { outline: none; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg-inset); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #2a323f; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

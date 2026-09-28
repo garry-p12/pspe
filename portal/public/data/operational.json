@@ -1,0 +1,1411 @@
+{
+  "region": "Richmond Valley, NSW",
+  "has_overlays": true,
+  "reference_event": "February\u2013March 2022 Northern Rivers flood",
+  "cut_depth_m": 0.25,
+  "dx_m": 60.0,
+  "cost_note": "Indicative only. Unit rate A$2,600 per metre of crest per metre of height; real cost depends on foundation, land acquisition and access.",
+  "sites": [
+    {
+      "id": 0,
+      "elev_m": 6.488574981689453,
+      "crest_length_m": 1752.3698239812281
+    },
+    {
+      "id": 1,
+      "elev_m": 2.0,
+      "crest_length_m": 1752.3698239812281
+    },
+    {
+      "id": 2,
+      "elev_m": 5.238327980041504,
+      "crest_length_m": 1752.3698239812281
+    },
+    {
+      "id": 3,
+      "elev_m": 6.518458366394043,
+      "crest_length_m": 1752.3698239812281
+    },
+    {
+      "id": 4,
+      "elev_m": 4.667634010314941,
+      "crest_length_m": 1752.3698239812281
+    },
+    {
+      "id": 5,
+      "elev_m": 7.2306718826293945,
+      "crest_length_m": 1752.3698239812281
+    }
+  ],
+  "event_scales": [
+    1.0
+  ],
+  "options": [
+    {
+      "event_scale": 1.0,
+      "id": "base",
+      "name": "Do nothing",
+      "heights": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cost_aud": 0,
+      "road_cut_km": 20.61233766253504,
+      "local_road_cut_km": 3.5404402186081776,
+      "area_flooded_km2": 184.9968,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.600738523618778
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.3174,
+          "change_m": 0.0,
+          "protected": false
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.1212,
+          "change_m": 0.0,
+          "protected": false
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.0913,
+          "change_m": 0.0,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": 0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 0,
+      "displaces_from_km": null,
+      "core_reduction_m": -0.0,
+      "core_reduction_pct": -0.0,
+      "road_cut_change_km": 0.0,
+      "local_change_km": 0.0,
+      "local_protected_km": 0.0,
+      "displaced_km": 0.0,
+      "area_change_km2": 0.0,
+      "makes_worse": false,
+      "road_protected_km": 0.0,
+      "cost_per_km_protected": null
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s0",
+      "name": "Levee at site 0",
+      "heights": [
+        3.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cost_aud": 13668484.62705358,
+      "road_cut_km": 20.535830584404774,
+      "local_road_cut_km": 3.463933140477912,
+      "area_flooded_km2": 185.2308,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.600738523618778
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.3283,
+          "change_m": 0.0109,
+          "protected": false
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.1115,
+          "change_m": -0.0098,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.0929,
+          "change_m": 0.0016,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": -0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 0,
+      "core_reduction_m": -0.0109,
+      "core_reduction_pct": -3.434152488972905,
+      "road_cut_change_km": -0.07650707813026614,
+      "local_change_km": -0.0765070781302657,
+      "local_protected_km": 0.0765070781302657,
+      "displaced_km": 0.0,
+      "area_change_km2": 0.23399999999998045,
+      "makes_worse": false,
+      "road_protected_km": 0.07650707813026614,
+      "cost_per_km_protected": 178656471.54607958
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s1",
+      "name": "Levee at site 1",
+      "heights": [
+        0.0,
+        3.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cost_aud": 13668484.62705358,
+      "road_cut_km": 20.535830584404774,
+      "local_road_cut_km": 3.463933140477912,
+      "area_flooded_km2": 185.1372,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.600738523618778
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.3281,
+          "change_m": 0.0108,
+          "protected": false
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.1109,
+          "change_m": -0.0104,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.093,
+          "change_m": 0.0017,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": -0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 0,
+      "core_reduction_m": -0.0108,
+      "core_reduction_pct": -3.402646502835539,
+      "road_cut_change_km": -0.07650707813026614,
+      "local_change_km": -0.0765070781302657,
+      "local_protected_km": 0.0765070781302657,
+      "displaced_km": 0.0,
+      "area_change_km2": 0.14039999999999964,
+      "makes_worse": false,
+      "road_protected_km": 0.07650707813026614,
+      "cost_per_km_protected": 178656471.54607958
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s2",
+      "name": "Levee at site 2",
+      "heights": [
+        0.0,
+        0.0,
+        3.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cost_aud": 13668484.62705358,
+      "road_cut_km": 20.535830584404774,
+      "local_road_cut_km": 3.463933140477912,
+      "area_flooded_km2": 184.82399999999998,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.600738523618778
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.3062,
+          "change_m": -0.0111,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.1207,
+          "change_m": -0.0006,
+          "protected": false
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.0924,
+          "change_m": 0.0011,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": -0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 1,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.0111,
+      "core_reduction_pct": 3.497164461247637,
+      "road_cut_change_km": -0.07650707813026614,
+      "local_change_km": -0.0765070781302657,
+      "local_protected_km": 0.0765070781302657,
+      "displaced_km": 0.0,
+      "area_change_km2": -0.1728000000000236,
+      "makes_worse": false,
+      "road_protected_km": 0.07650707813026614,
+      "cost_per_km_protected": 178656471.54607958
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s3",
+      "name": "Levee at site 3",
+      "heights": [
+        0.0,
+        0.0,
+        0.0,
+        3.0,
+        0.0,
+        0.0
+      ],
+      "cost_aud": 13668484.62705358,
+      "road_cut_km": 20.639018564463523,
+      "local_road_cut_km": 3.567121120536665,
+      "area_flooded_km2": 185.3244,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.5503610448613214
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.1698,
+          "change_m": -0.1476,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.0952,
+          "change_m": -0.026,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.1101,
+          "change_m": 0.0188,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": 0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.1476,
+      "core_reduction_pct": 46.502835538752365,
+      "road_cut_change_km": 0.026680901928482825,
+      "local_change_km": 0.026680901928487266,
+      "local_protected_km": 0.0,
+      "displaced_km": 0.0,
+      "area_change_km2": 0.3275999999999897,
+      "makes_worse": false,
+      "road_protected_km": 0.0,
+      "cost_per_km_protected": null
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s4",
+      "name": "Levee at site 4",
+      "heights": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        3.0,
+        0.0
+      ],
+      "cost_aud": 13668484.62705358,
+      "road_cut_km": 21.07810624030101,
+      "local_road_cut_km": 4.006208796374147,
+      "area_flooded_km2": 185.688,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.600738523618778
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.2606,
+          "change_m": -0.0568,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.0919,
+          "change_m": -0.0293,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.1033,
+          "change_m": 0.012,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": 0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.0568,
+      "core_reduction_pct": 17.895400126023947,
+      "road_cut_change_km": 0.4657685777659708,
+      "local_change_km": 0.46576857776596947,
+      "local_protected_km": 0.0,
+      "displaced_km": 1.3322676295501878e-15,
+      "area_change_km2": 0.6911999999999807,
+      "makes_worse": true,
+      "road_protected_km": 0.0,
+      "cost_per_km_protected": null
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s5",
+      "name": "Levee at site 5",
+      "heights": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        3.0
+      ],
+      "cost_aud": 13668484.62705358,
+      "road_cut_km": 20.6904887992126,
+      "local_road_cut_km": 3.61859135528574,
+      "area_flooded_km2": 185.472,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.600738523618778
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.2372,
+          "change_m": -0.0801,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.1153,
+          "change_m": -0.006,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.0991,
+          "change_m": 0.0079,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0763,
+          "change_m": 0.0001,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.0801,
+      "core_reduction_pct": 25.236294896030245,
+      "road_cut_change_km": 0.07815113667755824,
+      "local_change_km": 0.07815113667756224,
+      "local_protected_km": 0.0,
+      "displaced_km": 0.0,
+      "area_change_km2": 0.47520000000000095,
+      "makes_worse": true,
+      "road_protected_km": 0.0,
+      "cost_per_km_protected": null
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s03",
+      "name": "Levees at sites 0, 3",
+      "heights": [
+        3.0,
+        0.0,
+        0.0,
+        3.0,
+        0.0,
+        0.0
+      ],
+      "cost_aud": 27336969.25410716,
+      "road_cut_km": 20.56251148633326,
+      "local_road_cut_km": 3.490614042406399,
+      "area_flooded_km2": 185.4108,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.5503610448613214
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.1639,
+          "change_m": -0.1534,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.0911,
+          "change_m": -0.0302,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.1117,
+          "change_m": 0.0204,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": -0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.1534,
+      "core_reduction_pct": 48.3301827347196,
+      "road_cut_change_km": -0.04982617620177976,
+      "local_change_km": -0.04982617620177843,
+      "local_protected_km": 0.04982617620177843,
+      "displaced_km": 0.0,
+      "area_change_km2": 0.41399999999998727,
+      "makes_worse": false,
+      "road_protected_km": 0.04982617620177976,
+      "cost_per_km_protected": 548646742.2946796
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s23",
+      "name": "Levees at sites 2, 3",
+      "heights": [
+        0.0,
+        0.0,
+        3.0,
+        3.0,
+        0.0,
+        0.0
+      ],
+      "cost_aud": 27336969.25410716,
+      "road_cut_km": 20.56251148633326,
+      "local_road_cut_km": 3.490614042406399,
+      "area_flooded_km2": 185.274,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.5503610448613214
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.1433,
+          "change_m": -0.174,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.0916,
+          "change_m": -0.0296,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.1132,
+          "change_m": 0.0219,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": 0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.174,
+      "core_reduction_pct": 54.820415879017006,
+      "road_cut_change_km": -0.04982617620177976,
+      "local_change_km": -0.04982617620177843,
+      "local_protected_km": 0.04982617620177843,
+      "displaced_km": 0.0,
+      "area_change_km2": 0.27719999999999345,
+      "makes_worse": false,
+      "road_protected_km": 0.04982617620177976,
+      "cost_per_km_protected": 548646742.2946796
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s34",
+      "name": "Levees at sites 3, 4",
+      "heights": [
+        0.0,
+        0.0,
+        0.0,
+        3.0,
+        3.0,
+        0.0
+      ],
+      "cost_aud": 27336969.25410716,
+      "road_cut_km": 21.232024210701038,
+      "local_road_cut_km": 4.160126766774174,
+      "area_flooded_km2": 185.26319999999998,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.5503610448613214
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.1392,
+          "change_m": -0.1781,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.0588,
+          "change_m": -0.0624,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.1217,
+          "change_m": 0.0304,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": 0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.1781,
+      "core_reduction_pct": 56.11216131064903,
+      "road_cut_change_km": 0.6196865481659977,
+      "local_change_km": 0.6196865481659963,
+      "local_protected_km": 0.0,
+      "displaced_km": 1.3322676295501878e-15,
+      "area_change_km2": 0.266399999999976,
+      "makes_worse": true,
+      "road_protected_km": 0.0,
+      "cost_per_km_protected": null
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s134",
+      "name": "Levees at sites 1, 3, 4",
+      "heights": [
+        0.0,
+        3.0,
+        0.0,
+        3.0,
+        3.0,
+        0.0
+      ],
+      "cost_aud": 41005453.881160736,
+      "road_cut_km": 21.155517132570775,
+      "local_road_cut_km": 4.083619688643909,
+      "area_flooded_km2": 185.3316,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.5503610448613214
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.1395,
+          "change_m": -0.1779,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.052,
+          "change_m": -0.0692,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.1234,
+          "change_m": 0.0321,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": 0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.1779,
+      "core_reduction_pct": 56.049149338374285,
+      "road_cut_change_km": 0.5431794700357351,
+      "local_change_km": 0.5431794700357311,
+      "local_protected_km": 0.0,
+      "displaced_km": 3.9968028886505635e-15,
+      "area_change_km2": 0.3348000000000013,
+      "makes_worse": true,
+      "road_protected_km": 0.0,
+      "cost_per_km_protected": null
+    },
+    {
+      "event_scale": 1.0,
+      "id": "s234",
+      "name": "Levees at sites 2, 3, 4",
+      "heights": [
+        0.0,
+        0.0,
+        3.0,
+        3.0,
+        3.0,
+        0.0
+      ],
+      "cost_aud": 41005453.881160736,
+      "road_cut_km": 21.155517132570775,
+      "local_road_cut_km": 4.083619688643909,
+      "area_flooded_km2": 185.22719999999998,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.5503610448613214
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        },
+        {
+          "name": "Casino Coraki Road",
+          "km": 0.7290300162058521
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.1169,
+          "change_m": -0.2005,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.0534,
+          "change_m": -0.0679,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.1249,
+          "change_m": 0.0337,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0762,
+          "change_m": 0.0,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.2005,
+      "core_reduction_pct": 63.16950220541903,
+      "road_cut_change_km": 0.5431794700357351,
+      "local_change_km": 0.5431794700357311,
+      "local_protected_km": 0.0,
+      "displaced_km": 3.9968028886505635e-15,
+      "area_change_km2": 0.23039999999997463,
+      "makes_worse": true,
+      "road_protected_km": 0.0,
+      "cost_per_km_protected": null
+    },
+    {
+      "event_scale": 1.0,
+      "id": "all",
+      "name": "All sites",
+      "heights": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "cost_aud": 82010907.76232147,
+      "road_cut_km": 21.33701430049017,
+      "local_road_cut_km": 4.265116856563318,
+      "area_flooded_km2": 184.9608,
+      "named_roads_cut": [
+        {
+          "name": "Tatham Road",
+          "km": 2.5503610448613214
+        },
+        {
+          "name": "Wyrallah Road",
+          "km": 2.1352069679243586
+        },
+        {
+          "name": "Munro Wharf Road",
+          "km": 1.8003939128294513
+        },
+        {
+          "name": "Goswell Road",
+          "km": 1.4449572020909716
+        },
+        {
+          "name": "Swan Bay Road",
+          "km": 1.4102337403742595
+        },
+        {
+          "name": "Coraki Road",
+          "km": 1.2222623562511103
+        },
+        {
+          "name": "Sheehan Road",
+          "km": 0.9703762837591813
+        },
+        {
+          "name": "Coraki-Ellangowan Road",
+          "km": 0.9219894048669166
+        },
+        {
+          "name": "Bruxner Highway",
+          "km": 0.797826388599453
+        },
+        {
+          "name": "River Bank Road",
+          "km": 0.7428020451198623
+        }
+      ],
+      "rings": [
+        {
+          "from_km": 0,
+          "to_km": 1,
+          "base_depth_m": 0.3174,
+          "depth_m": 0.1193,
+          "change_m": -0.198,
+          "protected": true
+        },
+        {
+          "from_km": 1,
+          "to_km": 2,
+          "base_depth_m": 0.1212,
+          "depth_m": 0.0373,
+          "change_m": -0.0839,
+          "protected": true
+        },
+        {
+          "from_km": 2,
+          "to_km": 4,
+          "base_depth_m": 0.0913,
+          "depth_m": 0.1285,
+          "change_m": 0.0372,
+          "protected": false
+        },
+        {
+          "from_km": 4,
+          "to_km": 8,
+          "base_depth_m": 0.0762,
+          "depth_m": 0.0763,
+          "change_m": 0.0001,
+          "protected": false
+        }
+      ],
+      "protects_to_km": 2,
+      "displaces_from_km": 2,
+      "core_reduction_m": 0.198,
+      "core_reduction_pct": 62.38185255198488,
+      "road_cut_change_km": 0.724676637955131,
+      "local_change_km": 0.7246766379551404,
+      "local_protected_km": 0.0,
+      "displaced_km": 0.0,
+      "area_change_km2": -0.036000000000001364,
+      "makes_worse": true,
+      "road_protected_km": 0.0,
+      "cost_per_km_protected": null
+    }
+  ],
+  "road_network_km": 288.042
+}

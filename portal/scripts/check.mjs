@@ -1,0 +1,16 @@
+import { chromium } from "playwright";
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+const errs = [];
+p.on("pageerror", (e) => errs.push("PAGEERROR: " + String(e).slice(0, 300)));
+p.on("console", (m) => { if (m.type() === "error") errs.push("CONSOLE: " + m.text().slice(0, 200)); });
+await p.goto("http://localhost:3100/", { waitUntil: "domcontentloaded", timeout: 20000 });
+await p.waitForTimeout(7000);
+const txt = (await p.locator("body").innerText()).trim();
+console.log("VISIBLE TEXT (first 400 chars):");
+console.log(txt.slice(0, 400) || "  <<< EMPTY >>>");
+console.log("\nbody children:", await p.locator("body > *").count());
+console.log("canvas elements:", await p.locator("canvas").count());
+console.log("\nERRORS:", errs.length ? errs.slice(0, 6) : "none");
+await p.screenshot({ path: "/tmp/portal-shots/check.png" });
+await b.close();

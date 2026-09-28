@@ -533,3 +533,222 @@ mean ± s.d. says only "worse on average".
   `residual` mode's assumption is *weaker* than the draft's, because it needs
   one exchangeable sample rather than an exchangeable sample plus an estimated
   bias term.
+
+## 11. New domain — flood, with a solver as reality (2026-09-25, revised 2026-09-26)
+
+> **Read this SECOND.** §11h supersedes the framing of 11a: CSI 0.979 is
+> agreement with a *model*, and that model has now been scored against satellite
+> observation. Read 11h before quoting any validation number from this section.
+>
+> **Read this first.** The sub-sections below were written from a **synthetic
+> fluvial testbed** — a channel over-topping a berm through narrow gaps. Porting
+> the same study onto the Australia 2022 DEM cut the achievable span from ~100%
+> to **6.18%**, below the ~7% band at which §3.4 retires `swe`. The solver
+> validation (11a) survives unchanged and is real. **The planning claims do
+> not generalise to "flood"** and are re-scoped in 11g. Anything below that
+> reads as a claim about flood control should be read as a claim about a
+> constructed fluvial geometry.
+
+The draft's §6 limitation says no observational record contains the
+counterfactual, and lists as an escape "a physics-based simulator as a surrogate
+for reality — which substitutes one model for another." **The flood work takes
+that route deliberately**, on FloodCastBench (Xu et al., Sci Data 2025), whose
+reference depths come from a LISFLOOD-FP-style local-inertial solution of the
+shallow water equations. Full record in §5.6 of `docs/THESIS_AND_RESULTS.md`.
+
+### 11a. What can now be written that could not be before
+
+**Our solver is the accepted scheme, measured not asserted.** Initialised from
+the reference at t = 192 h on Australia 2022 (30 m, 1073×1073) and free-running:
+**mean CSI@0.01 = 0.979, CSI@0.05 = 0.978** over two hours at 15-minute frames,
+RMSE 0.091 m against depths reaching 18 m, bias ≈ 0. The window's unmodelled
+forcing is measured at 0.012% of volume from the reference's own budget and
+reported as the bound. Roughness is a uniform literature value, never fitted.
+
+A first run showed a −0.032 m dry bias which the missing forcing could not
+explain (the deficit was ~100× the forcing). It traced to **our own** boundary
+treatment — four open edges with a normal-depth outflow on a single
+domain-average slope — and closing the domain removed it. Worth printing as a
+worked example of not attributing one's own error to a dataset's gaps.
+
+This does **not** close §6.2 and the paper must not say it does. It replaces
+"our surrogate with noise added" as the reality model with "the operational
+standard, independent of the surrogate under test". Weaker than a field trial,
+stronger than what Part 5 had.
+
+### 11b. A correction the paper should make about its own retired testbed
+
+§3.4 retires `swe` because planners ranked inside a ~7% achievable band. On a
+**synthetic fluvial** flood testbed — the same PDE family — the achievable span is
+**100%**. What changed is the actuator: `swe` added an equal source to the surface
+everywhere, while a levee raises the bed and gates where water can go. **The `swe`
+verdict is correct about `swe` and wrong as a claim about shallow-water control.**
+
+But the correction must not over-swing. On **real** terrain (Australia 2022) the
+same levee actuator reaches only **6.18%**. So the honest statement is narrower
+than either extreme: an actuator that gates flow can have enormous leverage *in a
+geometry where flow is constricted*, and very little where it is not. Both halves
+belong in the paper; quoting only the 100% would substitute one over-generalisation
+for another.
+
+### 11c. A result that supports the paper's thesis better than the fire task
+
+**Two of six candidate levee sites make flooding worse** (−5.09%, −2.06%), both
+downstream of the settlement, via the levee backwater effect. A planner that
+treats actuators as uniformly beneficial does not merely waste budget — it harms
+what it was deployed to protect. That is the paper's thesis, in a domain where an
+accepted solver can demonstrate it, and it is a stronger motivating example than
+the wildfire task, which was infeasible for mundane reasons.
+
+### 11d. Proposition 2 becomes an acceptance test
+
+The precondition `b + z_δ·σ_agg < f·s` is currently stated abstractly. On flood
+the bias is negligible, so it reduces to a **dimensionless** criterion
+`σ/s < f/z_δ`, and a six-point sweep over forecast spread locates the crossing:
+
+| σ_log | required | headroom | % of span | verdict |
+|---|---|---|---|---|
+| 0.02 | 0.0187 | 0.0789 | 7% | PASS |
+| 0.05 | 0.0478 | 0.0770 | 19% | PASS |
+| 0.08 | 0.0727 | 0.0746 | 29% | PASS |
+| 0.12 | 0.1141 | 0.0712 | 48% | FAIL |
+| 0.20 | 0.2444 | 0.0646 | 114% | FAIL |
+| 0.30 | 0.3396 | 0.0584 | 174% | FAIL |
+
+**A δ = 0.1 margin is usable on this levee task only with discharge forecasts
+accurate to about 8%** — predicted 7.3% from an independently measured mechanism
+*before* the run, measured 8.2%. This is the kind of number a practitioner can
+hold a forecast product to, and it turns the proposition from an inequality into
+a test. Figure: `fig10_flood_precondition.pdf`.
+
+### 11e. The mechanism, and a tension worth stating
+
+Amplification `E = d ln D / d ln Q` is **40× at the onset of over-topping**,
+decaying to 2.4× once the berm is broadly submerged, cross-validated to 3.7%
+against a direct Monte Carlo. So:
+
+> The regime where an intervention has leverage is the regime where the hazard is
+> most sensitive to forecast error, hence where a calibrated margin is hardest to
+> fit.
+
+`σ/s` has an interior minimum, squeezed by threshold amplification at small
+floods and by protection saturation at large ones. Figure:
+`fig9_flood_elasticity.pdf`.
+
+### 11f. Limitations to print, not bury
+
+* The published archive **does not match its own data paper**: it ships DEMs
+  only, no rainfall and no land cover. Hence the forcing-free validation window
+  and the uniform roughness.
+* Depth rasters carry **no georeferencing**. Only Australia's DEM grid matches
+  its depth grid; Pakistan's placement is unrecoverable (flooded cells at
+  elevation percentile 0.452 across nine candidate offsets, against 0.253 for
+  Australia — chance is 0.5). The loader raises rather than guessing.
+* Validation covers **two hours of divergence**; agreement decays at longer
+  horizons and no claim is made beyond the measured curve.
+* **ρ is not controllable through the hazard's spread** (ε scales with σ at fixed
+  training budget), so any ρ quoted from this testbed must state its budget.
+
+
+### 11g. The real-terrain result, and what it does to 11b–11e
+
+Porting the planning study onto the Australia 2022 DEM
+(`pspe/simulate/real/floodcast_scenario.py`, `eval/run_flood_real.py`) replaced
+every synthetic ingredient: terrain, initial state, flood magnitude and timing
+(from the reference's mass budget, 5.12 mm/h), settlement, and levee placement.
+
+| | achievable span |
+|---|---|
+| synthetic fluvial valley | ~100% |
+| real terrain, planner commits mid-flood | ~2.4% |
+| real terrain, planner commits before the flood | **6.18%**, plateauing |
+| `swe`, retired as unable to rank planners | ~7% |
+
+**The real-terrain task fails the span gate, so the margin experiment does not
+run.** The question "do the recipes separate on real flood data?" does not arise:
+there is no achievable gain for a margin to be carved from.
+
+Mechanism, measured rather than inferred — the settlement's 1.038 m decomposes as
+27% already present before the planner can act, 24% direct rain falling inside any
+ring, 25% routed. **51% is uncontrollable by construction**, and the lowest
+perimeter point is a *drain*: leveeing it costs −18.5% (−8.8% and −11.9% at two
+sites in the early-start run).
+
+**The transferable claim, which is better than the result it replaces:** the
+instrument must match the hazard mechanism. A levee earns ~100% against *fluvial*
+flooding arriving through a constriction, and ~6% against *pluvial* sheet flow
+where water arrives everywhere at once and a quarter of it falls inside the
+protected area. PSPE's planning layer is only as useful as the actuator it is
+handed, and choosing that actuator requires knowing the mechanism. For a pluvial
+event the right instruments are drainage, retention or pumping — actuators this
+framework does not have.
+
+**What this costs the paper.** The solver-validated margin result — the single
+biggest upgrade to the central claim, and the reason flood was chosen first — did
+not materialise. What remains is a validated solver (11a), a feasibility gate that
+correctly refused an infeasible task, and a scoping lesson about actuators.
+
+**Caveats on the numbers above.** Both real-terrain jobs hit their wall clock
+(40:29, 50:10), so the greedy figures are lower bounds; the traces were flattening
+and single-site maxima (+2.43%, +5.55%) bound the achievable. One event, one
+settlement, one instrument. Only Australia's DEM grid matches its depth rasters,
+so no fluvial event from this archive can be tested as a control.
+
+
+### 11h. The validation claim needs correcting (2026-09-27)
+
+**What the draft currently implies.** §11a states that our solver reaches
+**CSI 0.979** against FloodCastBench's reference and calls this "our reality
+model *is* the accepted one". §6.2's escape route (b) — a physics simulator
+standing in for reality — was treated as satisfied on that basis.
+
+**Why that is not validation.** The reference is itself a shallow-water
+solution. Two models agreeing measures reproducibility, not accuracy. Route (b)
+inherits whatever error the reference carries, and that error was never
+measured — by us or, in any published form we could find, by anyone.
+
+**It is now measured.** `pspe/observe/sar.py` derives observed flood extent from
+Sentinel-1 radar, which sees through the cloud that accompanies floods. For the
+2022 Northern Rivers event (scene 2 March, relative orbit 74, against the median
+of five same-track baselines), scored against the reference:
+
+| stratum | share of catchment | CSI | POD | FAR |
+|---|---|---|---|---|
+| whole catchment | 100% | 0.378 | 0.733 | 0.561 |
+| **where radar can adjudicate** | **57%** | **0.532** | 0.738 | **0.344** |
+| canopy and built-up | 32% | 0.063 | 0.495 | 0.932 |
+
+**What the paper should now say.** Not "our reality model is the accepted
+scheme", but:
+
+> Our solver reproduces the reference closely (CSI 0.979). The reference itself,
+> scored against Sentinel-1 observation on this event and restricted to land
+> cover where C-band radar can adjudicate, achieves CSI 0.53 with a false-alarm
+> rate of 0.34 — it over-predicts extent moderately. Intervention results
+> therefore rest on a reference of measured, moderate skill rather than on an
+> unexamined stand-in for reality.
+
+That is a weaker claim than the draft makes, and it is the defensible one. It
+also *strengthens* §6.2 rather than undermining it: the limitation section can
+now quantify what route (b) costs instead of gesturing at it.
+
+**Two rules for the methods section.**
+
+* **Agreement with a reference is not validation unless the reference has itself
+  been scored against observation.** We reported 0.979 as evidence of
+  trustworthiness for a full session before checking.
+* **Before scoring a model against an instrument, establish where the instrument
+  can see.** The unstratified 0.378 charged the model for 31% tree cover where
+  C-band is blind by physics; tree cover alone carries FAR 0.937. We published
+  0.378 internally before stratifying, which overstated the case substantially.
+
+**Honest limits of the new result.** One event, one date, one scene. The
+intended replication on Storm Desmond (Carlisle, 2015) **failed for an
+instrumental reason**: the 8 December overpass is two to three days past the
+peak and the scene contains no water mode at all (p1 = −16.4 dB against −23.6 dB
+at Richmond), so no threshold recovers the flood. That is a statement about a
+12-day repeat cycle, not about the model — but it means the Richmond figure
+stands alone and should be presented as an indication, not as a measurement of
+the reference's general skill. Pakistan and Mozambique cannot be used at all:
+their depth rasters are resampled onto grids that cannot be georeferenced from
+the archive.

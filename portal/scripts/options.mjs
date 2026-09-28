@@ -1,0 +1,11 @@
+import { chromium } from "playwright";
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1440, height: 950 }, deviceScaleFactor: 2 });
+await p.goto("http://localhost:3100/", { waitUntil: "domcontentloaded" });
+await p.waitForTimeout(7000);
+const aside = p.locator("aside");
+await aside.evaluate((el) => el.scrollTo(0, 1400));
+await p.waitForTimeout(1200);
+console.log(await aside.innerText());
+await p.screenshot({ path: "/tmp/portal-shots/options.png" });
+await b.close();

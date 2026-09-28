@@ -1,0 +1,13 @@
+import { chromium } from "playwright";
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1440, height: 950 }, deviceScaleFactor: 2 });
+const errs = [];
+p.on("pageerror", (e) => errs.push(String(e)));
+await p.goto("http://localhost:3100/flood", { waitUntil: "domcontentloaded" });
+await p.waitForTimeout(9000);
+await p.getByRole("button", { name: /S3/ }).click();
+await p.waitForTimeout(4000);
+await p.screenshot({ path: "/tmp/portal-shots/flood-selected.png" });
+console.log("shot: settlement focus, site S3 selected");
+if (errs.length) console.log("ERRORS:", [...new Set(errs)].slice(0, 5));
+await b.close();

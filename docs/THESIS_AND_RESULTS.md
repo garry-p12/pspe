@@ -1120,6 +1120,13 @@ on NDWS, so every method draws from the same surrogate.
 
 ### 5.2 The twin loop, closed on real satellite sequences
 
+> **Superseded by §5.2a (2026-09-27).** This section is the eight-fire FIRMS
+> version. It has been re-run on WildfireSpreadTS at 607 fires with a stricter
+> split, and two of its claims do not survive at that sample size: model
+> adaptation's benefit is about a third of what is stated below, and the
+> unanimity ("8/8 fires") was small-sample luck. The section is kept because it
+> is what the FIRMS pipeline supports and because the correction is the point.
+
 `docs/results/FIRMS_TWIN.md`. Eight large US wildfires, VIIRS active-fire
 detections, 14–20 consecutive days, leave-one-fire-out, 3 seeds.
 
@@ -1176,6 +1183,136 @@ the diagram carries the paired tests.*
 
 *Correction:* earlier notes, written from a 4-epoch smoke run, said model
 adaptation "adds essentially nothing." That was wrong.
+
+### 5.2a The same loop at 607 fires, and what does not survive (2026-09-27)
+
+**Why re-run it.** §9.9 states the problem: the twin loop ran on **8 fires**
+built from a FIRMS pipeline we wrote, while **WildfireSpreadTS**
+[Gerard et al., NeurIPS 2023 D&B] has had **607 fires and 13,607 daily images**
+public since 2023. "8 of 8 fires" is honest and badly underpowered, and "why
+your own dataset?" is a fair question with no good answer.
+
+**Setup.** `eval/run_firms_twin.py --source wsts`, `pspe/simulate/real/wsts.py`,
+`scripts/tacc/vista_wsts_twin.slurm` (job 1029659, 61 min on one GH node).
+607 fires, 13,607 days of which **12,916 observed (94.9%)**, three seeds. The
+loader emits `firms.FireSequence`, so the loop code is byte-identical between
+the two datasets and the comparison below is not confounded by the harness.
+
+**Held out by year, not by fire.** Leave-one-fire-out trains on other fires
+from the same season and weather regime, which leaks. The dataset's own
+documentation recommends cross-validation across years because the distribution
+shifts between them, so that is what runs here: four folds of 176 / 74 / 201 /
+156 fires, exactly the dataset's own grouping. It is the stricter split, and it
+was expected to bring the headline down.
+
+| mode | day +1 | day +2 | day +3 |
+|---|---|---|---|
+| open loop | 0.0186 ± 0.0311 | 0.0108 ± 0.0159 | 0.0088 ± 0.0115 |
+| state sync | 0.3792 ± 0.2418 | 0.1184 ± 0.1079 | 0.0251 ± 0.0341 |
+| **state + model** | **0.3808 ± 0.2432** | **0.1259 ± 0.1130** | **0.0268 ± 0.0360** |
+
+| horizon | comparison | mean gain | 95% CI | fires improved | t | Cohen's d |
+|---|---|---|---|---|---|---|
+| day +1 | sync vs open | +0.3606 | [0.342, 0.379] | 595/606 | 38.2 | **1.55** |
+| day +2 | sync vs open | +0.1076 | [0.100, 0.115] | 559/606 | 28.7 | 1.17 |
+| day +3 | sync vs open | +0.0163 | [0.014, 0.018] | 532/606 | 16.9 | 0.69 |
+| day +1 | adaptation on top | +0.0016 | [0.0009, 0.0022] | 376/606 | 4.9 | **0.20** |
+| day +2 | adaptation on top | +0.0075 | [0.0061, 0.0088] | 463/606 | 10.9 | 0.44 |
+| day +3 | adaptation on top | +0.0016 | [0.0012, 0.0020] | 431/606 | 7.8 | 0.32 |
+
+**What survives.** The shape of the §5.2 story. Syncing to observation
+dominates at one day, its advantage decays with horizon, and model adaptation
+matters *more* at longer horizons because at day 1 the state was just replaced
+with ground truth and there is nothing left to fix. Both halves of the loop do
+work, in different regimes. Sync-vs-open is if anything stronger here — the
+ratio is **20.4× at day +1** against 8.3× on the eight fires, because the open
+loop degrades further on a harder split than state sync does.
+
+**What does not survive — 1: the size of the adaptation benefit.** §5.2 reports
+"+21% at day 2 and +30% at day 3". Measured on 607 fires the same quantities are
+**+6.3% and +6.8%**, roughly a third of the claim. The eight-fire estimate was
+not wrong arithmetic; it was eight draws from a distribution whose per-fire
+spread is large, taken under a split that leaks season.
+
+**What does not survive — 2: the unanimity.** "8/8 fires" becomes **376/606
+(62%)** at day +1 and **463/606 (76%)** at day +2. Adaptation helps on most
+fires, not all, and the eight-for-eight was the small sample being kind.
+
+**And a third thing the eight fires could not have shown: significance stopped
+meaning importance.** Adaptation at day +1 is t = 4.9 — comfortably significant
+— on a mean gain of **+0.0016 against a base of 0.3792, which is 0.4%**, with
+d = 0.20. At n = 607 an effect can be certain and negligible at the same time.
+The row worth reporting is day +2, where d = 0.44 and the gain is 6.3% of base;
+the day +1 row should be reported as *detectably nonzero and operationally
+nothing*. **Rule 28: past a few hundred paired samples, report an effect size
+and a confidence interval next to every t, because the t alone stops
+discriminating.** The eight-fire table could not have taught this — at df 7
+nothing negligible was ever going to clear the threshold.
+
+**Still a control, not a finding.** None of this changes §9.8: replacing the
+belief with the observation is gain-1 nudging, and comparing it to a
+free-running forecast is what assimilation *is*. 607 fires removes the
+underpowering and the "why your own dataset?" objection; it does not promote a
+wiring check to a result. The genuinely novel row remains **adaptation on top of
+state sync**, which is now measured properly and is smaller than advertised.
+§8.4 item 3 — a real DA baseline — is still what would make the first three rows
+mean something, and is still unrun.
+
+**And it still says nothing about intervention.** No fire in this archive had a
+firebreak cut on our instruction. The dataset switch does not touch §6.2.
+
+### 5.2b Four defects in the WildfireSpreadTS loader, all caught before a number (2026-09-27)
+
+Every one of these would have produced a plausible-looking result.
+
+**Defect 23 — "no detection" read as "not observed".** The active-fire channel
+is NaN almost everywhere and finite only where VIIRS detected fire, so the
+obvious observability test, "does this day have any finite fire pixels", marks
+every quiet day unobserved. Measured over 890 days across 40 fires: the
+reflectance and terrain bands are finite on 100% of pixels on a normal day, the
+fire channel on 0.0–0.2%, and **37.4% of days are real observations with zero
+fire**. The loop scores observed days only, so this would have silently deleted
+a third of the record — specifically the days a fire goes out, which is the part
+of carrying state forward that is actually hard, and the part where an open loop
+looks worst. Observability now comes from the VIIRS reflectance bands the fire
+product is derived from; **2.2%** of days are genuinely missing.
+**Rule 29: when a channel encodes absence as NaN, it cannot also tell you
+whether anyone looked. Find a channel that is present when the instrument
+worked.**
+
+**Defect 24 — the fire band is a clock, not a power.** `FireSequence.frp` is
+documented as fire radiative power in MW, and the obvious band to fill it from
+is the active-fire channel. Its values run 742 to 2142, the minutes are always a
+multiple of six and never reach sixty: these are **HHMM VIIRS granule
+acquisition times** (07:42 to 21:42), and I was clipping them at 500 and calling
+the result megawatts. The detection *mask* was unaffected, so nothing visible
+would have broken. `frp` is now zeros with the reason written next to it, since
+the loop never reads it and anything that starts to should fail loudly rather
+than regress on clock times.
+
+**Defect 25 — the downsample was deleting fire.** Reshaping into blocks of
+`h//grid` by `w//grid` crops whatever does not divide evenly. WSTS rasters are
+around 300×250, so at grid 64 that discards roughly a fifth of each axis, and
+measured against the native detection count it lost between 0% and **59%** of a
+fire's detections depending on where in the frame the fire sat — a fire near an
+edge was simply smaller in the data than in the world. Replaced with index
+binning over the full extent; recovery ratios now sit at 0.96–1.06, the residual
+being cells that hold four rows against five.
+
+**Defect 26 — a one-fire fold.** Year folds keyed on `dates[0][:4]`, and a fire
+filed under 2018 can have its first frame on 30 December 2017, which invents a
+"2017" fold containing one fire — not a train/test split of anything. Keyed on
+the modal year instead, which reproduces the dataset's own directory grouping
+exactly: 176 / 74 / 201 / 156.
+
+**The pattern across all four.** None is an algorithmic mistake; each is a wrong
+belief about what a number in a file means, and each would have been invisible
+in the output. Defect 25 is the one that would have been hardest to catch — it
+degrades the data smoothly and only for some fires. **Rule 30: when adopting an
+external dataset, verify each channel's semantics against the raw values before
+running anything, and check that any resampling conserves the quantity it is
+supposed to conserve.** Total detections before and after is a two-line test
+that would have caught defect 25 immediately.
 
 ### 5.3 Planning under partial observation
 
@@ -1445,6 +1582,1182 @@ What it can claim is that the margin holds its stated rate where the policy has
 room to act and fails where it does not, with the boundary measured rather than
 assumed, on dynamics fitted to observed fires.
 
+### 5.6 Flood: a solver-validated intervention route (in progress, 2026-09-25)
+
+> **Scope correction, 2026-09-26.** Everything in this section below the solver
+> validation was measured on a **synthetic fluvial testbed**: a channel
+> over-topping a berm through narrow gaps, which is the geometry a levee is built
+> for. The span, the amplification and the precondition sweep are properties of
+> *that* testbed, not of flood control in general. Moving the same study onto the
+> Australia 2022 DEM (§5.6a) cut the achievable span from ~100% to a few percent,
+> because that event is **pluvial** — rainfall-driven sheet flow — where a levee
+> is the wrong instrument. Read every number below as scoped to fluvial
+> geometry. Generalising them to "flood" would repeat, one level up, exactly the
+> over-reach this project flagged in the draft's retirement of `swe`.
+
+
+
+**Why flood, and why now.** Every planning result above carries §6.2: no
+observational record contains the counterfactual. §6.2 lists two ways out, and
+the second is "a physics-based simulator as a surrogate for reality — which
+substitutes one model for another." **The flood work takes that route
+explicitly.** The substitution is more defensible here than for fire on three
+counts: the shallow-water equations are *conservation laws* rather than empirical
+spread rates; the LISFLOOD-FP local-inertial discretisation is the operational
+standard used in government flood mapping; and it is independent of our learned
+surrogate. It remains a model, not the world, and every claim must say so.
+
+**Dataset.** FloodCastBench (Nature Sci Data 2025; FloodCast, arXiv 2403.12226):
+continuous **water depth** from a LISFLOOD-FP-style staggered finite-difference
+solution, four events (Pakistan 2022 and Mozambique 2019 at 480 m; Australia
+2022 at 30 m; UK 2015 at 60 m), 300 s timestep, TIFF, 20.1 GB on Zenodo
+(`records/11431853`), CC-BY-4.0. The cross-event resolution split supplies the
+surrogate-error axis our ρ = σ/ε diagnostic needs, from a published design
+choice rather than from noise we inject.
+
+**Why `ShallowWaterTransport` could not be reused, which explains defect 12.**
+The retired `swe` testbed is *linearised and has no topography*:
+`h_t = -H(u_x + v_y) - c_h h + s`, with control adding an equal source to surface
+height everywhere. There is no geometry for an intervention to act on, so the ~7%
+achievable band was a property of the actuator, not of flood control. Momentum in
+the real equations acts on the **free surface** `h + z`; raising `z` adds no water
+but changes where water can go, and the interface depth
+`h_f = max(h_i+z_i, h_j+z_j) - max(z_i, z_j)` collapses to zero across a crest the
+flood has not topped. A levee *gates* flow; the `swe` actuator could only *add* it.
+
+**New solver: `pspe/simulate/flood.py`.** The LISFLOOD-FP local-inertial scheme
+with Manning friction, upwind interface depth, adaptive CFL timestep, per-cell
+flux limiting, and normal-depth free-outflow boundaries. Verified by seven
+properties in `tests/test_flood.py`:
+
+| property | result |
+|---|---|
+| lake at rest over uneven bed (C-property) | drift **0.000 m**, free-surface std 1.2e-7 m |
+| closed-domain mass conservation, 600 steps | **+0.00001%** |
+| flux limiter keeps depth ≥ 0 without the clamp | holds every step |
+| open edge drains, closed edge does not | 768 → 1.4 vs 768 → 768 |
+| **raising the bed displaces water without adding any** | water budget unchanged |
+| levee sites are distinguishable (max off-diagonal corr) | < 0.9 |
+| exposure weighting normalised | sums to 1 |
+
+**Defect 19 — an unlimited explicit scheme manufactures the constrained
+quantity.** The first solver *gained 6.4% volume* on a dam break: when a flux
+over-drains a shallow cell, `clamp(min=0)` creates water. Every margin result is
+declared on flood depth, so a solver that invents depth would have invalidated
+the whole experiment while still producing plausible-looking floods. Caught only
+by the explicit conservation test, not by inspection. **Rule 16: when the solver
+supplies the quantity a constraint is declared on, test conservation of that
+quantity before using it as reality.**
+
+**Scenario, and a discarded first attempt.** My first terrain put the settlement
+in an isolated depression. It flooded from **rain falling inside the
+depression** — which no levee can prevent — while channel discharge never reached
+it (town depth 0.000 m at rain = 0; 0.303 m at rain > 0 *regardless of inflow*).
+That would have been as artificial as `swe`. The replacement is a floodplain
+separated from its channel by a berm with three low gaps, which is how real levee
+systems fail. The town now floods *from the channel*:
+
+| channel inflow (m/s over the patch) | exposure-weighted damage | town max depth |
+|---|---|---|
+| 1e-3 | 0.0526 | 0.318 m |
+| 2e-3 | 0.0930 | 0.461 m |
+| 4e-3 | 0.1665 | 0.680 m |
+| 8e-3 | 0.3095 | 1.166 m |
+
+Six candidate levee sites along the berm, 3.0 m per-site cap, 6.0 m total budget —
+deliberately too small to close every gap, so allocation is a real problem.
+
+**Span attempt 1: 1.63% — worse than `swe`.** Six sites, 3.0 m cap, 6.0 m budget,
+greedy in 0.5 m increments over 80 rollouts. Two sites made the objective *worse*
+(−1.35%, −0.73%); spreading the budget evenly was worse than doing nothing
+(−0.35%); the best plan put 3 m at each of two adjacent sites for +1.63%.
+
+**Diagnosis, before any change.** Two faults, both mine, neither a property of
+flood control:
+
+1. **The forcing submerged the structure.** Domain peak depth was **9.2–12.8 m**
+   against a **2.2 m** berm. The flood crossed the berm along its entire length,
+   so a 3 m levee at one site was irrelevant. The inflow, 4e-3 m/s over 48 cells
+   of 480 m, is ≈ **44,000 m³/s sustained** — larger than the Indus at peak 2022
+   flood. A levee can only matter when flood depth is comparable to levee height.
+2. **The settlement was too far from the structure.** At 17 cells west of the
+   berm, the floodplain between drained south before water arrived.
+
+A slope sweep ruled out the obvious third explanation. Flattening the valley from
+1.2e-3 to 3e-5 raised damage 0.167 → 0.717 (town mean peak 0.26 → 1.42 m), so the
+down-valley slope *was* draining water — but westward flux across the berm line
+barely moved (1.48e6 → 2.04e6), so the slope was not what made levees useless.
+The submergence was.
+
+Calibrating for partial over-topping confirmed the two regimes did not coexist in
+that geometry: at inflows giving 3–4 over-topped rows of 96, town mean peak depth
+was only 0.011–0.076 m; at inflows flooding the town, all 96 rows over-topped.
+
+**Attempt 2 moves the settlement adjacent to the levee**, in the threshold regime
+where over-topping is the whole question, with the forcing capped so domain peak
+stays within about twice the levee height.
+
+**On changing a scenario after seeing a bad number.** This is only legitimate
+because both corrections are justified independently of the span: a sustained
+44,000 m³/s on a 46 km domain is not a flood anyone plans for, and floodplain
+settlements sit *beside* levees — that is what levees are for. The 1.63% is kept
+here so the change is visible rather than quietly overwritten. **The gate still
+stands as written:** if a properly-scaled scenario cannot separate, flood planning
+dies as a second worked example of defect 12.
+
+**Attempt 2 found two further faults, both in my scenario, both caught by
+measuring the geometry instead of assuming it.**
+
+*Fault A — the inflow straddled the structure.* The hydrograph was injected at
+`cols 40:56`, and the berm sits at **col 39**. So a share of every flood was
+delivered *directly onto the west floodplain*, where it ran south to the
+settlement without ever crossing the berm. No levee anywhere can stop water that
+starts on the protected side. Fixed by injecting only inside the channel
+(`cols 46:51`, measured from the meander, not assumed).
+
+*Fault B — the settlement overlapped the structure and the channel.* At
+`town_centre=(0.62, 0.37)` with `town_radius=0.09`, the depression spanned cols
+27–44 while the berm sat at col 37 and the channel edge at col 44. The
+settlement had therefore **carved its own gap through the berm**, and part of
+"town flooding" was simply channel water inside the scoring region.
+
+**Rule 17: verify geometry separation numerically before running any physics.**
+Both faults are invisible in a plausible-looking flood field and both make an
+intervention study meaningless. The check is now an assertion, not an inspection:
+
+```
+town cols 13..25   berm col 34..44   chan col 43..52
+town strictly WEST of berm: True     <- asserted before any solve
+```
+
+**Calibrating to the regime where a levee can matter.** With the geometry
+separated, the freeboard measured from the built terrain shows the gaps are
+genuinely the weak points:
+
+| row | gap fraction | crest | adjacent floodplain | freeboard |
+|---|---|---|---|---|
+| 39 | 0.55 | 5.25 m | 4.10 m | 1.15 m |
+| **57** | **0.80** | 3.16 m | 2.78 m | **0.37 m** |
+| 74 | 0.40 | 3.03 m | 1.56 m | 1.47 m |
+| 20 | — | 8.06 m | 5.47 m | 2.59 m |
+| 50 | — | 5.83 m | 3.28 m | 2.55 m |
+| 88 | — | 3.19 m | 0.55 m | 2.63 m |
+
+A 2.2 m window separates topping the weakest gap from topping the intact berm.
+Sweeping the hydrograph through it:
+
+| inflow | equiv. Q | damage | town mean peak | berm rows wet | gap r57 |
+|---|---|---|---|---|---|
+| 1.0e-2 | 34,560 m³/s | 0.0099 | 0.042 m | 4/96 | 0.37 m |
+| **1.4e-2** | **48,384 m³/s** | **0.1016** | **0.282 m** | **9/96** | **0.82 m** |
+| 1.8e-2 | 62,208 m³/s | 0.2251 | 0.583 m | 30/96 | 1.19 m |
+| 2.4e-2 | 82,944 m³/s | 0.4712 | 1.142 m | 57/96 | 0.65 m |
+
+1.4e-2 is the operating point: the gaps are topped, 87 of 96 berm rows stay dry,
+and the settlement floods measurably. **Stated honestly, the equivalent discharge
+is roughly 2.5× the 2022 Indus peak**, because this synthetic channel is 2.4 km
+wide; the number that matters for the gate is the *regime*, and the real Pakistan
+DEM and hydrograph replace this scenario in Phase 3.
+
+**Span attempt 3 — the gate passes decisively.** Do-nothing damage 0.10163,
+settlement mean peak depth 0.282 m. Six sites, 3.0 m cap:
+
+| site | row | damage | reduction | town mean peak |
+|---|---|---|---|---|
+| 0 | 0.42 | 0.10122 | +0.40% | 0.281 m |
+| 1 | 0.50 | 0.08221 | +19.10% | 0.233 m |
+| **2** | **0.60** | **0.00024** | **+99.77%** | **0.002 m** |
+| 3 | 0.68 | 0.07564 | +25.57% | 0.215 m |
+| 4 | 0.78 | 0.10680 | **−5.09%** | 0.295 m |
+| 5 | 0.86 | 0.10372 | **−2.06%** | 0.287 m |
+| all six | — | 0.00000 | +100.00% | 0.000 m |
+
+**Achievable span ≈ 99.8% on one site, 100% unconstrained, against `swe`'s ~7%.**
+
+**This settles defect 12 as a statement about actuators, not physics.** `swe` and
+this testbed are the *same PDE family*. What changed is that the control acts on
+geometry — raising `z`, which gates where water can go — instead of adding an
+equal source to the surface everywhere. The achievable band went from 7% to 99.8%
+on the same equations. **Rule 18: when a testbed cannot separate planners, suspect
+the actuator's mechanism before concluding the domain is uncontrollable.** The
+retired `swe` verdict was correct about `swe` and wrong as a claim about
+shallow-water control.
+
+**A safety finding worth more than the gate.** Sites 4 and 5 — *downstream* of the
+settlement — make flooding **worse**, by −5.09% and −2.06%. This is the levee
+backwater effect: a levee downstream of a protected area impedes drainage and
+backs water up into it. It is well known in flood management and it is exactly the
+failure mode the paper's thesis is about, now in a domain where the solver can
+demonstrate it. A planner that optimises a mis-specified objective, or that treats
+every actuator as beneficial, does not merely waste budget here — **it harms the
+thing it was deployed to protect.** Two of six available actions are actively
+damaging, which makes this a far better constrained-planning testbed than the
+wildfire task ever was.
+
+**The task is now too easy at a 6.0 m budget, which is a design note not a
+problem.** 0.5 m at site 2 already recovers +69.85%, because that gap has only
+0.37 m of freeboard. So the informative regime for Phase 3 is a **tight budget
+(~0.5–1.0 m) under hydrograph uncertainty**: the planner must commit levee heights
+before seeing the flood magnitude, and the conformal margin bounds the shortfall.
+That is the real levee-design problem — freeboard under flood-frequency
+uncertainty — and it is where a calibrated margin earns its place rather than
+being decoration.
+
+**Reproducible runner:** `eval/run_flood_span.py`, which asserts geometry
+separation and inflow placement before solving, so faults A and B cannot recur.
+
+
+
+**Phase 3 apparatus, built 2026-09-25.** `eval/run_flood_margin.py`. The flood
+decision is *one-shot*, not sequential: levee heights are committed before the
+flood magnitude is known. That is the real levee-design problem — freeboard under
+flood-frequency uncertainty — and it instantiates §3.5's mismatch exactly. The
+planner controls `E_Q[g(a, Q)]`, an expectation over hydrographs; the limit is
+declared on a single flood's *realised* depth. So matched-pair scores cancel the
+per-instance scatter that actually breaches the limit, which is the regime where
+the default under-covers. Both knobs of ρ = σ/ε are explicit: `--q-log-sigma`
+sets σ, the training budget sets ε.
+
+**Reality is the accepted solver, and that is now checkable.**
+`pspe/simulate/real/floodcast.py` loads the published archive — DEM, Sentinel-2
+land cover, GPM-IMERG rainfall, initial condition, and the reference depth
+sequence (Pakistan 2022: 480 m, 14 days, 4032 frames at 300 s).
+`eval/run_floodcast_validate.py` forces our solver with the event's own rainfall
+and compares against the reference on the data paper's own metric, CSI at 0.01 m
+and 0.05 m, plus RMSE and bias over wet cells. **Nothing is fitted to the
+reference**: roughness comes from land cover via a published Manning table, not
+from matching depths, because a solver tuned to reproduce its comparison target
+says nothing about independence from it. Frames are sorted by integer, not
+lexically — `10.tif` before `9.tif` would silently shuffle a flood's time axis.
+
+Solver extended to a **spatially varying Manning field** (averaged to interfaces),
+since roughness is the one calibration knob a hydrodynamic model has. Lake-at-rest
+remains exact with a varying field.
+
+**Two bugs found in the new code, both mine, both of a kind this project has seen
+before:**
+
+* *SLURM exit codes, again.* `scripts/tacc/vista_flood.slurm` had `wait` inside
+  the case **and** a `jobs -p` loop to collect exit codes. `wait` reaps the jobs,
+  so `jobs -p` returns nothing and `rc` stays 0 however many runs failed — the
+  mirror image of the bug that once marked five COMPLETED jobs FAILED. Now
+  collects PIDs at launch.
+* *The precondition arithmetic was wrong.* I had computed headroom as
+  `limit − mean realised depth`. Proposition 2 compares against `f·s` where **`s`
+  is the measured achievable span**, not the distance from an arbitrary limit to
+  an arbitrary reference plan. The wrong version reports FAIL trivially whenever
+  the reference plan sits above the limit, which says nothing about whether a
+  margin fits. It now measures `s` directly (do-nothing vs best-budget) and
+  reports what fraction of the span the margin consumes.
+
+**Conformal caveat, stated not hidden.** The margin is calibrated at the
+margin-free plan `a0` and deployed at `a1 = plan(q)`. Exchangeability therefore
+holds in the hydrograph, not across the plan shift from `a0` to `a1`. Any coverage
+gap attributable to that shift is a real effect and is reported.
+
+**First precondition measurement, and it is more interesting than a verdict.**
+A local probe at hydrograph log-spread 0.25 measured:
+
+| quantity | value |
+|---|---|
+| surrogate error ε | 0.1401 m |
+| realised-depth spread σ | 0.2416 m |
+| **ρ = σ/ε** | **1.72** |
+| bias b | −0.0060 m (negligible) |
+| required margin b + z_δσ | 0.3036 m |
+| do-nothing depth (caps the span s) | 0.2898 m |
+
+**The required margin exceeds the entire achievable span.** Same outcome as the
+wildfire task, but for a structurally different and far more informative reason.
+On wildfire the bias was 2.0–4.9× the span — a mundane mis-specification. Here
+the bias is negligible and the whole margin is `z_δσ`.
+
+**The precondition is dimensionless.** Since a good plan drives depth to ≈ 0, the
+span is capped by the do-nothing depth, and both σ and s scale with flood
+magnitude, so absolute flood size cancels:
+
+```
+b + z_δ·σ < f·s      with b ≈ 0      ⟺      σ/s  <  f/z_δ
+```
+
+| f | required σ/s | measured σ/s | shortfall |
+|---|---|---|---|
+| 0.2 | 0.156 | **0.834** | 5.3× |
+| 0.3 | 0.234 | **0.834** | 3.6× |
+| 0.5 | 0.390 | **0.834** | 2.1× |
+
+This converts Proposition 2 from an abstract inequality into a statement about
+**how much forecast skill a calibrated margin requires** — a quantity a flood
+agency could check before adopting one.
+
+**Threshold amplification is why it fails, and it is the finding.** The
+hydrograph carried a 25% log-spread, but realised depth spread was 83% of the
+mean — a **3.33× amplification**. The cause is that over-topping is a threshold:
+right at the freeboard crest, a small discharge error moves depth a great deal.
+
+So there is a real tension, and it is not specific to flood:
+
+> **The regime where an intervention has leverage is the regime where the hazard
+> is most sensitive to forecast error, hence where a calibrated margin is hardest
+> to fit.** A levee matters precisely at the freeboard threshold; that is also
+> where depth uncertainty is amplified most.
+
+This is a statement about safety margins in **threshold-governed** hazards
+generally, and it is testable: the precondition should pass once σ/s < f/z_δ. The
+queued sweep tests exactly that.
+
+**The amplification mechanism, measured (`eval/run_flood_elasticity.py`).** The
+claim above — that threshold behaviour amplifies forecast error — is testable as
+an elasticity, since for a small log-spread `σ_lnD ≈ E·σ_lnQ` with
+`E = d ln D / d ln Q`. All operating points share one batched solve, so the arms
+cannot drift apart on timestep sequence. Prediction recorded before the run: **E
+peaks where the flood is just topping the weakest gap**, which is where a levee
+has leverage.
+
+| channel inflow | berm rows wet | **elasticity E** |
+|---|---|---|
+| 4.0e-3 | 0/96 | — (town dry) |
+| 6.0e-3 | 0/96 | — (town dry) |
+| **8.0e-3** | **2/96** | **40.5×** |
+| 1.0e-2 | 4/96 | 12.5× |
+| 1.2e-2 | 6/96 | 4.6× |
+| 1.4e-2 | 9/96 | 3.2× |
+| 1.8e-2 | 32/96 | 2.5× |
+| 2.4e-2 | 56/96 | 2.4× |
+
+**Confirmed, and more sharply than predicted.** Amplification is **40× at the
+onset of over-topping** and decays monotonically to 2.4× once the berm is broadly
+submerged. A 10% discharge error becomes a four-fold depth error at the threshold.
+The mechanism is measured rather than asserted, and it is a property of the
+threshold, not of the scenario's particular numbers.
+
+This sharpens the tension into something quantitative: the conditions that make an
+intervention *worth planning* — water near the crest, where a levee decides
+whether the settlement floods — are the conditions under which realised depth is
+most sensitive to forecast error, and therefore where a conformal margin needs to
+be widest relative to the gain it protects.
+
+*One defect found and fixed in the first run of this experiment.* The span column
+used an **even spread of the budget across all six sites**, but two of those sites
+worsen flooding (the backwater effect), so the even spread understates the
+achievable span and biased `σ/s` upward — the same fault I had just corrected in
+`run_flood_margin.py` and then repeated here. Both now scan single-site
+allocations and take the best. The elasticity column is unaffected, since it is
+computed from do-nothing depths across discharge. The first run's `σ/s` column is
+withdrawn; the corrected values follow.
+
+**`σ/s` has an interior minimum — feasibility is squeezed from both sides.**
+Corrected run, with the span taken over the best allocation:
+
+| channel inflow | E | span s | best-plan depth | **σ/s at σ_log = 0.25** | verdict (f = 0.3) |
+|---|---|---|---|---|---|
+| 8.0e-3 | 40.5 | 0.0001 | 0.0000 | 10.187 | FAIL |
+| 1.0e-2 | 12.5 | 0.0429 | 0.0000 | 3.132 | FAIL |
+| 1.2e-2 | 4.6 | 0.1529 | 0.0000 | 1.154 | FAIL |
+| **1.4e-2** | 3.2 | 0.2688 | 0.0027 | **0.803** ← minimum | FAIL |
+| 1.8e-2 | 2.5 | 0.3195 | 0.2282 | 1.071 | FAIL |
+| 2.4e-2 | 2.4 | 0.3199 | 0.7888 | 2.049 | FAIL |
+
+Two distinct mechanisms bound the feasible region, one at each end:
+
+* **Small floods — threshold amplification.** E reaches 40×, so σ explodes
+  relative to a span that is still nearly zero.
+* **Large floods — protection saturation.** The levee can no longer keep the
+  settlement dry (best-plan depth climbs 0.003 → 0.23 → 0.79 m), so the span
+  stops growing while σ keeps rising.
+
+A calibrated margin is therefore most nearly feasible at an *intermediate* flood
+magnitude, and fails at both extremes for unrelated reasons. At σ_log = 0.25 it
+fails everywhere, by 3.4× at the best operating point.
+
+**Cross-validation.** Two independent routes to σ/s at Q = 1.4e-2 agree to 3.7%:
+direct Monte Carlo over 96 solver hydrographs gives **0.834**; the
+elasticity-implied value `E·σ_lnQ·D/s` gives **0.803**. The mechanism and the
+measurement are consistent, which is what licenses reading the elasticity column
+as an explanation rather than a coincidence.
+
+**Figure.** `docs/figures/paper/fig9_flood_elasticity.pdf`, two panels: the
+amplification against how much of the berm is topped, and `σ/s` against flood
+magnitude with the feasibility rule `f/z_δ` drawn. Generated by
+`scripts/make_paper_figures.py` from `runs/flood_elasticity/elasticity.json`.
+
+**The engineering statement this yields.** Inverting the precondition at the best
+operating point: discharge log-spread must fall from 0.25 to below **0.073** for a
+δ = 0.1 conformal margin to fit inside 30% of the achievable span. That is, **a
+calibrated margin is usable on this levee task only with discharge forecasts
+accurate to roughly 7%** — a checkable requirement, and the kind of number a flood
+agency could hold a forecast product to before adopting a margin at all.
+
+**Sweep design corrected before it ran.** My first σ ladder (0.10–0.45) sat
+*entirely* on the failing side. That is the rdf-sweep mistake — a ladder that does
+not straddle the boundary can only restate the failure and can never show the
+precondition holding, which is the half that makes it a diagnostic rather than a
+complaint. Resubmitted as job 1025409 over σ_log ∈ {0.02, 0.05, 0.08, 0.12, 0.20,
+0.30}, which should bracket the crossing near 0.07 given the measured 3.33×
+amplification.
+
+**ρ is not controllable through the hazard's spread — a design finding.** The σ
+sweep measured, at a fixed training budget of 240 samples:
+
+| σ_log | σ (depth) | ε | **ρ = σ/ε** |
+|---|---|---|---|
+| 0.02 | 0.0152 | 0.0111 | **1.37** |
+| 0.05 | 0.0378 | 0.0283 | **1.34** |
+| 0.08 | 0.0603 | 0.0431 | **1.40** |
+| 0.12 | 0.0917 | 0.0568 | 1.62 |
+| 0.20 | 0.1601 | 0.0795 | 2.02 |
+| 0.30 | 0.2817 | 0.0461 | 6.12 |
+
+**ρ is nearly constant at ≈1.35 across the first three arms**, because ε scales
+with σ: at a fixed training budget a surrogate's error tracks the variability it
+must capture, so widening the hydrograph spread moves numerator and denominator
+together. Widening the hazard's spread therefore does *not* walk ρ across 1.
+
+Two consequences. First, the `rho` experiment must vary **surrogate quality** at
+fixed σ, which is how it is written — the σ ladder would have produced a sweep
+that never crossed the boundary, the same failure mode as the original rdf sweep,
+for a different underlying reason. Second, wherever ρ is reported from this
+testbed, the coupling between ε and σ has to be stated: they are not independent
+knobs, and a ρ quoted without its training budget is not reproducible.
+**Rule 19: before treating a diagnostic ratio as a control variable, check that
+its numerator and denominator can actually be moved independently.**
+
+**A timing defect, caught before it destroyed a run.** The span scan evaluated
+each of the eight candidate allocations in its own batched solve over `n_cal`
+hydrographs. With six arms sharing a node that needed ~56 minutes against a
+50-minute limit, so job 1025437 would have died with nothing written. The span is
+an *average* and needs far fewer draws than calibration does, and all candidates
+can share one solve. Now batched across candidates at `--n-span 48`, roughly a
+quarter of the work. The σ/ε/ρ values above were already recovered from the
+cancelled job's stdout, so nothing was lost.
+
+**Precondition verdicts across hydrograph spread (job 1025566, COMPLETED
+32:32).** The prediction from the elasticity analysis — PASS below σ_log ≈ 0.08,
+FAIL above — is confirmed, and the ladder straddles the boundary, which is what
+makes this a diagnostic rather than a complaint:
+
+| σ_log | ε | σ | ρ | span s | required b+z_δσ | headroom f·s | % of span | verdict |
+|---|---|---|---|---|---|---|---|---|
+| 0.02 | 0.0111 | 0.0152 | 1.37 | 0.2632 | 0.0187 | 0.0789 | 7% | **PASS** |
+| 0.05 | 0.0274 | 0.0378 | 1.38 | 0.2567 | 0.0478 | 0.0770 | 19% | **PASS** |
+| 0.08 | 0.0431 | 0.0603 | 1.40 | 0.2487 | 0.0727 | 0.0746 | 29% | **PASS** |
+| 0.12 | 0.0632 | 0.0917 | 1.45 | 0.2372 | 0.1141 | 0.0712 | 48% | FAIL |
+| 0.20 | 0.0356 | 0.1601 | 4.50 | 0.2153 | 0.2444 | 0.0646 | **114%** | FAIL |
+| 0.30 | 0.0409 | 0.2817 | 6.89 | 0.1947 | 0.3396 | 0.0584 | **174%** | FAIL |
+
+**Phase 3 is feasible** at σ_log ≤ 0.05, where the margin costs 19% of the span.
+The measured span, 0.195–0.263, brackets the elasticity run's 0.2688 at the same
+operating point.
+
+Three observations, none of them anticipated:
+
+* **It is a double squeeze.** The span *itself* shrinks as spread widens
+  (0.2632 → 0.1947), because averaging over wider hydrographs pulls in extreme
+  floods the levee cannot stop. Headroom therefore falls (0.0789 → 0.0584) while
+  the requirement rises 18×. Feasibility is attacked from both sides at once, so
+  the precondition degrades faster than `z_δσ` alone would suggest.
+* **Margin collapse is reached, not just approached.** At σ_log ≥ 0.20 the
+  required margin is **114% and 174% of the entire achievable gain**. Tightening
+  the limit by it leaves nothing to plan for — the degenerate regime
+  `run_flood_margin.py` now detects and labels rather than reporting as coverage.
+* **ρ is non-monotonic at the high end** (1.45 → 4.50 → 6.89), because ε *falls*
+  at σ_log 0.20 and 0.30 (0.0632 → 0.0356 → 0.0409). At 240 training samples that
+  is fitting noise, not signal, and the high-σ ρ values are not read as
+  meaningful. It is a further instance of rule 19: ε and σ are not independent,
+  and ε is itself noisy at this budget.
+
+**Figure.** `docs/figures/paper/fig10_flood_precondition.pdf`: required margin
+against headroom across forecast spread, crossing marked at 8.2%. Both curves are
+drawn because the headroom erodes as the requirement rises — the double squeeze.
+
+**Proposition 2 works as an acceptance test.** Across six spreads it separates
+the feasible regime from the infeasible one, agreeing with a prediction made
+before the run from an independently measured mechanism. The crossing sits
+between σ_log 0.08 and 0.12, i.e. **discharge forecasts accurate to roughly
+8–12%** — the number a flood agency would hold a forecast product to before
+adopting a calibrated margin.
+
+**The archive does not match its own data paper, and this constrains the work.**
+The paper describes a "relevant data" folder with DEM, land use, rainfall,
+georeferencing and initial conditions. The published archive ships
+`Study regions/` containing **only DEMs**. Two consequences, both reported rather
+than worked around:
+
+* *No rainfall*, so the event's own forcing cannot be replayed. Validation runs
+  instead on a window where the forcing is negligible, and the residual is
+  **measured from the reference's own volume budget** rather than assumed.
+* *No land cover*, so Manning's n is a single literature value (0.035), not a
+  land-cover map and above all not fitted to the reference — a solver tuned to
+  reproduce its comparison target says nothing about independence from it.
+
+**Only one event can be placed at all.** Depth TIFFs carry **no georeferencing
+tags**. Tested physically, since flooded cells must sit in low ground:
+
+| event | wet cells at elevation percentile |
+|---|---|
+| Australia 30 m | **0.253** — DEM and depth grids match 1073×1073 exactly |
+| Pakistan 480 m | **0.452** across nine candidate 16× block-average offsets — indistinguishable from chance (0.5) |
+
+Pakistan's placement is not recoverable from the archive, so `load_event` now
+**raises rather than guessing**: a wrong correspondence would yield a plausible
+but meaningless CSI. Validation runs on Australia 2022.
+
+**Solver validation: our implementation reproduces the accepted scheme.**
+`eval/run_floodcast_validate.py`, Australia 2022 at 30 m, initialised from the
+reference at t = 192 h and free-running with no forcing:
+
+| quantity | value |
+|---|---|
+| window | t = 192–206 h |
+| unmodelled forcing over the window | **0.055% of volume (0.0039%/h)** |
+| bed slope, measured from the DEM | 1.53e-3 |
+| **mean CSI@0.01** | **0.979** (closed domain; 0.974 with the outflow bug) |
+| **mean CSI@0.05** | **0.978** |
+| mean RMSE over wet cells | 0.091 m (depths reach 18 m, so ≈0.5%) |
+| bias | **−0.0001 m** — essentially zero once the boundary is corrected |
+
+The small dry bias is consistent with the 0.055% of forcing that cannot be
+replayed. For scale, flood mapping against SAR observations typically reports CSI
+0.6–0.8; **0.96 is agreement between two implementations of the same scheme**,
+which is what §5.6's claim requires. This turns "our reality model is the accepted
+solver" from an argument from construction into a measurement.
+
+**The decay curve (job 1025760, 15-minute frames).** Mean CSI **0.974** at 0.01 m
+and **0.973** at 0.05 m, mean RMSE 0.171 m:
+
+| t (h) | CSI@0.01 | CSI@0.05 | RMSE (m) | bias (m) | wet ref/ours |
+|---|---|---|---|---|---|
+| 192.00 | 1.000 | 1.000 | 0.000 | +0.000 | 548865 / 548865 |
+| 192.25 | 0.982 | 0.981 | 0.166 | −0.014 | 548571 / 548093 |
+| 192.50 | 0.977 | 0.975 | 0.178 | −0.018 | 548316 / 546106 |
+| 193.00 | 0.970 | 0.969 | 0.192 | −0.024 | 547817 / 542979 |
+| 193.50 | 0.966 | 0.965 | 0.202 | −0.028 | 547313 / 540531 |
+| 194.00 | 0.963 | 0.962 | 0.210 | −0.032 | 546821 / 538571 |
+
+Decay is slow and **decelerating** — most of the loss falls in the first fifteen
+minutes, then ~0.005 per quarter-hour and shrinking, which is the signature of two
+solutions settling toward a similar quasi-steady state rather than diverging.
+
+**A systematic dry bias, traced to our own boundary treatment.** Unmodelled
+forcing over this window is 0.012% of volume, while the wet-cell deficit grew to
+8,250 cells — about **1.5%, roughly 100× larger than the forcing could account
+for**. So it was a genuine difference between implementations, and attributing it
+to the archive's gaps would have been convenient and wrong. The leading suspect
+was our own configuration: all four domain edges opened with a normal-depth
+outflow driven by a *single domain-average* bed slope over a 1073² domain.
+
+A closed-domain run (job 1025861) confirms it:
+
+| | open, 4 edges | **closed** |
+|---|---|---|
+| mean CSI@0.01 | 0.9739 | **0.9785** |
+| mean CSI@0.05 | 0.9726 | **0.9783** |
+| mean RMSE over wet cells | 0.171 m | **0.091 m** |
+| bias at t+2 h | −0.0315 m | **−0.0001 m** |
+| wet cells at t+2 h (ref 546,821) | 538,571 | 542,674 |
+
+**The bias was entirely ours.** It falls from −0.032 m to essentially zero and
+RMSE nearly halves. The closed domain is the configuration to report: over a
+two-hour window the flood does not reach the domain edge, so a crude outflow law
+there could only remove water that should have stayed. Corrected agreement is
+therefore **CSI 0.979, RMSE 0.091 m, bias ≈ 0** — better than the first number
+reported.
+
+A residual wet-cell deficit of 4,147 (0.76%) survives with bias ≈ 0, so the depths
+agree on average and the remaining disagreement sits in marginal cells near the
+0.01 m threshold. Candidates are the uniform Manning of 0.035 against the
+reference's unknown roughness, and genuine differences in the discretisation.
+Not chased further: it does not affect any claim made here, and saying so is
+cheaper than an explanation that is not measured.
+
+### 5.6a Moving the planning study onto real terrain (2026-09-26)
+
+**The gap this closes.** Everything in §5.6 above — span, elasticity, the
+precondition sweep — ran on `floodplain_terrain`, a valley built and tuned until
+the settlement flooded from the channel. Only the *solver validation* used the
+archive. So "the framework was run on real flood data" was true of a quarter of
+the package, and the planning claims rested on synthetic geometry. That is not a
+caveat to bury in a limitations paragraph; it is the difference between two
+different papers.
+
+`pspe/simulate/real/floodcast_scenario.py` replaces every synthetic ingredient:
+
+| ingredient | now taken from |
+|---|---|
+| terrain | the Australia 2022 DEM, 4× block-averaged to 120 m |
+| initial state | the reference depth field at t = 144 h |
+| flood magnitude and timing | the reference's own **mass budget** over t = 144–192 h → **5.12 mm/h** |
+| settlement | the compact block flooding deepest in the reference — (47,50), bed 6.6 m, peak 1.32 m |
+| levee sites | the **lowest cell of each perimeter sector**, elevations 2.6–12.9 m |
+
+Two choices to state plainly rather than defend later.
+
+*Coarsening to 120 m is what makes this possible at all.* The local-inertial
+timestep scales with `dx` while cell count falls as `dx²`, so 4× buys ~64×, and a
+study needing hundreds of solves is otherwise out of reach on 1073². FloodCastBench
+publishes Australia at 30 m and 60 m, so coarsening is within the dataset's own
+conventions — but it is a genuine loss of fidelity.
+
+*Only the forcing's spatial distribution is approximated.* The archive ships no
+rainfall field, so rainfall is uniform. Magnitude and timing come from the data;
+the spatial pattern does not. This is carried in the JSON output so it travels
+with the numbers.
+
+*Levee placement is terrain-derived.* Each candidate sits at the lowest point of
+a perimeter sector — where water actually enters. The sites were not chosen to
+make the result come out well, and downstream sectors are included, so the
+backwater effect can reappear if it is real.
+
+**An anticipated failure mode, recorded before the result.** Uniform rainfall
+falls *inside* the settlement as well as outside, and no levee can stop rain
+landing within the ring — exactly what killed the first synthetic scenario. At
+5.12 mm/h over 48 h that is 0.245 m of direct accumulation against a reference
+peak of 1.32 m, so roughly **19% of the settlement's flooding is uncontrollable by
+construction**, capping the achievable span near 81% before any routing argument.
+If the measured span comes in far below that, direct accumulation rather than
+routing is the first hypothesis to test.
+
+**Real-terrain span: 2.4%, against 100% on the synthetic valley.** Do-nothing
+exposure-weighted peak depth 1.03803 m; the best single levee buys **+2.43%**,
+and greedy reaches only +1.25% at 1.0 m of budget. That is **below the ~7% band
+at which `swe` was retired for being unable to rank planners**. Had the synthetic
+numbers been written up as "flood", the paper would have carried a ~40×
+overstatement of what a levee achieves.
+
+| site | perimeter elevation | reduction |
+|---|---|---|
+| 0 | 12.9 m | +1.97% |
+| **1** | **2.6 m** | **−18.52%** |
+| 2 | 7.5 m | +2.43% |
+| 3 | 7.4 m | +0.68% |
+| 4 | 6.8 m | +0.27% |
+| 5 | 6.7 m | +0.39% |
+
+**The mechanism, measured rather than inferred.** A diagnostic decomposing the
+settlement's 1.038 m:
+
+| source | depth | share |
+|---|---|---|
+| already present at t = 144 h | 0.280 m | **27%** |
+| direct rain inside any ring | 0.246 m | **24%** |
+| routing of existing water | 0.262 m | 25% |
+| rainfall-driven total | 0.495 m | 48% |
+
+**51% is uncontrollable by construction** — water in place before planning starts,
+plus rain landing inside whatever a levee encloses. And **the lowest perimeter
+point is an outlet, not an inlet**: leveeing it moves depth 1.038 → 1.230 m, a
+confirmed **−18.5%**. My terrain-derived placement rule assumed the low point was
+where water enters; on a settlement sitting in a broad floodplain it is where
+water leaves.
+
+**The transferable claim: the instrument must match the mechanism.** A levee earns
+its ~100% against **fluvial** flooding arriving through a constriction — the
+geometry I built synthetically, in which a berm gap is the only door. Australia
+2022 at this site is **pluvial**: rainfall-driven sheet flow, where water arrives
+everywhere at once and a quarter of it falls inside the protected area. No levee
+placement helps, because there is no door to close. PSPE's planning layer is only
+as useful as the actuator it is handed, and selecting that actuator requires
+knowing the hazard's mechanism. For a pluvial event the right instruments are
+drainage, retention or pumping — actuators this framework does not currently have.
+
+**A design error of mine, corrected — and the pre-registered prediction held.**
+Starting at t = 144 h put the planner *mid-flood*, with 27% of the water already
+in place before any levee could act. A planner must commit before the flood
+arrives. Rerun from t = 48 h (volume 4,950, near-dry) to t = 120 h. Expectation
+recorded before the run: the span improves, because the already-present term
+vanishes, but stays at or below the ~7% threshold, since neither the direct rain
+nor the sheet-flow character changes; above 20% would indicate a bug, not a
+result.
+
+**Measured: 2.4% → 6.18%, plateauing, and still below 7%.**
+
+| site | perimeter elev | early start (t=48 h) | mid-flood (t=144 h) |
+|---|---|---|---|
+| 0 | 3.1 m | −8.79% | +1.97% |
+| 1 | 2.4 m | −11.94% | −18.52% |
+| 2 | 7.3 m | +0.72% | +2.43% |
+| 3 | 7.5 m | +0.71% | +0.68% |
+| 4 | 7.5 m | **+5.55%** | +0.27% |
+| 5 | 8.0 m | −0.72% | +0.39% |
+
+Greedy trace: +0.97 → +4.59 → +5.26 → +5.80 → +5.90 → +5.95 → **+6.18%** at 3.5 m
+of a 4.0 m budget, clearly flattening. **Both real-terrain runs sit below the ~7%
+band at which `swe` was retired for being unable to rank planners**, against 100%
+on the synthetic fluvial valley.
+
+**~~Conclusion: the real-terrain levee task fails the span gate~~ — WITHDRAWN,
+2026-09-26.** That conclusion was drawn from one settlement and it was wrong. See
+§5.6b: screening all 933 candidate settlements and repeating the identical levee
+test at the best-defended one gives **+15.37% single-site, +17.83% all-sites**,
+comfortably above the ~7% band. **The task passes the gate about a kilometre from
+where I first measured it.**
+
+**Both jobs hit their wall clock** (40:29 and 50:10), so the greedy figures are
+lower bounds. The trace is flattening and the single-site maxima (+2.43%, +5.55%)
+bound the achievable, so a longer run would not change the verdict — but the
+numbers are reported as what they are, incomplete greedy searches.
+
+**Two reporting errors of mine, recorded.** I twice characterised the early-start
+sweep from partial stdout: first calling it "worse" on three of six sites (the
+best site had not yet reported), then retracting a prediction that was in fact
+correct. The rule is the one already written in Part 7 and broken here anyway:
+**do not read a trend from an incomplete sweep.**
+
+### 5.6b The negative result was a site-selection artefact (2026-09-26)
+
+**The confound, and why it had to be tested.** §5.6a's span was measured at the
+block that floods *deepest* in the reference. That criterion selects whichever
+area holds the most water, which is not the same as the area a levee can defend —
+plausibly a sump that fills regardless. A headline negative resting on one
+hand-picked target is not a finding, so it was screened.
+
+**The screen is cheap because the depth field does not depend on the settlement,
+only the exposure weighting does.** Two solves — one with rainfall, one without —
+decompose the water budget at every candidate site at once
+(`eval/run_flood_sites.py`, 933 sites, 10 minutes):
+
+| row | col | elev | total | routed | rain-driven | controllable | ctrl % |
+|---|---|---|---|---|---|---|---|
+| **52** | **52** | 5.2 | 0.279 | 0.001 | 0.277 | **0.193** | **69%** |
+| 44 | 52 | 6.3 | 0.273 | 0.001 | 0.272 | 0.187 | 68% |
+| 52 | 60 | 9.2 | 0.232 | 0.001 | 0.231 | 0.146 | 63% |
+| 76 | 172 | 0.5 | 0.224 | 0.001 | 0.222 | 0.138 | 61% |
+
+**The site I chose was not a bad target.** It sits among the top few of 933 on
+controllable depth (~69%), essentially tied with the winner. The controllability
+hypothesis was *not* what separated them.
+
+**What separated them was levee geometry.** The identical test at (52,52):
+
+| site | perimeter elev | reduction |
+|---|---|---|
+| 0 | 13.5 m | −0.27% |
+| 1 | 3.6 m | +0.09% |
+| 2 | 6.7 m | −0.43% |
+| **3** | **6.7 m** | **+15.37%** |
+| 4 | 6.2 m | +1.58% |
+| 5 | 9.3 m | −1.18% |
+| all six | — | **+17.83%** |
+
+**Centres 8 cells (~1 km) apart differ 3× in achievable span**: +5.55% at (44,50)
+against +15.37% at (52,52), with near-identical controllable fractions. One
+perimeter sector at (52,52) intercepts the inflow; at (44,50) no sector does.
+
+**Rule 20: a feasibility gate measured at a single hand-picked target measures the
+target, not the task.** Screen the target space before reporting infeasibility.
+This is the second time this project has drawn a strong conclusion from one
+configuration — the first was the wildfire task — and the cost here was a wrong
+headline held for several hours.
+
+**Corrected standing.** Real terrain gives **17.8%** achievable span against
+~100% on the synthetic fluvial valley and the ~7% floor at which `swe` was
+retired: real but substantially smaller leverage than a constructed geometry
+suggests, and enough to plan against. Phase 3 therefore runs (job 1026669).
+
+*A reporting bug found while writing this up.* The screen's "ranks 1/933" line
+matched the default settlement against the sorted candidate list within a
+±stride box, so `next` returned the best-ranked site in the window rather than
+the nearest one. It now takes the nearest by distance and prints that distance.
+
+### 5.6b-note Defect 20 — the levee's physical size was an accident of the grid
+
+Building the portal's scenario library at 60 m rather than 120 m produced a
+six-fold drop in the same site's effectiveness: **+15.37% at 120 m against
++2.44% at 60 m**. That is not a solver resolution effect. `site_width` was
+specified in **cells**, so refining the grid halved the structure:
+
+| grid | levee footprint | where used |
+|---|---|---|
+| 120 m | **360 m** | site screening (§5.6b), precondition (§5.6c) |
+| 60 m | **180 m** | portal scenario library |
+
+The two numbers describe different structures, not the same structure measured
+twice. **Rule 21: an intervention's physical dimensions must be specified in
+physical units. If refining the grid changes the thing being built, the
+comparison is meaningless.** Fixed: `site_width_m`, converted to cells at
+construction.
+
+**What this does to prior results.** §5.6b and §5.6c are internally consistent —
+both used 120 m, so both describe a 360 m levee — and their conclusions stand as
+statements about *that* structure. But the levee's size was never a design
+choice, and a 360 m levee is a modest local work, not a scheme. Levee length is
+properly a *planning variable*, and neither the span nor the precondition has
+been measured as a function of it. That is the obvious next experiment and it is
+not done.
+
+### 5.6c The margin on real terrain: usable only below ~3.6% forecast spread (2026-09-26)
+
+With the span gate passed at the screened site (§5.6b), the precondition was
+measured on the Australia 2022 DEM at three rainfall forecast spreads. Prediction
+recorded before the run: fail at 10%, possibly pass at 2%.
+
+| rainfall spread | do-nothing | best | span s | σ | z_δ·σ | headroom f·s | % of span | verdict |
+|---|---|---|---|---|---|---|---|---|
+| **2%** | 0.27782 | 0.23499 | 0.04283 | 0.00556 | 0.00713 | 0.01285 | **17%** | **PASS** |
+| 5% | 0.27559 | 0.23406 | 0.04153 | 0.01379 | 0.01768 | 0.01246 | 43% | FAIL |
+| 10% | 0.27265 | 0.23373 | 0.03892 | 0.02808 | 0.03598 | 0.01168 | 92% | FAIL |
+
+**Crossing at ≈3.6% rainfall spread**, against **8.2%** on the synthetic fluvial
+testbed (§5.6). **Real terrain is 2.3× more demanding.** The double squeeze
+recurs: the span itself contracts as spread widens (0.0428 → 0.0389), so
+feasibility is attacked from both ends, not one.
+
+The best allocation is a single site in every case — the one sector of six that
+intercepts inflow rather than outflow — which is consistent with §5.6b and means
+the result does not depend on a clever multi-measure plan.
+
+**What this means, stated plainly.** Operational quantitative precipitation
+forecasting does not achieve 3.6% accuracy at 48-hour lead; errors of tens of
+percent are normal. **So on this task, with today's forecast skill, a δ = 0.1
+conformal margin does not fit inside the gain a levee buys.** The margin is not
+unusable in principle — it passes at 2% — but the forecast accuracy it requires
+is well beyond what is available.
+
+That is a harder claim than the synthetic testbed supported, and it is the honest
+one: the framework's safety guarantee is available only where the hazard can be
+forecast far more precisely than this hazard currently can be. Three ways it
+could still hold — a shorter lead time where forecasts are sharper, a hazard with
+tighter forcing uncertainty, or an intervention with a larger span — are testable
+and none has been tested here.
+
+**Compute status, 2026-09-25.** Vista reachable again (the ControlMaster socket
+was for `login2`, so the round-robin `vista` name resolved to a different
+ControlPath). **Allocation ATM23014 holds 1761 SUs and expires 2026-09-30** — five
+days — so Phases 1 and 3 as scoped cannot complete on it; renewal is the binding
+schedule item. FloodCastBench (20.1 GB) is downloading to `$WORK`; it cannot land
+on the laptop, which has 21 GiB free. Precondition screen queued as job 1025375
+across four hydrograph spreads (σ = 0.10/0.20/0.30/0.45), time limit cut to 55 min
+to make it backfillable — the `gh` partition is at 565/576 nodes allocated.
+
+### 5.7 Observed extent from Sentinel-1: the reference is not the world (2026-09-27)
+
+**Why this had to be built.** Every flood number in this project was scored
+against a *model*. §5.6 reports CSI **0.979** for our solver against
+FloodCastBench's reference — but that reference is itself a shallow-water
+solution. Two models agreeing is not evidence that either matches the world.
+`pspe/observe/sar.py` supplies the missing term: what a satellite saw.
+
+**Method.** Sentinel-1 RTC from Planetary Computer (terrain-corrected and
+radiometrically calibrated already, so no SNAP stage). Flood scene **2 March
+2022, relative orbit 74**, against the **median of five same-track baselines**
+(1, 13, 25 Jan; 6, 18 Feb). Two rules carry the judgement:
+
+* **Same relative orbit only.** Backscatter depends on incidence angle, so
+  differencing across tracks manufactures "flooding" wherever geometry changed.
+  Seven of thirteen available scenes were rejected on this ground.
+* **Flood is water now that was not water before.** A threshold on one scene
+  marks every smooth surface — tarmac, sand, the sea — as flood. Requiring both
+  a dark pixel (Otsu, −15.2 dB) and a ≥3 dB drop against the baseline, while
+  excluding pixels dark in both, leaves standing water.
+
+Observed: **290 km² flooded**, plus 112 km² of permanent water correctly
+separated out.
+
+**Result — the reference matches observation at CSI 0.38.** Scanning every
+reference frame for the best match also recovers the timing (day 7.62):
+
+| reference depth threshold | CSI | POD | FAR |
+|---|---|---|---|
+| 0.02 m | 0.382 | 0.754 | 0.563 |
+| 0.05 m | **0.378** | **0.733** | **0.561** |
+| 0.10 m | 0.370 | 0.704 | 0.562 |
+| 0.25 m | 0.341 | 0.622 | 0.570 |
+
+Stable across thresholds, so not a threshold artefact. The disagreement has a
+direction: both agree on 213 km², the satellite sees 78 km² the model misses,
+and **the model floods 272 km² the satellite says is dry**.
+
+### 5.7a Defect 21 — 119 km² of the "over-prediction" was the sea (2026-09-27)
+
+That 272 km² is wrong, and the way it was caught matters: I drew the comparison
+map for the appendix (`figA1`) and the orange "model only" band ran straight
+down the coast and along the river channel. The model marks the ocean and the
+permanent channel as water because they *are* water; the change-detection rule
+excludes them from the observed flood by construction, because they were water
+in the baseline too. Neither is disagreeing with the other. Counting them as
+model error measured nothing except that the sea is wet.
+
+Excluding permanent water (ESA WorldCover class 80, 123 km² over this
+catchment) and then the radar-blind classes separately:
+
+| comparison set | CSI | POD | FAR | both | model only | satellite only |
+|---|---|---|---|---|---|---|
+| all comparable cells (as first reported) | 0.378 | 0.733 | 0.561 | 213 km² | **272 km²** | 78 km² |
+| excluding permanent water | 0.478 | 0.732 | 0.421 | 211 km² | **153 km²** | 77 km² |
+| excluding permanent water and radar-blind cover | **0.535** | 0.738 | **0.339** | 208 km² | 107 km² | 74 km² |
+
+Two separate corrections, each worth about 0.06–0.10 of CSI, and they compose:
+the reference's over-prediction against ground a satellite can actually
+adjudicate is 107 km² against 208 km² of agreement, not 272 against 213. The
+stratified figures in the table above are unchanged — they were already
+computed per land-cover class, and permanent water is its own class — but the
+*headline* number moves from 0.378 to 0.535.
+
+**Rule 26: before scoring extent against an instrument, remove the water that
+was already there.** A change detector answers "what is newly wet"; a hydraulic
+model answers "what is wet". Those are different questions over the sea, over
+lakes and over the channel, and the difference is charged entirely to the model
+unless permanent water is excluded from both sides. Nothing in the pipeline
+flagged this — the arithmetic was correct throughout, and the error was only
+visible as a shape. **Plot the disagreement before quoting it.**
+
+**Stratified by land cover — the headline number was mostly an artefact.**
+ESA WorldCover over the catchment: 34% grassland, **31% tree cover**, 16%
+herbaceous wetland, 12% permanent water, 7% cropland, 0.7% built-up. C-band
+radar cannot adjudicate standing water under canopy or among buildings, so
+scoring there charges the model for error the instrument cannot see.
+
+| stratum | share | CSI | POD | FAR |
+|---|---|---|---|---|
+| all (the headline) | 100% | 0.378 | 0.733 | 0.561 |
+| **where radar can see** | **57%** | **0.532** | 0.738 | **0.344** |
+| canopy and built-up | 32% | 0.063 | 0.495 | **0.932** |
+
+| cover class | CSI | FAR |
+|---|---|---|
+| herbaceous wetland | 0.596 | 0.357 |
+| cropland | 0.528 | **0.192** |
+| grassland | 0.493 | 0.368 |
+| **tree cover** | **0.059** | **0.937** |
+
+**Correction to the claim above.** The 0.378 figure charged the model for 31%
+forest where the sensor is blind by physics, and tree cover alone carries
+FAR 0.937. Restricted to ground radar can judge, the reference scores **CSI
+0.53, POD 0.74, FAR 0.34**: moderate over-prediction, not the failure the
+headline implied. Cropland — where radar is most reliable — is where the model
+is most accurate (FAR 0.19), which is the pattern one would expect if the
+remaining disagreement were largely instrumental rather than modelling error.
+
+**What this does and does not establish.**
+
+It does *not* show our solver is wrong: it reproduces the reference closely, and
+that stands. It shows the reference **over-predicts extent moderately where this
+can be checked**, and that our CSI 0.979 was agreement with a model of moderate
+rather than unknown skill.
+
+**Rule 23: agreement with a reference is not validation unless the reference has
+itself been scored against observation.** That remains the lesson. But rule 23
+has a companion learnt the same day — **Rule 24: before scoring a model against
+an instrument, establish where the instrument can see.** An unstratified CSI
+against radar silently penalises a model for every flooded forest, and I
+published 0.378 before checking, which overstated the case by a wide margin.
+
+**Replication attempt — one event validated, one not, and the failure is
+instructive.** Of the archive's four events only two can be placed at all:
+Australia, whose DEM grid matches its depth rasters exactly, and **UK**, whose
+offset proved recoverable (a symmetric 5-pixel crop, r=5 c=5, confirmed by the
+physics test at elevation percentile 0.298 against 0.365 for the worst
+candidate). Pakistan and Mozambique are resampled onto unrelated grids at ~16x
+and cannot be placed.
+
+The UK event is Storm Desmond at **Carlisle, Cumbria** (−2.90, 54.91), 5–6
+December 2015. The nearest same-track scene is **8 December, orbit 132**, with
+two baselines. It returns CSI 0.059, and that number should not be read as a
+verdict on the model:
+
+| threshold (dB) | SAR detects | CSI (visible) | POD | FAR |
+|---|---|---|---|---|
+| −18 | 0.06 km² | 0.005 | 0.771 | 0.995 |
+| −16 | 0.44 km² | 0.037 | 0.678 | 0.962 |
+| −14 | 1.27 km² | 0.094 | 0.586 | 0.900 |
+| −12 | 2.07 km² | **0.127** | 0.514 | 0.856 |
+| −7.6 (Otsu) | 2.10 km² | 0.079 | 0.377 | 0.910 |
+
+**The scene contains no water signal.** Flood-scene backscatter runs p1 = −16.4
+dB and median −8.3 dB, against p5 = −23.6 dB at Richmond. Otsu, which assumes a
+bimodal histogram, split the *land* distribution at −7.6 dB because the water
+mode was too small to find. No threshold recovers the model's 10.3 km².
+
+The satellite did not capture this flood: 8 December is two to three days past
+the peak in a confined valley where water recedes quickly, over a city that is
+19% built-up and where flooded structures scatter bright rather than dark.
+
+**Rule 25: a radar overpass only validates a flood it actually caught.** With a
+12-day repeat, most events are seen either side of their peak rather than at it,
+and an empty scene is indistinguishable from a dry one unless the backscatter
+distribution is inspected. Check for a water mode before scoring anything
+against it; the absence of one is a statement about the overpass, not the model.
+
+**Standing position: one validated event.** Richmond 2022 gives CSI 0.53 where
+radar can adjudicate. That is a single event on a single date, and the intended
+replication did not materialise, so it should be reported as an indication and
+not a measurement of the reference's general skill.
+
+**What is needed before the finding is firm:** more events and more dates
+within this event. The land-cover mask on that list is now built (§5.7a and the
+stratified table above), and the UK replication was attempted and failed for an
+instrumental reason rather than a modelling one. What remains missing is
+independent events, and Pakistan and Mozambique cannot supply them because
+their rasters cannot be placed. One scene, one date, one event is a strong hint
+and not a verdict.
+
+### 5.8 Why better perception made worse decisions: the estimator inflates area (2026-09-27)
+
+**Context.** §5.3 and `fig7` report the project's most uncomfortable result: a
+learned estimator raises reconstruction quality on occluded cells from AP 0.005
+to 0.346 at 60% occlusion — seventyfold, and 0.006 to 0.594 at 15% — and the
+burn reduction it supports goes *down*, from 34.5% to 27.3%. The experiment already contained
+the diagnostic (`perceive-hard`, the same estimate thresholded, recovers most of
+the loss), but the reason was never measured. Building the appendix figure
+forced the question, because the spatial panel shows it directly.
+
+**What the panel shows.** `figA3` takes the *median* NDWS patch by hidden-cell
+recall among patches where the cloud covers about half the fire front — not the
+best case. The estimator recovers 65% of the hidden front, and spreads its
+prediction over **3.3× the area that was actually burning**.
+
+**That is not one patch.** Measured over every eval patch with more than five
+hidden burning cells, at each occlusion level, as the ratio of predicted to true
+hidden fire area:
+
+| occlusion | patches | thresholded area ratio | **soft probability mass ratio** | planner loss vs blind |
+|---|---|---|---|---|
+| 0.15 | 360 | 1.92 | 2.38 | −1.5 pts |
+| 0.35 | 584 | 1.67 | 3.05 | −4.1 pts |
+| 0.60 | 763 | 1.20 | **3.74** | **−7.2 pts** |
+
+(medians; "planner loss" is `perceive` against `blind`, averaged over three
+seeds. `python scripts/build_fire_panel.py` reprints the two ratio columns and
+rebuilds `figA3`'s cached patch.)
+
+**The two columns move in opposite directions, and the decision follows the
+second.** As occlusion rises the *thresholded* estimate gets tighter — 1.92 down
+to 1.20 — which is why `perceive-hard` costs only 1.5 points at 60% occlusion.
+The *probability mass* the planner actually consumes goes the other way, 2.38 up
+to 3.74, and the planner's loss tracks it monotonically. The estimator is not
+wrong about where the fire is; it is uncertain, it expresses that uncertainty as
+diffuse probability, and the downstream surrogate — trained on near-binary
+masks — reads diffuse probability as a large weak fire.
+
+**So the failure is representational, not informational.** The information is
+there: thresholding recovers it. What destroys the decision is handing a
+calibrated-ish probability field to a component that was fitted on indicator
+masks. This is the objective-mismatch story of §9.4 appearing inside the
+perception interface rather than at the model-learning stage, and it is a
+sharper claim than "better perception did not help": **the belief that best
+matches the hidden state is the one that plans worst, and it is the softness,
+not the content, that does the damage.**
+
+**What this does not license.** Three occlusion levels is three points. The
+monotone correspondence is consistent and the mechanism is checkable, but the
+honest statement is a mechanism supported at three settings on one dataset with
+one architecture, not a law. It does suggest a cheap fix worth testing —
+calibrate the belief to the surrogate's training distribution, or train the
+surrogate on soft inputs — and neither has been run.
+
+### 5.9 Application figures for the appendix (2026-09-27)
+
+`python scripts/make_appendix_figures.py` writes seven figures showing the
+framework as something used rather than something measured. Cached inputs live
+in `runs/sar_validation/` and `runs/ndws_partial_local/panel.npz` (rebuilt by
+`scripts/build_fire_panel.py`); the portal frames are captured by
+`portal/scripts/appendix-shots.mjs` and `appendix-shots2.mjs` against a running
+build (`npm run build && npm run start`), into `runs/portal_shots/`.
+
+| figure | what it shows | section |
+|---|---|---|
+| `figA1_sar_validation` | before / during / observed flood / model vs observation, permanent water excluded | §5.7, §5.7a |
+| `figA2_sar_stratified` | CSI by land-cover class, coloured by whether radar can adjudicate | §5.7 |
+| `figA3_wildfire_perception` | one NDWS patch: hidden front, persistence fill, and the estimator's 3.3× smear | §5.8 |
+| `figA4_wildfire_decision` | reconstruction AP against burn reduction; the two panels disagree | §5.3, §5.8 |
+| `figA5_portal_appraisal` | ranked mitigation options, two flagged as deepening flooding | §5.6b |
+| `figA6_portal_anywhere` | Cedar Rapids solved on demand from public DEM tiles in 47 s | §5.6a |
+| `figA7_validation_chain` | our solver vs the reference, and the reference vs the satellite | §5.6, §5.7 |
+
+**A caveat inside `figA7`.** Per-frame numbers survive only for the *open-edge*
+configuration that §5.6 superseded — the closed-domain rerun (job 1025861) left
+summary statistics, not frames. The panel therefore plots the open-edge curve,
+labels it as superseded, and draws the reported closed-domain mean (0.979) as a
+reference line rather than quietly substituting one run's headline onto another
+run's curve. The comparison bar in panel (b) uses the reported 0.979.
+
+**What `figA5` is evidence of.** Every finding in §5.6b appears there as a
+decision rather than a number: two of six candidate levee sites are labelled
+"deepens flooding 3%" in the option list — the backwater effect — and the
+option the tool recommends is reported alongside the fact that it keeps no road
+open (+0.03 km against no action). The tool does not oversell the measure it
+just ranked first. That is the Explain stage doing its job in the place it
+matters.
+
+**Defect 22 — the header named the wrong place.** The page chrome carried a
+constant "Richmond Valley · NSW" from the layout, so analysing Cedar Rapids
+produced a screen that said Richmond Valley over a map of Iowa. Caught by
+reading the first version of `figA6`. Fixed with a small region context
+(`portal/src/components/RegionContext.tsx`) that the planner sets and the header
+reads. Minor as a bug and worth recording as a habit: **a figure of an interface
+is a review of that interface**, and this one had been on screen for a day
+without anyone noticing.
+
+### 5.10 Exchangeability of the calibration scores: tested, and it holds (2026-09-27)
+
+**The hole.** §9.3 states it plainly: split conformal guarantees its rate under
+exchangeability of the calibration scores, our margin calibrates on residuals
+collected *during training*, and a learning policy is a distribution shift.
+Every coverage result in the project (`run_margin_coverage.py`) draws its scores
+i.i.d. by construction, which tests the estimator and never the assumption. A
+conformal-prediction reviewer goes straight here, and until now the honest
+answer was "assumed, not tested".
+
+**Method.** `eval/run_exchangeability.py`, `scripts/tacc/vista_exchangeability.slurm`
+(job 1029518, three seeds, one per node, ~5 min each). The trainer now keeps the
+iteration each calibration score came from, so the sequence survives the run.
+dar, grid 64, 400 iterations, a probe every 10, 8 episodes per probe: **320
+scores per seed**, split 160 calibration / 160 test, 480 pooled test points.
+That sizing is deliberate — at 160 calibration points the quantile sits at rank
+145, an order statistic rather than the sample maximum, and the test half
+resolves δ = 0.1 to 1/160. The script refuses to report quietly below either
+threshold (§7, defect 18).
+
+**Three tests of the assumption, all non-rejections:**
+
+| test | what would break the guarantee | seed 0 | seed 1 | seed 2 |
+|---|---|---|---|---|
+| Spearman ρ of \|score\| on iteration | the spread widening as the policy moves | p 0.51 | p 0.47 | p 0.74 |
+| KS, first third vs last third | the distribution shifting over the run | p 0.98 | p 0.93 | p 0.40 |
+| lag-1 autocorrelation vs permutation null | serial dependence beyond drift | p 0.48 | p 0.47 | p 0.60 |
+
+The permutation null is the exchangeability null stated directly: under
+exchangeability every ordering is equally likely, so the observed statistic
+should sit inside the permutation distribution. It does, in all three seeds.
+
+**And the number a reviewer actually wants.** Calibrating on the prefix and
+scoring the tail is exactly how the margin is used inside a run, so the realised
+exceedance rate there is the honest coverage:
+
+| calibration sequence | realised rate | 95% CI | δ |
+|---|---|---|---|
+| **real order** | **0.0771** (37/480) | [0.0549, 0.1047] | 0.1 |
+| shuffled (exchangeable by construction) | 0.0854 (41/480) | [0.0620, 0.1141] | 0.1 |
+| adaptive CP, Gibbs & Candès, γ = 0.02 | 0.1000 (48/480) | [0.0747, 0.1304] | 0.1 |
+
+**The ordering carries no information: real against shuffled is Fisher exact
+p = 0.723.** That is the result. Destroying the temporal structure — which is
+what non-exchangeability would exploit — changes the realised rate by four test
+points out of 480. All three intervals contain δ.
+
+**Reading it correctly.** The fixed quantile sitting *below* δ is conformal
+behaving as advertised: the guarantee is on violation at most δ, so 0.077 is
+mild conservatism, not undercoverage. Adaptive CP lands on 0.1000, i.e. it
+recovers that conservatism and buys a little return, but it does not fix
+anything, because nothing was broken. **We do not need adaptive conformal here,
+and can now say why rather than hope.**
+
+**What this does not establish.** Three non-rejections are not a proof of
+exchangeability; they bound how large a violation could have hidden in 320
+scores per seed, and no more. It is one testbed (dar), one policy
+parameterisation, one probe schedule. The claim that belongs in the paper is
+narrow and sufficient: *in the setting where the headline conformal result is
+measured, the exchangeability assumption is not detectably violated, and the
+realised rate matches the shuffled control.* If the probe schedule or the policy
+optimiser changes, this needs re-running — which is now one `sbatch`.
+
+**Rule 27: an assumption a method depends on is a claim, and a claim gets
+measured.** The margin recipe has been the project's strongest contribution
+since §3.2, and its load-bearing assumption went untested for as long as it was
+convenient. The test cost five minutes of GPU time once the sequence was
+persisted; the reason it went unrun was that nothing in the pipeline recorded
+the order, and what is not recorded does not get questioned.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
@@ -1485,6 +2798,16 @@ occurred, never under ours. Closing it requires either (a) a controlled burn or
 fuel-treatment programme with recorded treatment locations and matched
 untreated controls, or (b) a physics-based fire simulator (FARSITE/WRF-SFIRE)
 as a surrogate for reality — which substitutes one model for another.
+
+**Update, 2026-09-25: the flood work takes route (b), deliberately.** §5.6 plans
+interventions against a learned surrogate and evaluates them with the
+LISFLOOD-FP local-inertial solver. This does not close the gap — it is still one
+model standing in for the world — but it is the strongest version of route (b)
+available to the project, because the shallow-water equations are conservation
+laws rather than empirical spread rates, the discretisation is the operational
+standard in government flood mapping, and the reference model is independent of
+the surrogate being tested. The sentence above stays true as written: no
+*observational* record, in any domain, contains our counterfactual.
 
 ### 6.3 Honest scope of the twin claim
 
@@ -1540,6 +2863,15 @@ of argument.
 | 18 | Violation rate measured over 11 evaluations while testing a 10% target | Every rate is a multiple of 1/11; δ falls between 1/11 and 2/11, so the headline metric could not resolve the claim either way | The observed rates being 0.091, 0.182, 0.273 — all `k/11` |
 
 ### Standing rules
+
+**Added 2026-09-25 from the flood testbed (§5.6):**
+
+| # | rule | what forced it |
+|---|---|---|
+| 16 | when the solver supplies the quantity a constraint is declared on, test conservation of that quantity before using it as reality | an unlimited explicit scheme gained 6.4% water volume |
+| 17 | verify geometry separation numerically before running any physics | inflow straddled the berm; the settlement carved its own gap |
+| 18 | when a testbed cannot separate planners, suspect the actuator's mechanism before concluding the domain is uncontrollable | same equations, 7% → 99.8% span on changing the actuator |
+
 
 1. A baseline starts from the same initial condition as the method, or the
    comparison reports an initialisation.
@@ -1648,14 +2980,14 @@ knowledgeable reviewer and are cheap.
 
 | # | experiment | cost | what it buys |
 |---|---|---|---|
-| 1 | Port the twin loop from FIRMS (8 fires) to **WildfireSpreadTS** (607) | days | turns an underpowered paired test into a solid one on a benchmark reviewers know (§9.9) |
-| 2 | Add a **model-based** safe-RL baseline: SMBPO, SafeDreamer, CAP | ~1 week | the sample-efficiency claim is near-tautological without it (§9.2) |
+| 1 | ~~Port the twin loop to **WildfireSpreadTS**~~ | **done** | 607 fires, year-wise CV, job 1029659. Corrected two §5.2 claims downward: adaptation +6.3% not +21% at day 2, and 62-76% of fires not 8/8 (§5.2a) |
+| 2 | ~~Add a **model-based** safe-RL baseline~~ | **done** | CAP transplanted onto our planner at a matched probe budget: 0.1199 violating against our 0.0780, ours vs CAP z = +2.08, CAP vs no margin z = −0.43 (§3.2). SMBPO and SafeDreamer remain unrun |
 | 3 | Add a **DA baseline** (EnKF or learned gain) to the twin loop, or demote §5.2 | days | stops us reporting gain-1 nudging against free-running as a finding (§9.8) |
 | 4 | ~~Head-to-head on an inaccurate surrogate~~ | **done** | the diagnostic is derived and confirmed at ρ = 1.00 (§3.5); the PDE ladder is queued |
-| 5 | **Flood extent from Sentinel-1** — a dense field, sequential, free on GCS | 2–3 weeks | decides whether §5.3 is a sparse-field quirk or a property of budgeted intervention (§9.10) |
+| 5 | **Flood extent from Sentinel-1** — a dense field, sequential, free on GCS | 2–3 weeks | decides whether §5.3 is a sparse-field quirk or a property of budgeted intervention (§9.10). *Partly done*: `pspe/observe/sar.py` and one validated event (§5.7); the dense-field intervention study is not started |
 | 6 | Run the planner against **Cell2Fire** | ~1 week | one setting where the intervention counterfactual is evaluable (§9.6) |
 | 7 | Test **distillation** from planner solutions into the amortised policy | days | our amortisation claim is currently contradicted (§9.7) |
-| 8 | Test exchangeability of episode-cost deviations; consider adaptive CP | days | closes the hole a conformal-prediction reviewer goes straight to (§9.3) |
+| 8 | ~~Test exchangeability of episode-cost deviations; consider adaptive CP~~ | **done** | Not violated: real-order coverage 0.0771 against a shuffled control's 0.0854, Fisher p = 0.723; drift, KS and serial-dependence tests all non-rejections (§5.10). Adaptive CP unnecessary |
 | 9 | Re-report all results with stratified bootstrap CIs and IQM | days | meets the evaluation standard we ourselves cite (§9.11). `eval/metrics.py` now provides `iqm`, `bootstrap_ci`, `seed_report`; the headline planning gap becomes IQM 11.50, 95% CI [9.97, 14.63] |
 | 10 | **Live-incident loop** on current FIRMS plus meteorology | ~1 week | the one role FIRMS keeps that WSTS cannot fill (§9.9) |
 | 11 | **Explain redesign** — structured head over (patch, amplitude) | weeks | probably a separate paper (§9.12) |
@@ -1684,7 +3016,7 @@ belongs with the results. Full entries are in the References below.
 | 9.7 | Decision-time beats amortised policy | **Known, literature is against our reading** | Planner amortisation works when distilled; we did not try distillation |
 | 9.12 | Permutation control for faithfulness | **Standard practice we omitted** | Credit for applying it, none for inventing it |
 | 9.5 | Wildfire next-day forecast skill | **Behind** | 0.3162 against 0.3673 single / 0.3790 ensemble |
-| 9.9 | Sequential wildfire data | **Behind, avoidably** | WildfireSpreadTS has 607 fire time series; we built a pipeline for 8 |
+| 9.9 | Sequential wildfire data | **Closed** | Ported to WildfireSpreadTS, 607 fires, year-wise CV; the eight-fire estimate was ~3x too generous (§5.2a) |
 | 9.5 | PDE surrogate architecture | **Behind, and not our contribution** | FNO is a 2021 baseline; Poseidon, DPOT and BCAT are the frontier |
 
 Four of twelve survive as contributions. The broad thesis of §0.2 is real but is
@@ -1747,10 +3079,15 @@ caveats belong in any write-up:
 - Their setting is CBF-constrained continuous control with GP dynamics; ours is
   a CMDP with an episode-cost budget. The failure mode should generalise; we
   have not shown it in *their* setting.
-- **Exchangeability of episode-cost deviations across a learning run is assumed,
-  not tested.** A learning policy is a distribution shift, which is why
-  [Gibbs & Candès, 2021] exists. A conformal-prediction reviewer will go
-  straight here.
+- ~~**Exchangeability of episode-cost deviations across a learning run is
+  assumed, not tested.**~~ **Tested (§5.10).** Drift, early-vs-late KS and a
+  permutation test on serial dependence are all non-rejections across three
+  seeds, and — the number that matters — the realised rate on a held-out tail
+  is 0.0771 against 0.0854 for a shuffled control, Fisher exact p = 0.723. The
+  ordering carries no information, so the guarantee is not being propped up by
+  an assumption that fails. Adaptive CP [Gibbs & Candès, 2021] recovers the
+  mild conservatism (0.1000 against δ = 0.1) but is not needed. This is one
+  testbed and one probe schedule; it is not a proof.
 
 ### 9.4 Objective mismatch and decision-aware model learning
 
@@ -1849,11 +3186,19 @@ since NeurIPS 2023: **607 fire events, 13,607 daily images, 23 multi-modal
 channels, 2018–2021**. Extensions and successors: WSTS+ (WACV 2026), FireSentry,
 BCWildfire, and the evaluation study *WildfireSpreadBench* (arXiv 2609.22191).
 
-Our twin loop runs on **8 fires** where 607 were available, with 2 channels
-where 23 were available. "8 of 8 fires" is honest and badly underpowered.
-Porting `eval/run_firms_twin.py` to WSTS is days of work, raises n by ~75×, and
-removes "why your own dataset?" from the review. FIRMS keeps one legitimate
-role: a **live incident**, which a static archive cannot support.
+~~Our twin loop runs on **8 fires** where 607 were available.~~ **Ported
+(§5.2a).** It now runs on all 607, held out by year rather than by fire, and the
+port cost a day rather than the "days of work" estimated here. It was worth it
+for the reason this section gives and for one it does not: at n = 607 the
+adaptation benefit turned out to be about a third of the eight-fire estimate and
+the "8/8 fires" unanimity became 62–76% (§5.2a). The underpowering was not only
+a presentational weakness, it was producing numbers that were too good.
+
+Still only 1 of the 23 channels is used — the active-fire detection. Fuel,
+terrain and weather are all sitting in the same rasters and the spread model
+ignores them, which is the obvious next experiment on this dataset. FIRMS keeps
+one legitimate role: a **live incident**, which a static archive cannot
+support.
 
 ### 9.10 Beliefs evaluated on decisions
 
@@ -2101,6 +3446,18 @@ with distinct markers so they survive greyscale.
 | `fig4_wildfire` | budget Pareto and the horizon ablation | PSPE |
 | `fig7_partial_observation` | reconstruction 100× better, decision worse | PSPE |
 | `fig8_twin_loop` | syncing to observation on real fire sequences | PSPE |
+
+Appendix figures, from `python scripts/make_appendix_figures.py` (§5.9):
+
+| figure | claim | paper |
+|---|---|---|
+| `figA1_sar_validation` | what the satellite saw, against the reference | appendix |
+| `figA2_sar_stratified` | CSI by land cover; radar is blind under canopy | appendix |
+| `figA3_wildfire_perception` | the estimator recovers the front and smears it 3.3× | appendix |
+| `figA4_wildfire_decision` | reconstruction improves, the decision does not | appendix |
+| `figA5_portal_appraisal` | the planner as an operator meets it; harm flagged | appendix |
+| `figA6_portal_anywhere` | any town, solved from public DEM in 47 s | appendix |
+| `figA7_validation_chain` | 0.979 against a model, 0.535 against the world | appendix |
 
 Superseded by the above, kept because slide decks reference them:
 `pspe_architecture` (draws joint training as a headline path, refuted in §4.3),

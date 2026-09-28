@@ -82,6 +82,17 @@ Otherwise the constraint is unachievable however well the margin is calibrated,
 and a violation rate cannot distinguish that case from a miscalibrated one.
 \end{proposition}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/paper/fig3_precondition.pdf}
+\caption{Equation~\eqref{eq:feasible} on the wildfire task. Points below the
+diagonal admit a margin. Four settings of crew budget and model capacity
+(crosses) never reach it: the bias runs $2.0$ to $4.9\times$ the span the
+planner controls. With the discrepancy dialled instead (circles) the boundary
+is straddled, which is what a demonstration of the condition requires.}
+\label{fig:precondition}
+\end{figure}
+
 \begin{remark}[$f$ is the trade-off, not a free parameter]
 It sets how tightly the constraint binds and how much room a margin has, in
 opposite directions. Reporting $f$, $b$ and $s$ together is the minimum for a
@@ -97,6 +108,36 @@ policy moves between probes; this is the drift adaptive conformal inference
 was designed for \citep{gibbs2021aci}, and we report the empirical rate rather
 than claim the assumption holds.
 \end{remark}
+
+% =====================================================================
+% 2b. The calibration curve. A conformal method is finally judged on whether
+%     the rate it states is the rate it delivers, and the other experiments
+%     all fix delta = 0.1.
+% =====================================================================
+\subsection{Does the stated level mean anything?}
+\label{sec:calibration}
+
+A conformal method is judged on whether the level it states is the level it
+delivers. The experiments above fix $\delta = 0.1$; here $\delta$ is swept, in
+two regimes, with everything else controlled (Figure~\ref{fig:calibration}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/paper/fig0_calibration.pdf}
+\caption{Realised violation rate against the stated level, $600$ calibration
+draws per point. Left, where the model's per-instance error dominates
+($\rho=0.25$), the default is merely over-conservative. Right, where the
+policy's spread dominates ($\rho=4$), its realised rate is nearly independent
+of the level requested: $0.30$ when asked for $0.02$, $0.47$ when asked for
+$0.40$. Ours tracks the diagonal in both.}
+\label{fig:calibration}
+\end{figure}
+
+The right panel is the substantive one. The default does not merely undercover;
+its realised rate barely responds to $\delta$ at all, so the number it states
+carries almost no information about its behaviour. A practitioner who tightens
+$\delta$ from $0.1$ to $0.02$ would obtain $0.30$ instead of $0.37$, having
+asked for a fivefold reduction.
 
 % =====================================================================
 % 3. NEW SUBSECTION for Section 5. This is the head-to-head the draft
@@ -137,7 +178,22 @@ $\rho\ge8$ \small(8 runs) & $0.140$ & $\mathbf{0.140}$ & $0.067$ & $0.073$ \\
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:crossover} reports the outcome. Below the crossing the default
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/paper/fig1_mechanism.pdf}
+\caption{(a) Coverage in the controlled setting: the default fails once
+$\rho>1$. (b) On the reaction--diffusion front, the margin each recipe
+produces against the $\rho$ measured in that run. The default's margin
+collapses by a factor of $48$ as the surrogate improves, from $0.385$ to
+$0.008$ against a limit that stays at $3.26$; ours is flat
+($0.616 \pm 0.143$) because it tracks the policy's spread, which does not
+improve with the model.}
+\label{fig:mechanism}
+\end{figure}
+
+Figure~\ref{fig:mechanism}(b) shows the cause directly: the default's margin
+collapses $48\times$ across the fidelity ladder while ours is flat.
+Table~\ref{tab:crossover} reports the consequence. Below the crossing the default
 holds $\delta$ and is statistically indistinguishable from ours ($z = 0.86$);
 the recipe is not wrong in general, which is what makes this a condition of use
 rather than a criticism. Above it the default returns $0.140$ against $0.140$
@@ -145,21 +201,73 @@ for no margin at all---the same value to three decimals---and exceeds the level
 it states, while ours holds $0.073$ ($z = 2.78$). Ours improves on no margin in
 both regimes ($z = 3.68$ and $z = 2.78$).
 
+\paragraph{What the margin costs.}
+Figure~\ref{fig:tradeoff} answers the first objection to any conservative
+method. Paired against the same run's unconstrained arm, ours removes $4.8$ points of
+violation for $1.8\%$ of return; the deviations-plus-bias form, $4.2$ points
+for $1.5\%$. Safety here is not bought by refusing to act.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/paper/fig5_tradeoff.pdf}
+\caption{Change in violation rate and return against the same run's
+unconstrained arm, means with bootstrap intervals over $25$ runs. Individual
+runs are not shown: at $41$ evaluations each the per-run violation change is
+quantised, so a scatter of the raw pairs shows binning rather than a
+relationship.}
+\label{fig:tradeoff}
+\end{figure}
+
 The coincidence at high $\rho$ is the sharpest form of the result. The margin is
 not merely loose: the quantity it conformalises has stopped carrying
 information about what breaches the limit, so tightening by it changes nothing.
 
 \paragraph{Against a model-based baseline.}
 Our other safe-RL baselines are model-free, which makes a sample-efficiency
-comparison uninformative for a model-based planner. CAP
-\citep{ma2022cap} is the closest method that also plans in a learned model and
-corrects for its error, penalising by ensemble disagreement
-$c = \bar{c} + k\,\mathrm{sd}(c)$ with $k$ adapted from real data. We transplant
-that penalty onto our planner at an identical probe budget, so only the
-correction mechanism differs. At matched real samples it reaches $0.130$
-against $0.132$ for no margin, with its adapted $k$ between $0.5$ and $1.46$:
-the mechanism is active, but ensemble disagreement is not the quantity that
-breaches this limit, for the same reason model error is not.
+comparison uninformative for a model-based planner. CAP \citep{ma2022cap} is
+the closest method that also plans in a learned model and corrects for its
+error, penalising by ensemble disagreement $c = \bar{c} + k\,\mathrm{sd}(c)$
+over five surrogates with $k$ adapted from real data. We transplant that
+penalty onto our planner at an identical probe budget, so only the correction
+mechanism differs (Appendix~\ref{app:cap}).
+
+\begin{table}[t]
+\caption{Matched real-sample budget ($6{,}400$ training transitions plus
+$1{,}920$ probe), \textsc{rdf}, full-fidelity surrogate. CAP is
+indistinguishable from applying no margin at all.}
+\label{tab:cap}
+\centering\small
+\begin{tabular}{lcc}
+\toprule
+method & violation & seeds \\
+\midrule
+no margin & $0.132$ & 5 \\
+model-error conformal & $0.142$ & 5 \\
+CAP (ensemble penalty) & $0.120$ & 12 \\
+\textbf{ours} & $\mathbf{0.078}$ & 10 \\
+\midrule
+\multicolumn{3}{l}{\small CAP vs.\ no margin\quad $z=-0.43$} \\
+\multicolumn{3}{l}{\small ours vs.\ no margin\quad $z=+3.68$} \\
+\multicolumn{3}{l}{\small \textbf{ours vs.\ CAP\quad $z=+2.08$}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:cap} reports the comparison. CAP's adapted $k$ settled between
+$0.50$ and $1.46$, so its mechanism was active rather than inert; ensemble
+disagreement is simply not the quantity that breaches this limit, for the same
+structural reason model error is not. CAP matches on real samples but uses five
+times the training compute, the ensemble being five models fitted to the same
+data; a compute-matched comparison would be less generous to it, and a
+sample-matched one is the right choice for a claim about constraint
+satisfaction rather than efficiency.
+
+\paragraph{The general form.}
+Two mechanistically different uncertainty corrections---a conformal quantile
+over model error, and an ensemble-variance penalty---both reduce to doing
+nothing on an expectation constraint, while conformalising against the quantity
+the dual controls works. Both estimate \emph{how wrong the model is}, and under
+an expectation constraint that is not what carries the policy over the limit.
 
 % =====================================================================
 % 4. NEW SUBSECTION for Section 6. The draft states outright that Section 6

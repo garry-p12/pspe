@@ -1,0 +1,834 @@
+{
+  "generated": "scripts/build_portal_assets.py",
+  "levee_geometry": {
+    "settlement": {
+      "row": 52,
+      "col": 52,
+      "lon": 153.2434900526101,
+      "lat": -28.906816545812593,
+      "elev": 5.160871982574463
+    },
+    "radius_cells": 10,
+    "cell_m": 120.0,
+    "sites": [
+      {
+        "id": 0,
+        "row": 62,
+        "col": 58,
+        "elev": 13.512475967407227,
+        "lon": 153.25090163158558,
+        "lat": -28.91763419303945
+      },
+      {
+        "id": 1,
+        "row": 64,
+        "col": 52,
+        "elev": 3.608154773712158,
+        "lon": 153.2435204062133,
+        "lat": -28.919813990685107
+      },
+      {
+        "id": 2,
+        "row": 62,
+        "col": 45,
+        "elev": 6.738273620605469,
+        "lon": 153.2348980062539,
+        "lat": -28.91766305795104
+      },
+      {
+        "id": 3,
+        "row": 42,
+        "col": 46,
+        "elev": 6.717897415161133,
+        "lon": 153.2360800164648,
+        "lat": -28.89599846434097
+      },
+      {
+        "id": 4,
+        "row": 41,
+        "col": 55,
+        "elev": 6.244804382324219,
+        "lon": 153.24715458426317,
+        "lat": -28.894895476902
+      },
+      {
+        "id": 5,
+        "row": 42,
+        "col": 58,
+        "elev": 9.270198822021484,
+        "lon": 153.25084952501183,
+        "lat": -28.895971776030724
+      }
+    ]
+  },
+  "bounds": {
+    "west": 153.17877,
+    "east": 153.5102,
+    "south": -29.1406,
+    "north": -28.84921,
+    "epsg": 32756,
+    "extent_km": 32.2,
+    "place": "Lower Richmond River, Northern Rivers, NSW, Australia",
+    "event": "February-March 2022 Northern Rivers flood"
+  },
+  "grid": [
+    536,
+    536
+  ],
+  "native_grid": [
+    1073,
+    1073
+  ],
+  "native_dx_m": 30.0,
+  "raster_dx_m": 60.0,
+  "dem_range_m": [
+    -3.676865816116333,
+    216.3242645263672
+  ],
+  "depth_vmax_m": 19.0,
+  "frame_ext": "webp",
+  "frames": [
+    {
+      "i": 0,
+      "t_seconds": 0,
+      "t_hours": 0.0,
+      "wet_cells": 9664,
+      "max_depth": 0.32277917861938477,
+      "mean_depth_wet": 0.019310275092720985
+    },
+    {
+      "i": 1,
+      "t_seconds": 9600,
+      "t_hours": 2.6666666666666665,
+      "wet_cells": 9907,
+      "max_depth": 0.3574070930480957,
+      "mean_depth_wet": 0.01950845867395401
+    },
+    {
+      "i": 2,
+      "t_seconds": 19500,
+      "t_hours": 5.416666666666667,
+      "wet_cells": 10070,
+      "max_depth": 0.3533450663089752,
+      "mean_depth_wet": 0.01963394694030285
+    },
+    {
+      "i": 3,
+      "t_seconds": 29100,
+      "t_hours": 8.083333333333334,
+      "wet_cells": 10198,
+      "max_depth": 0.3513917028903961,
+      "mean_depth_wet": 0.019710620865225792
+    },
+    {
+      "i": 4,
+      "t_seconds": 38700,
+      "t_hours": 10.75,
+      "wet_cells": 10313,
+      "max_depth": 0.35030215978622437,
+      "mean_depth_wet": 0.019757475703954697
+    },
+    {
+      "i": 5,
+      "t_seconds": 48600,
+      "t_hours": 13.5,
+      "wet_cells": 10389,
+      "max_depth": 0.3496174216270447,
+      "mean_depth_wet": 0.019816765561699867
+    },
+    {
+      "i": 6,
+      "t_seconds": 58200,
+      "t_hours": 16.166666666666668,
+      "wet_cells": 10451,
+      "max_depth": 0.34918904304504395,
+      "mean_depth_wet": 0.019864782691001892
+    },
+    {
+      "i": 7,
+      "t_seconds": 68100,
+      "t_hours": 18.916666666666668,
+      "wet_cells": 10515,
+      "max_depth": 0.3488451838493347,
+      "mean_depth_wet": 0.019898423925042152
+    },
+    {
+      "i": 8,
+      "t_seconds": 77700,
+      "t_hours": 21.583333333333332,
+      "wet_cells": 10943,
+      "max_depth": 0.35031771659851074,
+      "mean_depth_wet": 0.01983093097805977
+    },
+    {
+      "i": 9,
+      "t_seconds": 87300,
+      "t_hours": 24.25,
+      "wet_cells": 41935,
+      "max_depth": 0.40409111976623535,
+      "mean_depth_wet": 0.017312705516815186
+    },
+    {
+      "i": 10,
+      "t_seconds": 97200,
+      "t_hours": 27.0,
+      "wet_cells": 43380,
+      "max_depth": 0.5995572805404663,
+      "mean_depth_wet": 0.019414909183979034
+    },
+    {
+      "i": 11,
+      "t_seconds": 106800,
+      "t_hours": 29.666666666666668,
+      "wet_cells": 43618,
+      "max_depth": 0.6692955493927002,
+      "mean_depth_wet": 0.01968161202967167
+    },
+    {
+      "i": 12,
+      "t_seconds": 116400,
+      "t_hours": 32.333333333333336,
+      "wet_cells": 44730,
+      "max_depth": 0.6913132667541504,
+      "mean_depth_wet": 0.019768500700592995
+    },
+    {
+      "i": 13,
+      "t_seconds": 126300,
+      "t_hours": 35.083333333333336,
+      "wet_cells": 45418,
+      "max_depth": 0.702431321144104,
+      "mean_depth_wet": 0.01988767832517624
+    },
+    {
+      "i": 14,
+      "t_seconds": 135900,
+      "t_hours": 37.75,
+      "wet_cells": 45688,
+      "max_depth": 0.7089196443557739,
+      "mean_depth_wet": 0.019955679774284363
+    },
+    {
+      "i": 15,
+      "t_seconds": 145500,
+      "t_hours": 40.416666666666664,
+      "wet_cells": 45851,
+      "max_depth": 0.7133351564407349,
+      "mean_depth_wet": 0.020005304366350174
+    },
+    {
+      "i": 16,
+      "t_seconds": 155400,
+      "t_hours": 43.166666666666664,
+      "wet_cells": 45974,
+      "max_depth": 0.7166488766670227,
+      "mean_depth_wet": 0.020043542608618736
+    },
+    {
+      "i": 17,
+      "t_seconds": 165000,
+      "t_hours": 45.833333333333336,
+      "wet_cells": 46055,
+      "max_depth": 0.7191091775894165,
+      "mean_depth_wet": 0.020075367763638496
+    },
+    {
+      "i": 18,
+      "t_seconds": 174600,
+      "t_hours": 48.5,
+      "wet_cells": 46335,
+      "max_depth": 0.721098780632019,
+      "mean_depth_wet": 0.020110277459025383
+    },
+    {
+      "i": 19,
+      "t_seconds": 184500,
+      "t_hours": 51.25,
+      "wet_cells": 71569,
+      "max_depth": 0.7268669009208679,
+      "mean_depth_wet": 0.02163309045135975
+    },
+    {
+      "i": 20,
+      "t_seconds": 194100,
+      "t_hours": 53.916666666666664,
+      "wet_cells": 128215,
+      "max_depth": 1.8110922574996948,
+      "mean_depth_wet": 0.04070796072483063
+    },
+    {
+      "i": 21,
+      "t_seconds": 204000,
+      "t_hours": 56.666666666666664,
+      "wet_cells": 133257,
+      "max_depth": 2.498262882232666,
+      "mean_depth_wet": 0.05932140722870827
+    },
+    {
+      "i": 22,
+      "t_seconds": 213600,
+      "t_hours": 59.333333333333336,
+      "wet_cells": 132528,
+      "max_depth": 2.884467840194702,
+      "mean_depth_wet": 0.06490762531757355
+    },
+    {
+      "i": 23,
+      "t_seconds": 223200,
+      "t_hours": 62.0,
+      "wet_cells": 141262,
+      "max_depth": 3.519562244415283,
+      "mean_depth_wet": 0.07834819704294205
+    },
+    {
+      "i": 24,
+      "t_seconds": 233100,
+      "t_hours": 64.75,
+      "wet_cells": 144846,
+      "max_depth": 4.322695732116699,
+      "mean_depth_wet": 0.08996494114398956
+    },
+    {
+      "i": 25,
+      "t_seconds": 242700,
+      "t_hours": 67.41666666666667,
+      "wet_cells": 143916,
+      "max_depth": 4.868759632110596,
+      "mean_depth_wet": 0.09793875366449356
+    },
+    {
+      "i": 26,
+      "t_seconds": 252300,
+      "t_hours": 70.08333333333333,
+      "wet_cells": 155215,
+      "max_depth": 5.32893180847168,
+      "mean_depth_wet": 0.11239495128393173
+    },
+    {
+      "i": 27,
+      "t_seconds": 262200,
+      "t_hours": 72.83333333333333,
+      "wet_cells": 151760,
+      "max_depth": 5.38938570022583,
+      "mean_depth_wet": 0.12670780718326569
+    },
+    {
+      "i": 28,
+      "t_seconds": 271800,
+      "t_hours": 75.5,
+      "wet_cells": 149598,
+      "max_depth": 5.358662128448486,
+      "mean_depth_wet": 0.13436000049114227
+    },
+    {
+      "i": 29,
+      "t_seconds": 281400,
+      "t_hours": 78.16666666666667,
+      "wet_cells": 154643,
+      "max_depth": 5.566733360290527,
+      "mean_depth_wet": 0.13945849239826202
+    },
+    {
+      "i": 30,
+      "t_seconds": 291300,
+      "t_hours": 80.91666666666667,
+      "wet_cells": 150103,
+      "max_depth": 5.848990440368652,
+      "mean_depth_wet": 0.1465042382478714
+    },
+    {
+      "i": 31,
+      "t_seconds": 300900,
+      "t_hours": 83.58333333333333,
+      "wet_cells": 149292,
+      "max_depth": 5.956259727478027,
+      "mean_depth_wet": 0.14877238869667053
+    },
+    {
+      "i": 32,
+      "t_seconds": 310800,
+      "t_hours": 86.33333333333333,
+      "wet_cells": 148479,
+      "max_depth": 6.009735107421875,
+      "mean_depth_wet": 0.1502307802438736
+    },
+    {
+      "i": 33,
+      "t_seconds": 320400,
+      "t_hours": 89.0,
+      "wet_cells": 148740,
+      "max_depth": 6.020780086517334,
+      "mean_depth_wet": 0.15208885073661804
+    },
+    {
+      "i": 34,
+      "t_seconds": 330000,
+      "t_hours": 91.66666666666667,
+      "wet_cells": 150519,
+      "max_depth": 6.030268669128418,
+      "mean_depth_wet": 0.153718501329422
+    },
+    {
+      "i": 35,
+      "t_seconds": 339900,
+      "t_hours": 94.41666666666667,
+      "wet_cells": 150595,
+      "max_depth": 6.051146984100342,
+      "mean_depth_wet": 0.15673308074474335
+    },
+    {
+      "i": 36,
+      "t_seconds": 349500,
+      "t_hours": 97.08333333333333,
+      "wet_cells": 149652,
+      "max_depth": 6.052073955535889,
+      "mean_depth_wet": 0.15869486331939697
+    },
+    {
+      "i": 37,
+      "t_seconds": 359100,
+      "t_hours": 99.75,
+      "wet_cells": 148975,
+      "max_depth": 6.038695335388184,
+      "mean_depth_wet": 0.15969665348529816
+    },
+    {
+      "i": 38,
+      "t_seconds": 369000,
+      "t_hours": 102.5,
+      "wet_cells": 148538,
+      "max_depth": 6.023058891296387,
+      "mean_depth_wet": 0.16045868396759033
+    },
+    {
+      "i": 39,
+      "t_seconds": 378600,
+      "t_hours": 105.16666666666667,
+      "wet_cells": 148588,
+      "max_depth": 6.010265350341797,
+      "mean_depth_wet": 0.16100162267684937
+    },
+    {
+      "i": 40,
+      "t_seconds": 388200,
+      "t_hours": 107.83333333333333,
+      "wet_cells": 148978,
+      "max_depth": 6.003828048706055,
+      "mean_depth_wet": 0.1619078367948532
+    },
+    {
+      "i": 41,
+      "t_seconds": 398100,
+      "t_hours": 110.58333333333333,
+      "wet_cells": 149471,
+      "max_depth": 6.0086259841918945,
+      "mean_depth_wet": 0.1632891148328781
+    },
+    {
+      "i": 42,
+      "t_seconds": 407700,
+      "t_hours": 113.25,
+      "wet_cells": 149284,
+      "max_depth": 6.013395309448242,
+      "mean_depth_wet": 0.16435480117797852
+    },
+    {
+      "i": 43,
+      "t_seconds": 417300,
+      "t_hours": 115.91666666666667,
+      "wet_cells": 150525,
+      "max_depth": 6.018942832946777,
+      "mean_depth_wet": 0.1652618795633316
+    },
+    {
+      "i": 44,
+      "t_seconds": 427200,
+      "t_hours": 118.66666666666667,
+      "wet_cells": 151544,
+      "max_depth": 6.05808687210083,
+      "mean_depth_wet": 0.16773271560668945
+    },
+    {
+      "i": 45,
+      "t_seconds": 436800,
+      "t_hours": 121.33333333333333,
+      "wet_cells": 150750,
+      "max_depth": 6.072761535644531,
+      "mean_depth_wet": 0.1699347347021103
+    },
+    {
+      "i": 46,
+      "t_seconds": 446700,
+      "t_hours": 124.08333333333333,
+      "wet_cells": 150224,
+      "max_depth": 6.0556416511535645,
+      "mean_depth_wet": 0.17118363082408905
+    },
+    {
+      "i": 47,
+      "t_seconds": 456300,
+      "t_hours": 126.75,
+      "wet_cells": 155931,
+      "max_depth": 6.060966491699219,
+      "mean_depth_wet": 0.17125628888607025
+    },
+    {
+      "i": 48,
+      "t_seconds": 465900,
+      "t_hours": 129.41666666666666,
+      "wet_cells": 154185,
+      "max_depth": 6.170137405395508,
+      "mean_depth_wet": 0.1787230521440506
+    },
+    {
+      "i": 49,
+      "t_seconds": 475800,
+      "t_hours": 132.16666666666666,
+      "wet_cells": 154468,
+      "max_depth": 6.147335529327393,
+      "mean_depth_wet": 0.18149173259735107
+    },
+    {
+      "i": 50,
+      "t_seconds": 485400,
+      "t_hours": 134.83333333333334,
+      "wet_cells": 155591,
+      "max_depth": 6.155587673187256,
+      "mean_depth_wet": 0.18478915095329285
+    },
+    {
+      "i": 51,
+      "t_seconds": 495000,
+      "t_hours": 137.5,
+      "wet_cells": 157876,
+      "max_depth": 6.2032084465026855,
+      "mean_depth_wet": 0.1901240199804306
+    },
+    {
+      "i": 52,
+      "t_seconds": 504900,
+      "t_hours": 140.25,
+      "wet_cells": 161418,
+      "max_depth": 6.247467041015625,
+      "mean_depth_wet": 0.1997814029455185
+    },
+    {
+      "i": 53,
+      "t_seconds": 514500,
+      "t_hours": 142.91666666666666,
+      "wet_cells": 159525,
+      "max_depth": 6.254875183105469,
+      "mean_depth_wet": 0.2092883437871933
+    },
+    {
+      "i": 54,
+      "t_seconds": 524100,
+      "t_hours": 145.58333333333334,
+      "wet_cells": 162851,
+      "max_depth": 6.39881706237793,
+      "mean_depth_wet": 0.21282947063446045
+    },
+    {
+      "i": 55,
+      "t_seconds": 534000,
+      "t_hours": 148.33333333333334,
+      "wet_cells": 172883,
+      "max_depth": 7.030032634735107,
+      "mean_depth_wet": 0.22839027643203735
+    },
+    {
+      "i": 56,
+      "t_seconds": 543600,
+      "t_hours": 151.0,
+      "wet_cells": 174998,
+      "max_depth": 7.395618915557861,
+      "mean_depth_wet": 0.2500760555267334
+    },
+    {
+      "i": 57,
+      "t_seconds": 553200,
+      "t_hours": 153.66666666666666,
+      "wet_cells": 177258,
+      "max_depth": 7.716608047485352,
+      "mean_depth_wet": 0.2745791971683502
+    },
+    {
+      "i": 58,
+      "t_seconds": 563100,
+      "t_hours": 156.41666666666666,
+      "wet_cells": 174664,
+      "max_depth": 8.0628662109375,
+      "mean_depth_wet": 0.29778987169265747
+    },
+    {
+      "i": 59,
+      "t_seconds": 572700,
+      "t_hours": 159.08333333333334,
+      "wet_cells": 185284,
+      "max_depth": 8.271932601928711,
+      "mean_depth_wet": 0.3149205148220062
+    },
+    {
+      "i": 60,
+      "t_seconds": 582600,
+      "t_hours": 161.83333333333334,
+      "wet_cells": 186720,
+      "max_depth": 8.545822143554688,
+      "mean_depth_wet": 0.3467067778110504
+    },
+    {
+      "i": 61,
+      "t_seconds": 592200,
+      "t_hours": 164.5,
+      "wet_cells": 188763,
+      "max_depth": 9.501631736755371,
+      "mean_depth_wet": 0.37983864545822144
+    },
+    {
+      "i": 62,
+      "t_seconds": 601800,
+      "t_hours": 167.16666666666666,
+      "wet_cells": 187823,
+      "max_depth": 9.956612586975098,
+      "mean_depth_wet": 0.40975114703178406
+    },
+    {
+      "i": 63,
+      "t_seconds": 611700,
+      "t_hours": 169.91666666666666,
+      "wet_cells": 189856,
+      "max_depth": 10.723602294921875,
+      "mean_depth_wet": 0.4316729009151459
+    },
+    {
+      "i": 64,
+      "t_seconds": 621300,
+      "t_hours": 172.58333333333334,
+      "wet_cells": 193356,
+      "max_depth": 11.051910400390625,
+      "mean_depth_wet": 0.47135019302368164
+    },
+    {
+      "i": 65,
+      "t_seconds": 630900,
+      "t_hours": 175.25,
+      "wet_cells": 189691,
+      "max_depth": 11.665787696838379,
+      "mean_depth_wet": 0.5052354335784912
+    },
+    {
+      "i": 66,
+      "t_seconds": 640800,
+      "t_hours": 178.0,
+      "wet_cells": 188733,
+      "max_depth": 12.190085411071777,
+      "mean_depth_wet": 0.5308853983879089
+    },
+    {
+      "i": 67,
+      "t_seconds": 650400,
+      "t_hours": 180.66666666666666,
+      "wet_cells": 187999,
+      "max_depth": 12.572480201721191,
+      "mean_depth_wet": 0.5506719350814819
+    },
+    {
+      "i": 68,
+      "t_seconds": 660000,
+      "t_hours": 183.33333333333334,
+      "wet_cells": 181813,
+      "max_depth": 12.746200561523438,
+      "mean_depth_wet": 0.5732284784317017
+    },
+    {
+      "i": 69,
+      "t_seconds": 669900,
+      "t_hours": 186.08333333333334,
+      "wet_cells": 179684,
+      "max_depth": 12.734856605529785,
+      "mean_depth_wet": 0.5803579688072205
+    },
+    {
+      "i": 70,
+      "t_seconds": 679500,
+      "t_hours": 188.75,
+      "wet_cells": 178649,
+      "max_depth": 12.699722290039062,
+      "mean_depth_wet": 0.584018349647522
+    },
+    {
+      "i": 71,
+      "t_seconds": 689400,
+      "t_hours": 191.5,
+      "wet_cells": 177999,
+      "max_depth": 12.669195175170898,
+      "mean_depth_wet": 0.5864773392677307
+    },
+    {
+      "i": 72,
+      "t_seconds": 699000,
+      "t_hours": 194.16666666666666,
+      "wet_cells": 177533,
+      "max_depth": 12.646721839904785,
+      "mean_depth_wet": 0.5882083177566528
+    },
+    {
+      "i": 73,
+      "t_seconds": 708600,
+      "t_hours": 196.83333333333334,
+      "wet_cells": 177092,
+      "max_depth": 12.629594802856445,
+      "mean_depth_wet": 0.5897490978240967
+    },
+    {
+      "i": 74,
+      "t_seconds": 718500,
+      "t_hours": 199.58333333333334,
+      "wet_cells": 176732,
+      "max_depth": 12.615998268127441,
+      "mean_depth_wet": 0.5910118222236633
+    },
+    {
+      "i": 75,
+      "t_seconds": 728100,
+      "t_hours": 202.25,
+      "wet_cells": 176437,
+      "max_depth": 12.60560417175293,
+      "mean_depth_wet": 0.5920460224151611
+    },
+    {
+      "i": 76,
+      "t_seconds": 737700,
+      "t_hours": 204.91666666666666,
+      "wet_cells": 176207,
+      "max_depth": 12.59726333618164,
+      "mean_depth_wet": 0.5928623080253601
+    },
+    {
+      "i": 77,
+      "t_seconds": 747600,
+      "t_hours": 207.66666666666666,
+      "wet_cells": 176081,
+      "max_depth": 12.590204238891602,
+      "mean_depth_wet": 0.5935577154159546
+    },
+    {
+      "i": 78,
+      "t_seconds": 757200,
+      "t_hours": 210.33333333333334,
+      "wet_cells": 175924,
+      "max_depth": 12.584514617919922,
+      "mean_depth_wet": 0.5942184925079346
+    },
+    {
+      "i": 79,
+      "t_seconds": 766800,
+      "t_hours": 213.0,
+      "wet_cells": 175790,
+      "max_depth": 12.579712867736816,
+      "mean_depth_wet": 0.5948347449302673
+    },
+    {
+      "i": 80,
+      "t_seconds": 776700,
+      "t_hours": 215.75,
+      "wet_cells": 175622,
+      "max_depth": 12.575672149658203,
+      "mean_depth_wet": 0.5955093502998352
+    },
+    {
+      "i": 81,
+      "t_seconds": 786300,
+      "t_hours": 218.41666666666666,
+      "wet_cells": 175455,
+      "max_depth": 12.57231330871582,
+      "mean_depth_wet": 0.5961194038391113
+    },
+    {
+      "i": 82,
+      "t_seconds": 795900,
+      "t_hours": 221.08333333333334,
+      "wet_cells": 175323,
+      "max_depth": 12.569314002990723,
+      "mean_depth_wet": 0.5966107249259949
+    },
+    {
+      "i": 83,
+      "t_seconds": 805800,
+      "t_hours": 223.83333333333334,
+      "wet_cells": 175204,
+      "max_depth": 12.566574096679688,
+      "mean_depth_wet": 0.5970520377159119
+    },
+    {
+      "i": 84,
+      "t_seconds": 815400,
+      "t_hours": 226.5,
+      "wet_cells": 175088,
+      "max_depth": 12.56419849395752,
+      "mean_depth_wet": 0.5974748134613037
+    },
+    {
+      "i": 85,
+      "t_seconds": 825300,
+      "t_hours": 229.25,
+      "wet_cells": 175015,
+      "max_depth": 12.562164306640625,
+      "mean_depth_wet": 0.5978695154190063
+    },
+    {
+      "i": 86,
+      "t_seconds": 834900,
+      "t_hours": 231.91666666666666,
+      "wet_cells": 174910,
+      "max_depth": 12.56053352355957,
+      "mean_depth_wet": 0.5982908010482788
+    },
+    {
+      "i": 87,
+      "t_seconds": 844500,
+      "t_hours": 234.58333333333334,
+      "wet_cells": 174831,
+      "max_depth": 12.55915641784668,
+      "mean_depth_wet": 0.5986297726631165
+    },
+    {
+      "i": 88,
+      "t_seconds": 854400,
+      "t_hours": 237.33333333333334,
+      "wet_cells": 174704,
+      "max_depth": 12.557842254638672,
+      "mean_depth_wet": 0.5991140007972717
+    },
+    {
+      "i": 89,
+      "t_seconds": 864000,
+      "t_hours": 240.0,
+      "wet_cells": 174788,
+      "max_depth": 12.556730270385742,
+      "mean_depth_wet": 0.5991036891937256
+    }
+  ],
+  "provenance": {
+    "terrain": {
+      "badge": "OBSERVED",
+      "source": "FloodCastBench Study regions/Australia_DEM.tif",
+      "note": "30 m DEM, EPSG:32756"
+    },
+    "depth": {
+      "badge": "OBSERVED",
+      "source": "FloodCastBench High-fidelity 30m/Australia",
+      "note": "reference depths from a finite-difference solution of the 2-D shallow water equations, validated by the dataset authors against SAR flood maps"
+    }
+  },
+  "caveats": [
+    "The archive ships no rainfall and no land-cover field.",
+    "Depth rasters carry no georeferencing; the DEM's EPSG:32756 places the grid, and only Australia's DEM grid matches its depth grid.",
+    "Rasters here are block-averaged from 30 m for web delivery."
+  ],
+  "metrics": [
+    "sites",
+    "validation",
+    "validation_openbc"
+  ]
+}

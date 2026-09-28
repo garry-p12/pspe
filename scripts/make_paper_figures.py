@@ -504,6 +504,125 @@ def fig_twin() -> None:
     save(fig, "fig8_twin_loop")
 
 
+def fig_flood_elasticity() -> None:
+    """Why a margin is hardest to calibrate exactly where the levee matters.
+
+    Left: the amplification E = dlnD/dlnQ against how much of the berm the flood
+    tops. E reaches 40x at the onset of over-topping and decays to 2.4x once the
+    berm is broadly submerged.
+
+    Right: sigma/s, the dimensionless form of the precondition
+    b + z_delta*sigma < f*s (with b ~ 0), against flood magnitude. It has an
+    interior minimum: threshold amplification bounds it from below in Q,
+    protection saturation from above. The dashed rule is the feasibility
+    threshold f/z_delta at f = 0.3.
+
+    Provenance: runs/flood_elasticity/elasticity.json (§5.6). Cross-validated
+    against a direct Monte Carlo at Q = 1.4e-2: 0.803 implied vs 0.834 measured.
+    """
+    src = ROOT / "runs" / "flood_elasticity" / "elasticity.json"
+    if not src.exists():
+        print("skip fig_flood_elasticity: no runs/flood_elasticity/elasticity.json")
+        return
+    d = json.loads(src.read_text())
+    rows = [r for r in d["rows"] if r["elasticity"] == r["elasticity"]]
+    q = np.array([r["inflow"] for r in rows]) * 1e3      # 1e-3 m/s units
+    e = np.array([r["elasticity"] for r in rows])
+    wet = np.array([r["berm_rows_wet"] for r in rows])
+    sos = np.array([r["sigma_over_s_at_0.25"] for r in rows])
+    need = d["f_fraction"] / d["z_delta"]
+
+    fig, axes = plt.subplots(1, 2, figsize=(FULL, 2.05))
+
+    ax = axes[0]
+    ax.plot(wet, e, marker="o", color=C["model_error"], zorder=3)
+    ax.set_yscale("log")
+    # A log axis defaults to decade ticks here, which leaves a single labelled
+    # value and makes the panel unreadable. Label the values the reader needs.
+    ax.set_yticks([2, 3, 5, 10, 20, 40])
+    ax.set_yticklabels(["2", "3", "5", "10", "20", "40"])
+    ax.minorticks_off()
+    ax.set_xlabel("berm rows over-topped (of 96)")
+    ax.set_ylabel("amplification $E=\\mathrm{d}\\ln D/\\mathrm{d}\\ln Q$")
+    ax.set_title("forecast error is amplified at the crest", fontsize=7.5)
+    finish(ax)
+
+    ax = axes[1]
+    ax.plot(q, sos, marker="o", color=C["residual"], zorder=3, label="$\\sigma/s$")
+    ax.axhline(need, ls="--", lw=0.9, color=C["ink"], zorder=2,
+               label=f"feasible below $f/z_\\delta={need:.2f}$")
+    imin = int(np.argmin(sos))
+    ax.annotate("minimum", (q[imin], sos[imin]), textcoords="offset points",
+                xytext=(4, 9), fontsize=6.5, color=C["ink"],
+                arrowprops=dict(arrowstyle="-", lw=0.5, color=C["ink"]))
+    ax.set_yscale("log")
+    ax.set_yticks([0.2, 0.5, 1, 2, 5, 10])
+    ax.set_yticklabels(["0.2", "0.5", "1", "2", "5", "10"])
+    ax.minorticks_off()
+    ax.set_xlabel("channel inflow ($10^{-3}$ m s$^{-1}$)")
+    ax.set_ylabel("$\\sigma/s$")
+    ax.set_title("feasibility squeezed from both ends", fontsize=7.5)
+    ax.legend(loc="upper center")
+    finish(ax)
+
+    save(fig, "fig9_flood_elasticity")
+
+
+def fig_flood_precondition() -> None:
+    """Proposition 2 as an acceptance test, across hydrograph spread.
+
+    The required margin b + z_delta*sigma against the headroom f*s the actuator
+    actually buys. The crossing gives the forecast accuracy a calibrated margin
+    demands. Two curves, not one, because the span SHRINKS as spread widens --
+    averaging over wider hydrographs pulls in floods the levee cannot stop -- so
+    feasibility is squeezed from both sides at once.
+
+    Provenance: runs/flood_precond/sigma_*/precondition.json (§5.6, job 1025566).
+    """
+    srcs = sorted(glob.glob(str(ROOT / "runs" / "flood_precond" / "*" / "precondition.json")))
+    if not srcs:
+        print("skip fig_flood_precondition: no runs/flood_precond/*/precondition.json")
+        return
+    rows = sorted((json.loads(Path(s).read_text()) for s in srcs),
+                  key=lambda d: d["config"]["q_log_sigma"])
+    x = np.array([d["config"]["q_log_sigma"] for d in rows]) * 100
+    need = np.array([d["required_margin"] for d in rows])
+    head = np.array([d["headroom"] for d in rows])
+    ok = np.array([d["precondition"] == "PASS" for d in rows])
+
+    fig, ax = plt.subplots(figsize=(COL, 2.15))
+    ax.plot(x, need, marker="o", color=C["model_error"],
+            label=r"required $b+z_\delta\sigma$", zorder=3)
+    ax.plot(x, head, marker="s", color=C["residual"],
+            label=r"headroom $f\!\cdot\!s$", zorder=3)
+    ax.fill_between(x, head, need, where=need > head, color=C["model_error"],
+                    alpha=0.13, lw=0, zorder=1)
+    # Crossing, by linear interpolation between the last PASS and first FAIL.
+    i = int(np.argmax(~ok)) if (~ok).any() else None
+    if i:
+        d0, d1 = (need - head)[i - 1], (need - head)[i]
+        xc = x[i - 1] + (x[i] - x[i - 1]) * (-d0) / (d1 - d0)
+        ax.axvline(xc, ls=":", lw=0.9, color=C["ink"], zorder=2)
+        # Anchor the callout in AXES-fraction y, not data y. Two bugs here
+        # already: at 62% of the height it printed through "headroom f.s", and
+        # a data-coordinate placement read get_ylim() before set_yscale("log"),
+        # resolving against linear limits to y=0 -- off-scale, so it vanished.
+        ax.annotate(f"crossing {xc:.1f}%", xy=(xc, 0.0),
+                    xycoords=("data", "axes fraction"),
+                    textcoords="offset points", xytext=(4, 7), fontsize=6.8,
+                    color=C["ink"])
+    ax.set_yscale("log")
+    ax.set_yticks([0.02, 0.05, 0.1, 0.2, 0.4])
+    ax.set_yticklabels(["0.02", "0.05", "0.1", "0.2", "0.4"])
+    ax.minorticks_off()
+    ax.set_xlabel("discharge forecast spread (%, log-normal)")
+    ax.set_ylabel("depth (m)")
+    ax.set_title("a margin fits only below ${\\sim}8\\%$ forecast spread", fontsize=7.5)
+    ax.legend(loc="upper left")
+    finish(ax)
+    save(fig, "fig10_flood_precondition")
+
+
 def main() -> None:
     paper_style()
     fig_calibration()
@@ -515,6 +634,8 @@ def main() -> None:
     fig_ablation()
     fig_partial()
     fig_twin()
+    fig_flood_elasticity()
+    fig_flood_precondition()
 
 
 if __name__ == "__main__":
