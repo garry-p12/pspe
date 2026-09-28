@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { eventLabel, km, money, type OpsPayload } from "@/lib/ops";
+import { eventLabel, km, type OpsPayload } from "@/lib/ops";
+import { OptionList } from "./OptionList";
 
 /**
  * What to build, and what doing nothing costs.
@@ -183,95 +184,19 @@ export function PlanSection({
             onChange={(e) => onBudget(Number(e.target.value))}
             className="mt-2 w-full accent-[var(--ink)]"
           />
-          <p className="anno mt-2">
-            {affordable.length} of {measures.length} options fit this budget
-          </p>
         </div>
 
-        {/* ---- options --------------------------------------------------- */}
-        <div className="mt-5 flex items-center justify-between">
-          <h3 className="eyebrow">Options</h3>
-          <div className="flex gap-1">
-            {(["all", "helps", "worsens"] as const).map((f) => (
-              <button
-                key={f}
-                className="pill"
-                data-on={filter === f}
-                onClick={() => { setFilter(f); setExpanded(false); }}
-              >
-                {f === "all" ? "All" : f === "helps" ? "Helps" : "Worsens"}
-              </button>
-            ))}
-          </div>
-        </div>
+        <OptionList
+          options={measures}
+          budgetM={budgetM}
+          chosen={chosen}
+          onChoose={onChoose}
+        />
 
-        <ul className="mt-2.5 overflow-hidden rounded-xl border border-line">
-          {shown.map((o, i) => {
-            const d = o.core_reduction_pct ?? 0;
-            const { title, detail } = describe(o);
-            const sel = o.id === chosen;
-            return (
-              <li key={o.id} className={i > 0 ? "border-t border-line-soft" : ""}>
-                <button
-                  onClick={() => onChoose(o.id)}
-                  aria-pressed={sel}
-                  className={`flex w-full items-center gap-3 px-3.5 py-3 text-left
-                              transition-colors ${sel ? "bg-bg-inset" : "hover:bg-bg-raised"}`}
-                >
-                  <span
-                    aria-hidden
-                    className={`h-[15px] w-[15px] shrink-0 rounded-full border transition-colors ${
-                      sel ? "border-[5px] border-ink" : "border-line"
-                    }`}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-[13px] font-medium text-ink">{title}</span>
-                      {best?.id === o.id && (
-                        <span className="chip-good shrink-0 text-[11px]">Best value</span>
-                      )}
-                    </span>
-                    <span className="anno mt-0.5 block truncate">
-                      {detail} · {money(o.cost_aud)}
-                    </span>
-                  </span>
-                  {d < -0.5 ? (
-                    <span className="chip-harm tnum shrink-0 text-[13px]">
-                      +{Math.abs(d).toFixed(0)}%
-                    </span>
-                  ) : (
-                    <span className="tnum shrink-0 text-[15px] font-semibold text-ink">
-                      −{d.toFixed(0)}%
-                    </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
-
-          {filtered.length === 0 && (
-            <li className="px-3.5 py-4 text-[13px] text-ink-mute">
-              Nothing in this budget {filter === "helps" ? "reduces" : "changes"} flooding here.
-            </li>
-          )}
-
-          {filtered.length > 5 && (
-            <li className="border-t border-line-soft">
-              <button
-                onClick={() => setExpanded((v) => !v)}
-                className="w-full py-2.5 text-center text-[13px] text-ink-mute hover:text-ink"
-              >
-                {expanded ? "Show fewer" : `Show all ${filtered.length}`}
-              </button>
-            </li>
-          )}
-        </ul>
-
-        <div className="mt-2.5 flex items-baseline justify-between gap-3">
-          <p className="anno">Change vs. doing nothing</p>
+        <div className="mt-1 flex justify-end">
           <button
             onClick={onBuildYourOwn}
-            className="shrink-0 text-[13px] text-ink underline underline-offset-2 hover:no-underline"
+            className="text-[13px] text-ink underline underline-offset-2 hover:no-underline"
           >
             Build your own
           </button>

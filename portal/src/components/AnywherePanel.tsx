@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { OptionList, type OptionRow } from "./OptionList";
 
 export interface AnalysisResult {
   name: string;
@@ -39,6 +40,12 @@ export interface AnywherePlan {
   ok: boolean;
   reason?: string;
   heights: number[];
+  options: OptionRow[];
+  base_area_km2: number;
+  base_peak_depth_m: number;
+  cost_aud: number;
+  budget_aud: number;
+  band_pct: number;
   reduction_pct: number;
   guaranteed_pct: number;
   confidence_pct: number;
@@ -71,6 +78,8 @@ export function AnywherePanel({
   const [plan, setPlan] = useState<AnywherePlan | null>(null);
   const [planning, setPlanning] = useState(false);
   const [planErr, setPlanErr] = useState<string | null>(null);
+  const [budgetM, setBudgetM] = useState(20);
+  const [planChosen, setPlanChosen] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [res, setRes] = useState<AnalysisResult | null>(null);
@@ -108,7 +117,7 @@ export function AnywherePanel({
           name: p.short, dx: 90,
           rain_mm_h: s.mm_h, storm_hours: s.hours, run_hours: 10,
           sites: lv.map((l) => ({ lat: l.lat, lon: l.lon, width_m: l.width_m })),
-          max_height_m: 3.0, budget_aud: 20e6, delta: 0.1,
+          max_height_m: 3.0, budget_aud: budgetM * 1e6, delta: 0.1,
           protect: { lat: p.lat, lon: p.lon, radius_m: 2500 },
         }),
       });
@@ -120,7 +129,7 @@ export function AnywherePanel({
     } finally {
       setPlanning(false);
     }
-  }, [storm]);
+  }, [storm, budgetM]);
 
   const run = useCallback(async (p: Place, lv: PlacedLevee[] = []) => {
     setBusy(true); setErr(null); setElapsed(0);
@@ -156,8 +165,8 @@ export function AnywherePanel({
   }, [storm, onResult]);
 
   return (
-    <div className="border-b border-line-soft p-4">
-      <p className="eyebrow mb-2">Model anywhere</p>
+    <div className="px-5 pb-5 pt-4">
+      <h2 className="eyebrow mb-2">Model anywhere</h2>
 
       <input
         value={q}
@@ -166,7 +175,10 @@ export function AnywherePanel({
         className="w-full rounded-md border border-line bg-bg-inset px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-faint focus:border-accent/60 focus:outline-none"
       />
 
-      {places.length > 0 && !busy && (
+      {/* Choosing a place sets the query to its own name, which then re-matches
+          and shows the suggestion again under the input. Suppress the list once
+          it is only offering back what has already been chosen. */}
+      {places.length > 0 && !busy && !(chosen && q === chosen.short) && (
         <ul className="mt-1.5 flex flex-col gap-0.5">
           {places.map((p) => (
             <li key={`${p.lat},${p.lon}`}>
@@ -234,14 +246,44 @@ export function AnywherePanel({
         </div>
       )}
 
+      {/* ---- what doing nothing costs here ---------------------------- */}
       {res && !busy && chosen && (
-        <div className="mt-3 rounded-lg border border-line bg-bg-inset p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="eyebrow">Mitigation</p>
+        <div className="mt-4 rounded-xl border border-line px-4 py-3.5">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[13px] font-medium text-ink">{chosen.short}</span>
+            <span className="text-[13px] text-ink-mute">Do nothing</span>
+          </div>
+          <div className="mt-2.5 flex gap-7">
+            <div>
+              <p className="tnum text-[26px] font-semibold leading-none text-ink">
+                {res.flooded_km2.toFixed(0)} km²
+              </p>
+              <p className="anno mt-1.5">land flooded</p>
+            </div>
+            <div>
+              <p className="tnum text-[26px] font-semibold leading-none text-ink">
+                {res.peak_depth_m.toFixed(1)} m
+              </p>
+              <p className="anno mt-1.5">deepest</p>
+            </div>
+          </div>
+          <p className="anno mt-3">
+            {res.extent_km[0].toFixed(1)}x{res.extent_km[1].toFixed(1)} km at{" "}
+            {res.dx_m.toFixed(0)} m · terrain from Copernicus DEM · solved in{" "}
+            {res.timing.seconds.toFixed(0)}s
+          </p>
+        </div>
+      )}
+
+      {/* ---- candidate sites ------------------------------------------- */}
+      {res && !busy && chosen && (
+        <div className="mt-5">
+          <div className="flex items-baseline justify-between">
+            <h3 className="eyebrow">Candidate sites</h3>
             {levees.length > 0 && (
               <button
-                onClick={() => { onLevees([]); run(chosen, []); }}
-                className="text-[12px] text-ink-faint hover:text-ink"
+                onClick={() => { onLevees([]); setPlan(null); }}
+                className="text-[13px] text-ink-mute hover:text-ink"
               >
                 clear
               </button>
@@ -249,146 +291,104 @@ export function AnywherePanel({
           </div>
           <button
             onClick={() => onPlacing(!placing)}
-            className={`w-full rounded-md border px-2 py-1.5 text-[13px] transition-colors ${
-              placing
-                ? "border-accent/60 bg-accent/15 text-accent"
-                : "border-line text-ink-mute hover:text-ink"
+            className={`mt-2 w-full rounded-lg border px-3 py-2.5 text-[13px] transition-colors ${
+              placing ? "border-ink bg-bg-inset text-ink" : "border-line text-ink-mute hover:text-ink"
             }`}
           >
-            {placing ? "Click the map to place a levee" : "Add a levee"}
+            {placing ? "Click the map to place a site" : "Add a candidate site"}
           </button>
-          {levees.length > 0 && (
-            <>
-              <p className="tnum mt-2 text-[12px] text-ink-mute">
-                {levees.length} levee{levees.length > 1 ? "s" : ""} · 2.5 m high,
-                600 m long
-              </p>
-              <button
-                onClick={() => run(chosen, levees)}
-                className="mt-2 w-full rounded-md border border-accent/50 bg-accent/10 px-2 py-1.5 text-[13px] text-accent hover:bg-accent/20"
-              >
-                Model with these levees
-              </button>
+          <p className="anno mt-2">
+            {levees.length} placed · 2.5 m high, 600 m long
+            {levees.length < 4 && " · four or more are needed before a 90% margin can be calibrated"}
+          </p>
+        </div>
+      )}
 
-              {/* The framework, not just a solve. Treats the placed markers as
-                  CANDIDATE sites, builds a scenario library for them on the
-                  spot, and returns a plan with a calibrated margin. Four sites
-                  is where a 90% margin becomes attainable; below that the
-                  service refuses to state one and says so. */}
-              <button
-                onClick={() => planHere(chosen, levees)}
-                disabled={planning || levees.length < 2}
-                className="mt-2 w-full rounded-md border border-line px-2 py-1.5
-                           text-[13px] text-ink transition-colors
-                           hover:border-accent/50 disabled:opacity-50"
-              >
-                {planning
-                  ? "Solving every option…"
-                  : `Plan the best use of a budget (${levees.length} site${levees.length > 1 ? "s" : ""})`}
-              </button>
-              {levees.length < 4 && (
-                <p className="mt-1 text-[11px] leading-snug text-ink-faint">
-                  Four or more candidate sites are needed before a 90% margin can
-                  be calibrated.
-                </p>
-              )}
-              {planErr && (
-                <p className="mt-1 text-[12px] leading-snug text-ink-mute">{planErr}</p>
-              )}
-              {plan?.ok && (
-                <div className="mt-2 border-t border-line-soft pt-2">
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-[12px] text-ink-faint">Estimated</span>
-                    <span className="tnum text-[15px] font-semibold text-ink">
-                      {plan.reduction_pct.toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-[12px] text-ink-faint">
-                      At least, {plan.confidence_pct}% of the time
-                    </span>
-                    <span className="tnum text-[15px] font-semibold text-accent">
-                      {plan.guaranteed_pct.toFixed(1)}%
-                    </span>
-                  </div>
-                  <ul className="mt-1.5 space-y-0.5">
-                    {plan.attribution.map((a) => (
-                      <li key={a.site} className="flex justify-between text-[12px]">
-                        <span className="text-ink-mute">
-                          Site {a.site} at {a.height_m.toFixed(1)} m
-                        </span>
-                        <span className="tnum text-ink-mute">+{a.marginal_pct.toFixed(1)}%</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {plan.harmful.length > 0 && (
-                    <p className="mt-1 text-[11px] leading-snug text-ink-faint">
-                      Rejected:{" "}
-                      {plan.harmful.map((h) => `site ${h.site} (${h.alone_pct.toFixed(1)}%)`).join(", ")}
-                      {" "}— measured as deepening flooding here.
-                    </p>
-                  )}
-                  <p className="mt-1 text-[11px] leading-snug text-ink-faint">
-                    {plan.scenarios_solved} options solved on this terrain in{" "}
-                    {plan.timing.seconds}s. {plan.band_note}
-                  </p>
-                </div>
-              )}
-              {baseline && res && res.levees && res.levees.length > 0 && (
-                <div className="mt-2 border-t border-line-soft pt-2">
-                  <p className="text-[13px] leading-relaxed">
-                    {res.flooded_km2 < baseline.flooded_km2 - 0.05 ? (
-                      <span className="text-ok">
-                        Reduces flooding by{" "}
-                        {(baseline.flooded_km2 - res.flooded_km2).toFixed(2)} km²
-                      </span>
-                    ) : res.flooded_km2 > baseline.flooded_km2 + 0.05 ? (
-                      <span className="text-bad">
-                        Increases flooding by{" "}
-                        {(res.flooded_km2 - baseline.flooded_km2).toFixed(2)} km² —
-                        this holds water in
-                      </span>
-                    ) : (
-                      <span className="text-ink-mute">
-                        No material change ({baseline.flooded_km2.toFixed(1)} →{" "}
-                        {res.flooded_km2.toFixed(1)} km²)
-                      </span>
-                    )}
-                  </p>
-                </div>
-              )}
-            </>
+      {/* ---- budget ----------------------------------------------------- */}
+      {res && !busy && chosen && levees.length >= 2 && (
+        <div className="mt-5">
+          <div className="flex items-baseline justify-between">
+            <label htmlFor="any-budget" className="eyebrow">Budget</label>
+            <span className="tnum text-[15px] font-semibold text-ink">A${budgetM}M</span>
+          </div>
+          <input
+            id="any-budget"
+            type="range" min={2} max={60} step={1} value={budgetM}
+            onChange={(e) => setBudgetM(Number(e.target.value))}
+            className="mt-2 w-full accent-[var(--ink)]"
+          />
+          {plan?.ok && (
+            <OptionList
+              options={plan.options}
+              budgetM={budgetM}
+              chosen={planChosen}
+              onChoose={setPlanChosen}
+            />
           )}
         </div>
       )}
 
-      {res && !busy && (
-        <div className="mt-3 rounded-lg border border-line bg-bg-inset p-3">
-          <p className="mb-2 text-[13px] font-semibold text-ink">{res.name}</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <p className="eyebrow mb-0.5">Area flooded</p>
-              <p className="tnum text-[24px] font-semibold leading-none text-bad">
-                {res.flooded_km2.toFixed(1)} km²
-              </p>
+      {planErr && (
+        <p className="mt-3 text-[13px] leading-relaxed text-ink-mute">{planErr}</p>
+      )}
+
+      {/* ---- the recommendation, and what it is worth ------------------- */}
+      {plan?.ok && (
+        <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
+          <h3 className="eyebrow">Best plan for this budget</h3>
+          <ul className="mt-2 space-y-0.5">
+            {plan.attribution.map((a) => (
+              <li key={a.site} className="flex justify-between text-[13px]">
+                <span className="text-ink">Site {a.site} at {a.height_m.toFixed(1)} m</span>
+                <span className="tnum text-ink-mute">+{a.marginal_pct.toFixed(1)}%</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 border-t border-line-soft pt-3">
+            <div className="flex items-baseline justify-between">
+              <span className="text-[13px] text-ink-mute">Estimated</span>
+              <span className="tnum text-[18px] font-semibold text-ink">
+                {plan.reduction_pct.toFixed(1)}%
+              </span>
             </div>
-            <div>
-              <p className="eyebrow mb-0.5">Deepest</p>
-              <p className="tnum text-[24px] font-semibold leading-none text-ink">
-                {res.peak_depth_m.toFixed(1)} m
-              </p>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="text-[13px] text-ink-mute">
+                At least, {plan.confidence_pct}% of the time
+              </span>
+              <span className="tnum text-[18px] font-semibold text-ink">
+                {plan.guaranteed_pct.toFixed(1)}%
+              </span>
             </div>
           </div>
-          <p className="mt-2 text-[12px] leading-relaxed text-ink-mute">
-            {res.extent_km[0]}×{res.extent_km[1]} km at {res.dx_m} m ·
-            ground {res.elevation_range_m[0].toFixed(0)}–
-            {res.elevation_range_m[1].toFixed(0)} m
+          {plan.harmful.length > 0 && (
+            <p className="anno mt-3 leading-relaxed">
+              Rejected:{" "}
+              {plan.harmful.map((h) => `site ${h.site} (${h.alone_pct.toFixed(1)}%)`).join(", ")}
+              {" "}— measured as deepening flooding here.
+            </p>
+          )}
+          <p className="anno mt-2 leading-relaxed">
+            {plan.scenarios_solved} options solved on this terrain in{" "}
+            {plan.timing.seconds.toFixed(0)}s. {plan.band_note}
           </p>
-          <p className="mt-2 border-t border-line-soft pt-2 text-[12px] text-ink-faint">
-            Terrain from Copernicus DEM · solved in{" "}
-            {(res.timing.dem_seconds + res.timing.seconds).toFixed(0)}s
-            {res.cached ? " (cached)" : ""}
-          </p>
+        </div>
+      )}
+
+      {/* ---- the action ------------------------------------------------- */}
+      {res && !busy && chosen && (
+        <div className="sticky bottom-0 -mx-5 mt-5 border-t border-line bg-bg px-5 py-3.5">
+          <button
+            onClick={() => planHere(chosen, levees)}
+            disabled={planning || levees.length < 2}
+            className="w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium
+                       text-bg transition-opacity hover:opacity-90 disabled:opacity-40"
+          >
+            {planning
+              ? "Solving every option…"
+              : levees.length < 2
+                ? "Place at least two candidate sites"
+                : `Find the best plan for A$${budgetM}M`}
+          </button>
         </div>
       )}
     </div>

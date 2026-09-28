@@ -349,16 +349,37 @@ def plan_anywhere(req: PlanRequest) -> dict:
     reduction = [(base - float(c)) / base * 100.0 if base > 1e-9 else 0.0
                  for c in core]
 
+    lengths = [float(s.get("width_m", 600.0)) * 2.0 for s in req.sites]
+    unit = req.cost_per_m_per_m
+
     alpha = [0.0] * k
     for i, pl in enumerate(plans):
         act = [j for j, hh in enumerate(pl) if hh > 0]
         if len(act) == 1:
             alpha[act[0]] = reduction[i]
 
+    # Every option that was solved, not only the one the greedy search chose.
+    # The batch already paid for these -- the timestep loop ran them all -- and
+    # returning just the winner made the Anywhere tab look like a weaker tool
+    # than the district one when it had done the same work. Shaped to match the
+    # district's option records so one component renders both.
+    cell_km2 = (dom.dx ** 2) / 1e6
+    wet = (peak > 0.10).sum(dim=(1, 2))
+    options = [
+        {
+            "id": "base" if not any(h > 0 for h in pl) else
+                  "o" + "".join(f"{j}@{h:g}" for j, h in enumerate(pl) if h > 0),
+            "heights": list(pl),
+            "cost_aud": sum(pl[j] * lengths[j] * unit for j in range(k)),
+            "core_reduction_pct": reduction[i],
+            "area_flooded_km2": round(float(wet[i]) * cell_km2, 2),
+            "peak_depth_m": round(float(peak[i].max()), 2),
+        }
+        for i, pl in enumerate(plans)
+    ]
+
     f = surrogate.fit(alpha, plans, reduction, req.max_height_m, req.delta)
     S = f["saturation_S"]
-    lengths = [float(s.get("width_m", 600.0)) * 2.0 for s in req.sites]
-    unit = req.cost_per_m_per_m
 
     def cost(hv):
         return sum(hv[i] * lengths[i] * unit for i in range(k))
@@ -424,7 +445,12 @@ def plan_anywhere(req: PlanRequest) -> dict:
         "attribution": attribution,
         "steps": trace,
         "scenarios_solved": b,
+        "options": options,
         "base_depth_m": base,
+        "base_area_km2": options[0]["area_flooded_km2"],
+        "base_peak_depth_m": options[0]["peak_depth_m"],
+        "max_height_m": req.max_height_m,
+        "crest_lengths_m": lengths,
         "bounds": {"west": req.west, "south": req.south,
                    "east": req.east, "north": req.north},
         "depth_png": depth_png(peak[0].numpy(), DEPTH_VMAX),
