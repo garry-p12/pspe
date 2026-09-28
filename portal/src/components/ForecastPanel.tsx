@@ -5,10 +5,10 @@ import { useEffect, useState } from "react";
 interface Band { level: "quiet" | "watch" | "act"; headline: string; detail: string }
 interface Forecast {
   issued: string;
+  reference_event_48h_mm: number | null;
   total_mm: number;
   max_48h_mm: number;
-  reference_event_48h_mm: number;
-  fraction_of_reference: number;
+  fraction_of_reference: number | null;
   peak_discharge_m3s: number;
   daily: { date: string; mm: number }[];
   band: Band;
@@ -21,16 +21,20 @@ interface Forecast {
  * matters. */
 const FLOOD_THRESHOLD_MM = 60;
 
-export function ForecastPanel() {
+export function ForecastPanel({ lat, lon, place }: {
+  lat?: number; lon?: number; place?: string;
+} = {}) {
   const [f, setF] = useState<Forecast | null>(null);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
-    fetch("/api/forecast")
+    setF(null); setErr(false);
+    const q = lat != null && lon != null ? `?lat=${lat}&lon=${lon}` : "";
+    fetch(`/api/forecast${q}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setF)
       .catch(() => setErr(true));
-  }, []);
+  }, [lat, lon]);
 
   if (err) {
     return (
@@ -60,7 +64,7 @@ export function ForecastPanel() {
   return (
     <section className="px-5 py-4">
       <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="eyebrow">Next 7 days</h2>
+        <h2 className="eyebrow">Next 7 days{place ? ` · ${place}` : ""}</h2>
         <span className="anno">
           Updated{" "}
           {issued.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
@@ -117,7 +121,9 @@ export function ForecastPanel() {
             <span className="ml-1 text-[13px] font-normal text-ink-mute">mm</span>
           </dd>
           <dd className="anno mt-1.5">
-            {(f.fraction_of_reference * 100).toFixed(0)}% of the 2022 event
+            {f.fraction_of_reference != null
+              ? `${(f.fraction_of_reference * 100).toFixed(0)}% of the 2022 event`
+              : "no local benchmark event"}
           </dd>
         </div>
         <div className="rounded-lg border border-line px-3.5 py-3">

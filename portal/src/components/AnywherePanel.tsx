@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatChange, MATERIAL_PCT, OptionList, type OptionRow } from "./OptionList";
+import { ForecastPanel } from "./ForecastPanel";
+import { ObservePanel } from "./ObservePanel";
 
 export interface AnalysisResult {
   name: string;
@@ -63,7 +65,12 @@ export function AnywherePanel({
   onLevees,
   placing,
   onPlacing,
+  section,
 }: {
+  /** Which of the three panel sections is open. Everything below the place
+   *  chrome belongs to exactly one of them; before this, all three rendered
+   *  the same thing and switching tabs changed nothing. */
+  section: "forecast" | "roads" | "plan";
   onResult: (r: AnalysisResult | null) => void;
   onPreview: (c: { lat: number; lon: number } | null) => void;
   levees: PlacedLevee[];
@@ -99,6 +106,14 @@ export function AnywherePanel({
   }, [q]);
 
   const [baseline, setBaseline] = useState<AnalysisResult | null>(null);
+
+  /** The 12 km box this place is modelled in. */
+  const boundsFor = (p: Place) => {
+    const dLat = 0.055;
+    const dLon = 0.055 / Math.cos((p.lat * Math.PI) / 180);
+    return { west: p.lon - dLon, east: p.lon + dLon,
+             south: p.lat - dLat, north: p.lat + dLat };
+  };
 
   const planHere = useCallback(async (p: Place, lv: PlacedLevee[]) => {
     setPlanning(true); setPlanErr(null); setPlan(null);
@@ -246,8 +261,33 @@ export function AnywherePanel({
         </div>
       )}
 
+      {/* ---- FORECAST: this place's own weather, not the district's ----- */}
+      {section === "forecast" && chosen && (
+        <div className="-mx-5 mt-4 border-t border-line">
+          <ForecastPanel lat={chosen.lat} lon={chosen.lon} place={chosen.short} />
+          <ObservePanel bounds={boundsFor(chosen)} />
+        </div>
+      )}
+
+      {/* ---- ROADS: honestly, nothing yet ------------------------------- */}
+      {section === "roads" && chosen && (
+        <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
+          <h3 className="eyebrow">Road impact is not available here</h3>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
+            The district&apos;s road analysis runs against a mapped network that
+            was prepared for it in advance. Nothing equivalent has been built
+            for {chosen.short}, so the tool would have to invent the road
+            geometry to answer, and it will not.
+          </p>
+          <p className="anno mt-2.5 leading-relaxed">
+            Flood depth and mitigation options are available for this location
+            under Plan.
+          </p>
+        </div>
+      )}
+
       {/* ---- what doing nothing costs here ---------------------------- */}
-      {res && !busy && chosen && (
+      {section === "plan" && res && !busy && chosen && (
         <div className="mt-4 rounded-xl border border-line px-4 py-3.5">
           <div className="flex items-baseline justify-between">
             <span className="text-[13px] font-medium text-ink">{chosen.short}</span>
@@ -276,7 +316,7 @@ export function AnywherePanel({
       )}
 
       {/* ---- candidate sites ------------------------------------------- */}
-      {res && !busy && chosen && (
+      {section === "plan" && res && !busy && chosen && (
         <div className="mt-5">
           <div className="flex items-baseline justify-between">
             <h3 className="eyebrow">Candidate sites</h3>
@@ -305,7 +345,7 @@ export function AnywherePanel({
       )}
 
       {/* ---- budget ----------------------------------------------------- */}
-      {res && !busy && chosen && levees.length >= 2 && (
+      {section === "plan" && res && !busy && chosen && levees.length >= 2 && (
         <div className="mt-5">
           <div className="flex items-baseline justify-between">
             <label htmlFor="any-budget" className="eyebrow">Budget</label>
@@ -336,7 +376,7 @@ export function AnywherePanel({
       {/* A recommendation is only a recommendation if it beats doing nothing by
           more than the tool's own resolution. Below that, saying "0.1%, at
           least 90% of the time" dresses up a null result as a plan. */}
-      {plan?.ok && plan.reduction_pct < MATERIAL_PCT && (
+      {section === "plan" && plan?.ok && plan.reduction_pct < MATERIAL_PCT && (
         <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
           <h3 className="eyebrow">No measure here is worth building</h3>
           <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
@@ -352,7 +392,7 @@ export function AnywherePanel({
         </div>
       )}
 
-      {plan?.ok && plan.reduction_pct >= MATERIAL_PCT && (
+      {section === "plan" && plan?.ok && plan.reduction_pct >= MATERIAL_PCT && (
         <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
           <h3 className="eyebrow">Best plan for this budget</h3>
           <ul className="mt-2 space-y-0.5">
@@ -394,7 +434,7 @@ export function AnywherePanel({
       )}
 
       {/* ---- the action ------------------------------------------------- */}
-      {res && !busy && chosen && (
+      {section === "plan" && res && !busy && chosen && (
         <div className="sticky bottom-0 -mx-5 mt-5 border-t border-line bg-bg px-5 py-3.5">
           <button
             onClick={() => planHere(chosen, levees)}

@@ -199,6 +199,7 @@ export function Planner() {
 
         {tab === "anywhere" && (
           <AnywherePanel
+            section={section}
             onResult={setAnalysis}
             onPreview={() => {}}
             levees={placed}

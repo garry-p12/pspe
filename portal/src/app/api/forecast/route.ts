@@ -13,20 +13,26 @@ import { NextResponse } from "next/server";
  * during a disaster is not a tool anyone opens on a Tuesday.
  */
 
-const LAT = -28.995;
-const LON = 153.344;
+const DISTRICT = { lat: -28.995, lon: 153.344 };
 
 // The February 2022 event delivered roughly 245 mm over 48 h across this
 // catchment. Thresholds are expressed against that, so the scale is the
 // district's own experience rather than an abstract return period.
+//
+// It is the DISTRICT's yardstick and nobody else's. Asked about a catchment in
+// Assam, "5% of the 2022 event" is a comparison to a flood that happened on
+// another continent, so the reference is only returned when the request is
+// actually for this district. Elsewhere the forecast is reported in millimetres
+// and the caller is told there is no local benchmark.
 const REF_EVENT_MM_48H = 245;
+const DISTRICT_TOLERANCE_DEG = 0.5;
 
-export const revalidate = 1800;
+export const dynamic = "force-dynamic";
 
 interface Band { level: "quiet" | "watch" | "act"; headline: string; detail: string }
 
-function classify(max48: number, peakQ: number): Band {
-  const frac = max48 / REF_EVENT_MM_48H;
+function classify(max48: number, peakQ: number, ref: number | null): Band {
+  const frac = ref ? max48 / ref : max48 / 245;
   if (frac >= 0.6 || peakQ > 400) {
     return {
       level: "act",
@@ -48,16 +54,27 @@ function classify(max48: number, peakQ: number): Band {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const lat = Number(url.searchParams.get("lat") ?? DISTRICT.lat);
+  const lon = Number(url.searchParams.get("lon") ?? DISTRICT.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return NextResponse.json({ error: "bad_coordinates" }, { status: 400 });
+  }
+  const isDistrict =
+    Math.abs(lat - DISTRICT.lat) < DISTRICT_TOLERANCE_DEG &&
+    Math.abs(lon - DISTRICT.lon) < DISTRICT_TOLERANCE_DEG;
+  const ref = isDistrict ? REF_EVENT_MM_48H : null;
+
   try {
     const [metR, flR] = await Promise.all([
       fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
           `&hourly=precipitation&forecast_days=7&timezone=auto`,
         { next: { revalidate: 1800 } },
       ),
       fetch(
-        `https://flood-api.open-meteo.com/v1/flood?latitude=${LAT}&longitude=${LON}` +
+        `https://flood-api.open-meteo.com/v1/flood?latitude=${lat}&longitude=${lon}` +
           `&daily=river_discharge_max&forecast_days=7`,
         { next: { revalidate: 1800 } },
       ),
@@ -91,18 +108,18 @@ export async function GET() {
 
     return NextResponse.json({
       issued: new Date().toISOString(),
-      location: { lat: LAT, lon: LON },
+      location: { lat, lon },
       total_mm: precip.reduce((a, b) => a + b, 0),
       max_48h_mm: max48,
       max_48h_from: max48At,
-      reference_event_48h_mm: REF_EVENT_MM_48H,
-      fraction_of_reference: max48 / REF_EVENT_MM_48H,
+      reference_event_48h_mm: ref,
+      fraction_of_reference: ref ? max48 / ref : null,
       peak_discharge_m3s: peakQ,
       daily: [...byDay.entries()].map(([date, mm]) => ({ date, mm })),
       discharge_daily: (fl.daily?.time ?? []).map((date: string, i: number) => ({
         date, m3s: qMax[i] ?? 0,
       })),
-      band: classify(max48, peakQ),
+      band: classify(max48, peakQ, ref),
       sources: [
         "Rainfall: Open-Meteo forecast API",
         "River discharge: Open-Meteo flood API (GloFAS)",
