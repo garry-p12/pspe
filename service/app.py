@@ -17,6 +17,7 @@ import hashlib
 import io
 import math
 import time
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import numpy as np
@@ -31,6 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from pspe.observe import sar  # noqa: E402
 from pspe.simulate.flood import FloodConfig, FloodSolver  # noqa: E402
 from pspe.simulate.real.anywhere import (  # noqa: E402
     build_domain, forcing_for,
@@ -43,6 +45,17 @@ app.add_middleware(
 
 CACHE: dict[str, dict[str, Any]] = {}
 DEPTH_VMAX = 8.0
+
+
+class ObserveRequest(BaseModel):
+    """What the satellite last saw over this box."""
+    west: float
+    south: float
+    east: float
+    north: float
+    name: str = "Selected area"
+    days_back: int = Field(45, ge=12, le=365)
+    size: int = Field(512, ge=128, le=1024)
 
 
 class AnalyseRequest(BaseModel):
@@ -129,6 +142,94 @@ def solve(dom, rain_mm_h: float, storm_h: float, run_h: float,
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "cached": len(CACHE)}
+
+
+def observed_png(flooded: np.ndarray, permanent: np.ndarray) -> str:
+    """Observed flood as a base64 PNG: new water solid, permanent water faint.
+
+    The two are drawn differently on purpose. A change detector answers "what is
+    newly wet", and painting permanent river and sea in the same colour as new
+    flooding is how a viewer is misled into thinking the model over-predicts
+    (defect 21).
+    """
+    h, w = flooded.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    rgba[permanent] = (90, 130, 170, 90)
+    rgba[flooded] = (37, 99, 168, 205)
+    buf = io.BytesIO()
+    Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", optimize=True)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+@app.post("/observe")
+def observe(req: ObserveRequest) -> dict:
+    """The Perceive stage: the most recent Sentinel-1 view of this box.
+
+    This is what makes the tool a twin rather than a simulator. The model says
+    what it believes is flooded; this says what the instrument actually saw on
+    its last usable overpass, so the two can be put side by side and disagree.
+
+    Two honesty constraints are enforced here rather than left to the caller:
+    the flood and baseline scenes must share a relative orbit, because
+    differencing across viewing geometries manufactures flooding wherever the
+    incidence angle changed; and the answer carries the acquisition date, since
+    Sentinel-1 repeats every 12 days and a twin that presents a week-old
+    overpass as "now" is lying about its own freshness.
+    """
+    key = "obs:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
+    if key in CACHE:
+        return {**CACHE[key], "cached": True}
+
+    t0 = time.time()
+    bbox = [req.west, req.south, req.east, req.north]
+    end = datetime.now(timezone.utc).date()
+    start = end - timedelta(days=req.days_back)
+    try:
+        scenes = sar.search(bbox, start.isoformat(), end.isoformat())
+    except Exception as exc:
+        return {"ok": False, "reason": f"scene search failed: {exc}"}
+    if len(scenes) < 2:
+        return {"ok": False, "reason":
+                f"only {len(scenes)} Sentinel-1 scenes over this box in "
+                f"{req.days_back} days; nothing to difference against"}
+
+    latest = scenes[-1].datetime[:10]
+    try:
+        flood, baselines = sar.pick_pair(scenes, latest)
+    except Exception as exc:
+        return {"ok": False, "reason": f"no same-orbit baseline: {exc}"}
+    if not baselines:
+        return {"ok": False, "reason":
+                "found a recent scene but no earlier one on the same relative "
+                "orbit; differencing across tracks would invent flooding"}
+
+    try:
+        fm = sar.detect(flood, baselines, bbox, out_shape=(req.size, req.size))
+    except Exception as exc:
+        return {"ok": False, "reason": f"detection failed: {exc}"}
+
+    out = {
+        "ok": True,
+        "name": req.name,
+        "acquired": flood.datetime,
+        "days_old": (end - date.fromisoformat(flood.datetime[:10])).days,
+        "baselines": len(baselines),
+        "baseline_dates": [b.datetime[:10] for b in baselines],
+        "relative_orbit": flood.relative_orbit,
+        "orbit_state": flood.orbit_state,
+        "flooded_km2": round(fm.flooded_km2, 2),
+        "permanent_km2": round(float(fm.permanent.sum())
+                               * abs(fm.transform[0] * fm.transform[4]) / 1e6, 2),
+        "threshold_db": round(fm.threshold_db, 2),
+        "observed_png": observed_png(fm.flooded, fm.permanent),
+        "bounds": bbox,
+        "seconds": round(time.time() - t0, 1),
+        "note": ("Sentinel-1 repeats every 12 days and cannot see standing "
+                 "water under canopy or among buildings, so an empty result "
+                 "is a statement about the overpass, not about the ground."),
+    }
+    CACHE[key] = out
+    return {**out, "cached": False}
 
 
 @app.post("/analyse")

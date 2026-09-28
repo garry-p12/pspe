@@ -11,9 +11,17 @@ import path from "node:path";
  * effects are exact from the solver, combinations carry a fitted interaction
  * term, and the band is the spread that term does not explain.
  *
- * That band is the product-facing form of the framework's safety margin. The
- * planner is never shown a number the model cannot stand behind, and any plan
- * that gets adopted is queued for a full solver run.
+ * The band is a SPLIT-CONFORMAL quantile over held-out solver runs -- the same
+ * `pspe.plan.margins` the research code uses -- so the number here and the
+ * number in the paper mean the same thing. It replaced a normal-approximation
+ * interval, 1.645 * RMSE * sqrt(1 + 1/n), which assumed Gaussian residuals that
+ * nothing established and, fitted on six runs, reported HALF the honest width:
+ * +/-10.5 points against +/-20.2. A margin fitted under a convenient
+ * assumption is not a margin.
+ *
+ * Conformal also refuses rather than guessing. Below n = 1/delta - 1 no finite
+ * order statistic carries the stated rate, and the response says so instead of
+ * printing a confident-looking number.
  */
 
 interface Fit {
@@ -23,6 +31,9 @@ interface Fit {
   saturation_S: number;
   fit_rmse: number;
   band_km: number;
+  delta?: number;
+  band_attainable?: boolean;
+  band_note?: string;
   n_calibration_runs: number;
   max_height_m: number;
 }
@@ -61,22 +72,22 @@ export async function POST(req: Request) {
   }
 
   const heights = body.heights ?? [];
-  const active = heights.reduce((n, h) => n + (h > 0 ? 1 : 0), 0);
 
-  let linear = 0;
+  // lead + S*tanh(rest/S): saturating the whole sum made the model jump between
+  // one measure and two, so adding a levee that helps could lower the answer.
+  const parts: number[] = [];
   for (let i = 0; i < heights.length; i++) {
     const a = fit.alpha_km[String(i)];
     if (a === undefined || !(heights[i] > 0)) continue;
-    linear += a * (heights[i] / fit.max_height_m);
+    parts.push(a * (heights[i] / fit.max_height_m));
   }
-
-  // Combined measures saturate: they cannot remove more water than is there.
-  // A model that simply added them predicted 86% reduction for all six levees
-  // where the solver measured 62%. S*tanh(sum/S) fits the runs best of the
-  // three forms tried and is the only one that stays sane when extrapolated.
+  const active = parts.length;
+  const linear = parts.reduce((s, v) => s + v, 0);
   const S = fit.saturation_S || 100;
-  const effect = active > 1 ? S * Math.tanh(linear / S) : linear;
-  const band = active > 1 ? fit.band_km : 0;
+  const effect = active ? Math.max(...parts) + S * Math.tanh((linear - Math.max(...parts)) / S) : 0;
+  const attainable = fit.band_attainable !== false;
+  const band = active > 1 && attainable ? fit.band_km : 0;
+  const conf = fit.delta ? Math.round(100 * (1 - fit.delta)) : null;
 
   return NextResponse.json({
     event_scale: scale,
@@ -87,6 +98,12 @@ export async function POST(req: Request) {
     band_pct: band,
     best_case_pct: effect + band,
     worst_case_pct: effect - band,
+    // What the tool will stand behind, as opposed to its best guess.
+    guaranteed_pct: effect - band,
+    confidence_pct: conf,
+    delta: fit.delta ?? null,
+    band_attainable: attainable,
+    band_note: fit.band_note ?? null,
     makes_worse: effect < -0.5,
     exact: active <= 1,
     saturating: active > 1 && linear - effect > 1,

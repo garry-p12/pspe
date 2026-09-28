@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import time
 from pathlib import Path
 
@@ -36,25 +37,60 @@ from pspe.simulate.real.floodcast_scenario import build_scenario
 COST_PER_M_PER_M = 2600.0
 
 
-def enumerate_options(k: int, max_h: float):
-    """Do-nothing, each site alone, and budget-feasible pairs and triples."""
+def enumerate_options(k: int, max_h: float, seed: int = 0):
+    """Do-nothing, each site alone, and a CALIBRATION SET of combinations.
+
+    The combinations are not decoration. Single-site effects are exact by
+    construction, so everything the surrogate has to guess about lives in the
+    interaction between measures, and the spread of that guess is what the
+    conformal margin is a quantile of. Split conformal needs
+    `n >= 1/delta - 1` calibration points before any finite order statistic
+    carries the stated rate: **9 for delta = 0.1, 19 for delta = 0.05**. The
+    original five hand-picked combinations plus "all" gave six, which is not
+    enough to state 90% and `pspe.plan.margins.conformal_quantile` correctly
+    refuses rather than returning a number it cannot justify.
+
+    Heights are varied, not all at max. The calibration sample must be
+    exchangeable with what will actually be predicted, and a planner spending a
+    budget proposes partial heights far more often than full ones -- calibrating
+    only on full-height combinations would measure the wrong distribution.
+    """
     opts = [{"id": "base", "name": "Do nothing", "heights": [0.0] * k}]
     for i in range(k):
         h = [0.0] * k
         h[i] = max_h
         opts.append({"id": f"s{i}", "name": f"Levee at site {i}", "heights": h})
-    # A few combinations a budget would actually permit.
-    for combo in [(0, 3), (2, 3), (3, 4), (1, 3, 4), (2, 3, 4)]:
+
+    rng = random.Random(seed)
+    combos: list[tuple[tuple[int, ...], tuple[float, ...]]] = []
+    pairs = [(i, j) for i in range(k) for j in range(i + 1, k)]
+    for combo in pairs:                                   # every pair, full height
+        combos.append((combo, tuple(max_h for _ in combo)))
+    triples = [(i, j, l) for i in range(k) for j in range(i + 1, k)
+               for l in range(j + 1, k)]
+    for combo in rng.sample(triples, min(8, len(triples))):
+        combos.append((combo, tuple(max_h for _ in combo)))
+    for combo in rng.sample(pairs, min(6, len(pairs))):   # partial heights
+        combos.append((combo, tuple(rng.choice([0.5, 1.0, 1.5, 2.0, 2.5])
+                                    for _ in combo)))
+    combos.append((tuple(range(k)), tuple(max_h for _ in range(k))))
+
+    seen = set()
+    for combo, heights in combos:
         h = [0.0] * k
-        for i in combo:
-            h[i] = max_h
+        for i, hi in zip(combo, heights):
+            h[i] = hi
+        key = tuple(h)
+        if key in seen:
+            continue
+        seen.add(key)
+        tag = "".join(f"{i}@{hi:g}" for i, hi in zip(combo, heights))
         opts.append({
-            "id": "s" + "".join(str(i) for i in combo),
-            "name": "Levees at sites " + ", ".join(str(i) for i in combo),
+            "id": "c" + tag.replace(".", "p").replace("@", ""),
+            "name": "Levees at sites " + ", ".join(
+                f"{i} ({hi:g} m)" for i, hi in zip(combo, heights)),
             "heights": h,
         })
-    opts.append({"id": "all", "name": "All sites",
-                 "heights": [max_h] * k})
     return opts
 
 

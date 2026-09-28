@@ -30,6 +30,7 @@ export function PlannerMap({
   pin,
   cutFraction,
   analysis,
+  observed,
   placed,
   focus,
 }: {
@@ -47,6 +48,8 @@ export function PlannerMap({
     depth_png: string;
     terrain_png: string;
   } | null;
+  /** What the satellite last saw, drawn over the model's own account. */
+  observed?: { observed_png?: string; bounds?: number[] } | null;
   /** Levees the user has dropped on an ad-hoc analysis. */
   placed?: { lat: number; lon: number }[];
   focus: "region" | "town";
@@ -166,6 +169,21 @@ export function PlannerMap({
         }) as unknown as Layer,
       );
     }
+    // The Perceive stage, drawn ON TOP of the model rather than instead of it.
+    // The point of showing it is the disagreement: where the model paints water
+    // and the instrument does not, and the reverse.
+    if (observed?.observed_png && observed.bounds?.length === 4) {
+      const ob = observed.bounds as number[];
+      out.push(
+        new BitmapLayer({
+          id: "observed-sar",
+          image: `data:image/png;base64,${observed.observed_png}`,
+          bounds: [ob[0], ob[1], ob[2], ob[3]] as [number, number, number, number],
+          opacity: 0.8,
+        }) as unknown as Layer,
+      );
+    }
+
     if (pin) {
       out.push(
         new ScatterplotLayer({

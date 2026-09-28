@@ -61,9 +61,27 @@ catalogue and the corrections, not the discovery of the genre.
 | four constrained-RL baselines "structurally fail" | they failed from their initialisation | start baselines where the method starts | 5.4 |
 | reconstruction AP 0.594 vs 0.006 (≈100×) | decision worse in **0 of 9** configurations | score the belief on the decision, not on reconstruction | 5.3 |
 | margin cuts violations ≈7× | no stated failure rate; and the first conformal attempt made rdf worse | conformalise the distribution that actually violates | 3.2 |
+| our solver matches the reference at CSI 0.979 | the reference itself matches the satellite at 0.535 | score the reference against observation, not only the model against the reference | 5.7 |
+| the twin loop improved 8 of 8 fires, t = 3.0 | at 607 fires the same benefit is a third the size and holds on 76% | run the paired test at a sample size that can be wrong | 5.2a |
+
+**Three of these were found after the thesis was written, by applying its own
+rule to itself.** §5.7 scored the *reference* rather than only our agreement
+with it. §5.2a re-ran a finished result at 75× the sample size. §5.8 asked why
+the perception failure happened rather than filing it. Each one moved a number
+the project had already published, and all three moved it down. The catalogue
+is not a list of other people's mistakes.
 
 The positive results share one shape: **measure the quantity that actually
 matters — real cost, observed state, decision outcome — and the system works.**
+
+And the negative results share a sharper one. It is not that components are
+uninformative; it is that **the map from component metric to decision quality is
+not monotone, and in three measured cases it is inverted.** A belief that
+matches the hidden state better plans worse (§5.3, mechanism in §5.8). A margin
+fitted to the model's error raises violations above using no margin at all
+(§3.2). An ensemble-disagreement penalty that is demonstrably active buys
+nothing (CAP, §3.2). Each of these is a method that a component metric would
+have certified.
 
 ![The seven silent failures and the measurement that exposed each](figures/pspe_silent_failure.svg)
 
@@ -2758,6 +2776,95 @@ convenient. The test cost five minutes of GPU time once the sequence was
 persisted; the reason it went unrun was that nothing in the pipeline recorded
 the order, and what is not recorded does not get questioned.
 
+### 5.11 The portal runs the loop, and building it found three more defects (2026-09-27)
+
+**Why this section exists.** The portal was demonstrating one stage of four. An
+audit against the framework found: Simulate genuinely running (the service
+imports `FloodSolver` and solves on Copernicus DEM on request), Plan replaced by
+`helpful.sort()` over precomputed options, Perceive absent, Explain absent, and
+the displayed uncertainty band **not** the conformal margin — a
+normal-approximation interval whose docstring called it "the product-facing form
+of the framework's safety margin". A showcase that omits the paper's strongest
+contribution is not a showcase.
+
+| stage | before | now |
+|---|---|---|
+| Perceive | absent | `POST /observe` — most recent Sentinel-1 pass, same-orbit differencing, permanent water held separately |
+| Simulate | real | unchanged |
+| Plan | `sort()` over 13 precomputed options | `POST /api/plan` — greedy allocation under a real budget, in milliseconds |
+| Explain | absent | leave-one-out counterfactual attribution per measure |
+| margin | Gaussian, 6 runs | split-conformal, 30 runs, via `pspe.plan.margins` |
+
+**The loop, end to end, in one click.** Budget A$20M → search → *site 3 at 3.0 m
+and site 5 at 1.0 m, A$18.2M* → **estimated 52%, at least 39% nine times in
+ten** → attribution: site 3 adds 43 points here against 47 alone, site 5 adds 6
+against 9, the 4-point gap in each being overlap → "adopting this should be
+conditional on a full hydrodynamic run of this exact height vector." Plan in the
+surrogate, bound the error against reality, verify what you commit to.
+
+**Defect 27 — the tool displayed a confidence it had no data to support.** Split
+conformal needs `n >= 1/delta - 1` calibration points. The scenario library had
+**six** multi-measure runs; 90% needs nine. `conformal_quantile` would have
+returned `None` and applied no margin, which is the correct behaviour — but the
+portal was not calling it. It was showing `1.645 * RMSE * sqrt(1 + 1/n)`, which
+assumes Gaussian residuals nothing established and, crucially, **always returns
+a number**. Rebuilt at 30 calibration points, the honest margin is **±20.2
+points against the ±10.5 displayed: the tool was overstating its confidence by
+about 2×.** Two causes compound — a fit tuned on six points reported RMSE 5.9
+where thirty give 10.21, and a normal would place the 90% point at 1.64×RMSE
+≈ 16.7 where the conformal quantile is 20.2, so the residuals are heavier-tailed
+than assumed.
+
+**Rule 31: a displayed uncertainty states which guarantee it carries, and
+refuses when the calibration set cannot support it.** A method that always
+returns a number cannot tell you it has run out of evidence. This is §3.2's
+result recurring inside the product: a margin fitted under a convenient
+assumption is not a margin.
+
+**Defect 28 — the surrogate was discontinuous, and only a planner could find
+it.** The interaction model was `S*tanh(linear/S)` for two or more measures and
+exact alphas for one. Those do not meet: crossing from one measure to two
+applies the saturation to the whole sum, so **adding a levee that helps lowers
+the prediction** — measured at −1.3 points for site 5 (alpha +28.4) placed
+beside site 3. A catalogue of thirteen fixed options never meets that edge. A
+planner asking "what if I add one more?" meets it on its first step, and had
+been silently refusing to spend the second half of every budget.
+
+Reformulated as `lead + S*tanh(rest/S)`: the largest single contribution passes
+through untouched and only what is stacked on top saturates, so single measures
+stay exact and the model is continuous as any added height goes to zero. It also
+simply fits better — **RMSE 10.21 → 7.67, margin ±20.2 → ±13.4** — and the
+planner now finds a **52%** two-site plan where the catalogue's best single
+option was 47%.
+
+**Rule 32: a model that a search will optimise over must be continuous across
+the whole search space.** Fitting a correction that applies only above some
+count creates a seam, and a fixed menu of options will never walk over it. The
+defect was latent for as long as nothing searched.
+
+**Defect 29 — an interface figure is an interface review.** `figA6` showed the
+header reading "Richmond Valley · NSW" over a map of Iowa (§5.9). Recorded again
+here because the pattern repeated: each of defects 21, 22 and 28 was found by
+*rendering the thing and looking at it*, not by a test.
+
+**What is honest about the Explain stage now.** §4.4 withdrew this project's
+first explanation module: briefs scored well against the model and carried zero
+state-specific information, which a permutation control exposed. The
+replacement is not narration. A leave-one-out marginal — "remove this measure
+from *this* plan and you lose 43 points, though it would give 47 alone" —
+depends on what else is in the plan, so it cannot be reused for a different
+plan, and it is checkable against a solver run. That is the property §4.4 says
+to require.
+
+**What is still not demonstrated.** The planner is greedy over six sites in
+half-metre increments, not the paper's gradient planner; over that space greedy
+with full re-evaluation is near-exhaustive and auditable, which is the right
+trade for a tool someone spends public money on, but it is not the same
+algorithm. The verification step is *stated* rather than wired — adopting a plan
+should trigger a solver run and currently tells the user to do so. And Perceive
+reports the observation beside the model rather than assimilating it: the twin
+loop of §5.2a is not closed in the product.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
@@ -2907,6 +3014,60 @@ of argument.
     that will actually run before its cost is stated. Dataset size, grid and
     batch all change whether a boundary case is reached, and a diagnosis that
     is right about the mechanism can still be wrong about the consequence.
+
+### Defects 19–28, from the flood and wildfire datasets and the portal
+
+The first eighteen are failures of *measurement protocol*. These eight are
+mostly failures of *belief about data* — what a number in a file means — and
+they are harder, because the code is correct and the output looks right.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 19 | Unlimited explicit scheme manufactured the constrained quantity | solver gained 6.4% volume from `clamp(min=0)` creating water | closed-domain mass conservation test | 5.6 |
+| 20 | Levee size specified in cells, not metres | the same site looked 6× less effective at a different grid | re-deriving the physical width at two resolutions | 5.6b |
+| 21 | Permanent water counted as model over-prediction | 119 km² of "error" was the sea and the river channel; headline CSI 0.378 vs 0.535 | **drawing the map and looking at it** | 5.7a |
+| 22 | Page header named a constant region | the tool said "Richmond Valley" over a map of Iowa | reading the first version of a figure of the interface | 5.9 |
+| 23 | "No detection" read as "not observed" | would have deleted 37.4% of days — exactly those where fires go out | comparing finite fractions across bands | 5.2b |
+| 24 | Acquisition time read as radiative power | `frp` held clipped HHMM clock values | the values were 742–2142 with minutes always a multiple of 6 | 5.2b |
+| 25 | Downsample cropped the raster margin | lost up to **59%** of a fire's detections, smoothly and only for some fires | conservation check: detections before vs after | 5.2b |
+| 26 | Year fold keyed on the first date | a one-fire "2017" fold from a fire starting 30 December | the fold listing printing a fold of size 1 | 5.2b |
+| 27 | A displayed band that could not carry its stated level | the portal claimed 90% from 6 calibration runs, understating the honest margin ~2x | calling the conformal function, which refuses below n = 1/delta - 1 | 5.11 |
+| 28 | Surrogate discontinuous between one measure and two | adding a levee that helps LOWERED the prediction; the planner refused to spend half of every budget | building a planner that asks "what if I add one more?" | 5.11 |
+
+**Defect 25 is the one to remember.** It degrades data continuously rather than
+breaking it, affects only some fires, and leaves every downstream number
+plausible. Nothing short of a conservation check finds it.
+
+### Rules 16–32
+
+16. A scheme that cannot violate the constrained quantity cannot be used to
+    study violating it; verify conservation before trusting a solver.
+17–21. *(flood testbed; see §5.6–5.6b)*
+22. An intervention's physical dimensions are specified in physical units.
+23. Agreement with a reference is not validation unless the reference has itself
+    been scored against observation.
+24. Before scoring a model against an instrument, establish where the instrument
+    can see.
+25. A satellite overpass only validates an event it actually caught; check for
+    the signal before scoring against its absence.
+26. Before scoring extent against an instrument, remove the thing that was
+    already there. A change detector and a state model answer different
+    questions over permanent water.
+27. An assumption a method depends on is a claim, and a claim gets measured.
+28. Past a few hundred paired samples, report an effect size and a confidence
+    interval next to every t — the t alone stops discriminating between
+    "certain" and "important".
+29. When a channel encodes absence as NaN, it cannot also tell you whether
+    anyone looked. Find a channel that is present when the instrument worked.
+30. When adopting an external dataset, verify each channel's semantics against
+    raw values before running anything, and check that any resampling conserves
+    the quantity it claims to conserve.
+31. A displayed uncertainty states which guarantee it carries, and refuses when
+    the calibration set cannot support it. A method that always returns a number
+    cannot tell you it has run out of evidence.
+32. A model that a search will optimise over must be continuous across the whole
+    search space. A fixed menu of options never walks the seams a planner does,
+    so the defect stays latent until something searches.
 
 ---
 
@@ -3271,6 +3432,103 @@ independent validations. The digital-twin framing becomes motivation only: after
 §9.8 it cannot carry weight, and §6.2's property 4 fails outright.
 
 ---
+
+### 9.14 Comparison with related work — qualitative
+
+What each line of work calibrates, synchronises or optimises, against what this
+project does, and what was actually measured about the difference. "Verdict" is
+the honest standing of our claim against that line, not a score.
+
+| § | line of work | representative | what they do | what we do | measured difference | verdict |
+|---|---|---|---|---|---|---|
+| 9.3 | Conformal safety in control | Lindemann 2023; CBF+ACP (2503.17678); conformal policy control (2603.02196) | conformalise the **error of the learned dynamics model**, then plan inside the inflated tube | conformalise **realised episode cost against the quantity the dual controls** | the default raises rdf violations to 14.15% against 13.17% for no margin; ours reaches 7.80% (§3.2) | **Novel and falsifying.** We do not merely propose an alternative; we show the field's default is worse than nothing in a regime it is used in |
+| 9.3 | Behavioural-change conformal | Prinster et al. 2026 | calibrate permissible deviation from a safe reference policy; no dynamics model | calibrate realised cost against a Lagrangian's controlled quantity | not run head-to-head; different constraint object (behavioural budget vs CMDP cost budget) | **Closest prior art.** Must be cited as such, not lumped with the model-error line |
+| 9.3 | Adaptive conformal under shift | Gibbs & Candès 2021 | update δ online because a learning policy shifts the score distribution | fixed split-conformal quantile over the run's residuals | exchangeability tested and **not violated**: real-order coverage 0.0771 vs shuffled 0.0854, Fisher p = 0.723; adaptive gives 0.1000 (§5.10) | **Not needed here, and now demonstrated rather than assumed** |
+| 9.2 | Model-based safe RL | CAP (Ma 2022); SMBPO; SafeDreamer | inflate the cost estimate by model uncertainty (ensemble disagreement) | inflate by a conformal quantile of realised-cost residuals | CAP 11.99% violating vs ours 7.80% at a matched probe budget, z = +2.08; CAP vs no margin z = −0.43 (§3.2) | **Ours wins, and the reason generalises**: disagreement is not the quantity that breaches the limit, for the same structural reason model error is not. SMBPO and SafeDreamer unrun |
+| 9.2 | Model-free constrained RL | CPO; PPO-Lagrangian; Sauté; primal-dual NPG | constrain in the true environment, many samples | plan in a surrogate, probe the truth periodically | dar: better return (t = +3.84 to +17.95) at **12.5× fewer real transitions**, but 7.3% violating where they violate 0% (§3.1) | **Mixed and stated as such.** Part of the sample-efficiency advantage was bought with violations |
+| 9.4 | Objective mismatch / decision-focused learning | Lambert 2020; decision-focused learning | better model ≠ better control; train the model for the decision | tested joint Simulate+Plan training | model improved **5–9×**, decision did not move (§4.3) | **Known, inverted data point.** Our contribution is the magnitude: the improvement was large and the decision was flat |
+| 9.10 | Belief quality → decision quality | latent DA (Sci. Adv. 2026); deep latent particle filters | optimise analysis quality, assume better analysis ⇒ better outcome | score the belief on the decision | reconstruction AP 0.005 → 0.346 (70×) and burn reduction **falls** 34.5% → 27.3%; mechanism is 3.74× soft-mass inflation (§5.8) | **Novel direction, now with a mechanism.** The softness, not the content, does the damage |
+| 9.8 | Data assimilation | 4D-Var; EnKF (Evensen 2003) | optimal gain, covariance, observation error model | replace belief with observation, gain 1 | 607 fires, year-wise CV: sync vs open d = 1.55 at day +1 (§5.2a) | **Textbook, and labelled as a control.** No EnKF baseline run — §8.4 item 3 remains the honest gap |
+| 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
+| 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
+| 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 26 defects, 30 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
+
+### 9.15 Comparison with related work — quantitative
+
+Two kinds of number appear below and they must not be read together.
+
+**A. Measured head-to-head in our setting.** Same testbed, same limit, same
+evaluation protocol, same real-sample budget, only the named mechanism differs.
+These are the comparisons the paper can defend.
+
+*Constraint violation on `rdf`, full-fidelity surrogate, matched budget of 6,400
+training transitions plus 1,920 probe (§3.2). Lower is better; δ = 0.1.*
+
+| method | what it conformalises / penalises | violating | seeds | z vs ours |
+|---|---|---|---|---|
+| no margin | — | 13.17% | 5 | −3.68 |
+| model-error conformal (**field default**) | \|c − g\| , matched pairs | **14.15%** | 5 | not computed on this run† |
+| CAP, ensemble penalty | mean + k·std over 5 surrogates | 11.99% | 12 | −2.08 |
+| **ours, residual conformal** | c − ĝ, the quantity the dual holds | **7.80%** | 10 | — |
+
+† The model-error contrast was established separately and stratified by
+ρ = σ/ε, which is where the mechanism lives (§3.2): `model_error` vs `residual`
+gives z = +0.86 at ρ < 8 and **z = +2.78 at ρ ≥ 8**. That stratification is the
+claim — the default is fine where per-instance model error dominates and fails
+where policy spread does — so a single pooled z against it would blur the
+result rather than sharpen it. CAP vs no margin is **z = −0.43**.
+
+The two rows that matter: the field's default scores **worse than applying no
+margin at all** (14.15% against 13.17%), and CAP — the closest model-based
+safe-RL method, with its adapted k demonstrably active between 0.50 and 1.46 —
+is statistically indistinguishable from no margin.
+
+*Sample efficiency and constraint respect on `dar`, d = 0.936, 5 seeds (§3.1).*
+
+| method | return | violating evals | real transitions |
+|---|---|---|---|
+| **PSPE (adaptive α)** | **−2.448 ± 0.029** | 7.3% | **3,072** |
+| PPO-Lagrangian | −2.558 ± 0.039 | 0% | 38,400 |
+| CPO | −2.541 ± 0.035 | 0% | 38,400 |
+| Sauté RL | −2.537 ± 0.024 | 0% | 38,400 |
+| primal-dual NPG | −2.544 ± 0.026 | 0% | 38,400 |
+
+Best return at 12.5× fewer real transitions, and the only method that violates.
+Both halves belong in the abstract.
+
+*Wildfire intervention, frozen U-Net shared by every arm, 3% daily budget (§5.1).*
+
+| method | burn reduction | treated/day | fires over budget |
+|---|---|---|---|
+| greedy heuristic | 24.1 ± 3.8% | 3.00% | 0 |
+| PPO-Lagrangian | 4.6 ± 0.4% | 4.32% | 58% |
+| CPO | 4.3 ± 0.1% | 2.84% | 6% |
+| Sauté RL | 4.7 ± 0.5% | 7.37% | 79% |
+| primal-dual NPG | 4.6 ± 0.1% | 3.26% | 100% |
+| **PSPE per-instance** | **36.5 ± 1.0%** | 3.00% | 0 |
+
+**B. Not comparable, and listed so the gap is explicit.** Published numbers from
+these works were obtained on other benchmarks, metrics and budgets. Quoting them
+beside ours would be the exact error §5.7 is about — agreement or disagreement
+with a number is meaningless until the two were measured against the same thing.
+
+| line of work | why no head-to-head | what would make one possible |
+|---|---|---|
+| SMBPO, SafeDreamer | not implemented here | the same transplant treatment CAP got: their correction, our dual, testbed and probe budget |
+| Prinster et al. 2026 | different constraint object (behavioural-change budget, not CMDP cost) | a setting where both budgets are definable; not obviously worth it |
+| EnKF / 4D-Var | no DA baseline in the twin loop | §8.4 item 3, days of work, and it decides whether §5.2a is a finding or a control |
+| Poseidon, DPOT, BCAT | we use FNO and do not claim operator quality | swap the surrogate; the margin result should be architecture-independent, which is itself testable |
+| WildfireSpreadBench | an evaluation study, not a method | its protocol could be adopted wholesale for §5.2a |
+
+**What the two tables say together.** Where we have run the comparison properly,
+the result is consistent and it is not that our method is uniformly better —
+it is that **the mechanisms the literature reaches for first do not act on the
+quantity that breaks the constraint.** Model error, ensemble disagreement and
+reconstruction accuracy are all defensible things to measure and improve, and
+all three were measured here to be ineffective or actively harmful for the
+decision. That is the paper.
 
 ## References
 

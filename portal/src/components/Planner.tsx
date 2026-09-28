@@ -6,6 +6,8 @@ import { ForecastPanel } from "./ForecastPanel";
 import { MeasureBuilder } from "./MeasureBuilder";
 import { RoadQueryPanel } from "./RoadQueryPanel";
 import { AnywherePanel, type AnalysisResult, type PlacedLevee } from "./AnywherePanel";
+import { PlanPanel } from "./PlanPanel";
+import { ObservePanel, type Observation } from "./ObservePanel";
 import type { RoadQuery } from "@/lib/roadquery";
 import { loadManifest } from "@/lib/data";
 import type { Manifest } from "@/lib/types";
@@ -50,6 +52,7 @@ export function Planner() {
   const [tab, setTab] = useState<"district" | "anywhere">("district");
   const [placed, setPlaced] = useState<PlacedLevee[]>([]);
   const [placing, setPlacing] = useState(false);
+  const [observed, setObserved] = useState<Observation | null>(null);
   const { setRegion } = useRegion();
 
   // Keep the header honest about which place is on screen.
@@ -225,6 +228,18 @@ export function Planner() {
             className="w-full accent-[var(--accent)]"
           />
         </div>
+
+        <ObservePanel
+          bounds={manifest?.bounds ?? null}
+          onObservation={setObserved}
+        />
+
+        <PlanPanel
+          budgetM={budget}
+          eventScale={scale}
+          crestLengths={(ops?.sites ?? []).map((s) => s.crest_length_m)}
+          onPlan={(h) => { setMode("build"); setCustom(h); }}
+        />
 
         </>}
 
@@ -451,7 +466,8 @@ export function Planner() {
             pin={point ? { lon: point.lon, lat: point.lat } : null}
             cutFraction={tab === "district" ? (roadQ?.cutFraction ?? null) : null}
             placed={tab === "anywhere" ? placed : []}
-            analysis={analysis}
+            observed={observed}
+              analysis={analysis}
             focus={focus}
           />
         ) : (
