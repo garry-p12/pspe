@@ -1,10 +1,13 @@
 @import "tailwindcss";
 
-/* PSPE portal — achromatic instrument panel.
+/* PSPE portal — achromatic panel beside a colour map.
  *
- * Black and white, deliberately. Every view is a map or a raster, so hue in the
- * chrome competes with hue in the data; removing it from the interface leaves
- * the only colour on screen belonging to the thing being measured.
+ * The CHROME is black and white; the map is not. Hue in the interface competed
+ * with hue in the data, so taking it out of the panel leaves the only colour on
+ * screen belonging to the thing being measured — the flood, the imagery, the
+ * severity of a cut road. Desaturating the map too was a mistake: with both
+ * layers grey the flood erased the terrain under it, because hue had been doing
+ * the figure/ground work all along.
  *
  * The neutrals are not pure grey. A flat #808080 reads as unconsidered, and on
  * a panel that sits beside satellite imagery it goes muddy. These carry about
@@ -83,10 +86,15 @@ body {
 /* Numerals must line up in every table and readout. */
 .tnum { font-variant-numeric: tabular-nums; }
 
+/* The panel is read at a desk for an hour, not glanced at. Body copy sits at
+ * 13px with generous leading; the old 10-12px chrome was the main reason it
+ * felt dense even when the words were short. */
+aside p, aside li, aside label { line-height: 1.5; }
+
 /* Uppercase micro-labels used throughout the chrome. */
 .eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.14em;
+  font-size: 11px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-faint);
   font-weight: 600;

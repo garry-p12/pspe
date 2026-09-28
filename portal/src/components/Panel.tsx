@@ -35,7 +35,7 @@ export function Panel({
           <div className="min-w-0 flex-1">
             {eyebrow && <p className="eyebrow mb-0.5">{eyebrow}</p>}
             {title && (
-              <h2 className="truncate text-[13.5px] font-semibold tracking-tight text-ink">
+              <h2 className="truncate text-[15px] font-semibold tracking-tight text-ink">
                 {title}
               </h2>
             )}
@@ -72,10 +72,10 @@ export function Stat({
   return (
     <div title={hint}>
       <p className="eyebrow mb-1">{label}</p>
-      <p className={clsx("tnum text-[19px] font-semibold leading-none", toneClass)}>
+      <p className={clsx("tnum text-[24px] font-semibold leading-none", toneClass)}>
         {value}
         {unit && (
-          <span className="ml-1 text-[11px] font-normal text-ink-faint">{unit}</span>
+          <span className="ml-1 text-[12px] font-normal text-ink-faint">{unit}</span>
         )}
       </p>
     </div>

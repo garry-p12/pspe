@@ -28,8 +28,8 @@ function Metric({
   return (
     <div>
       <p className="eyebrow mb-1">{label}</p>
-      <p className={`tnum text-[21px] font-semibold leading-none ${c}`}>{value}</p>
-      {sub && <p className="mt-1 text-[11px] text-ink-faint">{sub}</p>}
+      <p className={`tnum text-[24px] font-semibold leading-none ${c}`}>{value}</p>
+      {sub && <p className="mt-1 text-[12px] text-ink-faint">{sub}</p>}
     </div>
   );
 }
@@ -161,7 +161,7 @@ export function Planner() {
             <button
               key={k}
               onClick={() => { setTab(k); if (k === "district") setAnalysis(null); }}
-              className={`flex-1 rounded-md border px-2 py-1.5 text-[11.5px] transition-colors ${
+              className={`flex-1 rounded-md border px-2 py-1.5 text-[13px] transition-colors ${
                 tab === k
                   ? "border-accent/60 bg-accent/10 text-accent"
                   : "border-line text-ink-mute hover:text-ink"
@@ -198,7 +198,7 @@ export function Planner() {
               <button
                 key={s}
                 onClick={() => setScale(s)}
-                className={`flex-1 rounded-md border px-2 py-1.5 text-[11.5px] transition-colors ${
+                className={`flex-1 rounded-md border px-2 py-1.5 text-[13px] transition-colors ${
                   scale === s
                     ? "border-accent/60 bg-accent/10 text-accent"
                     : "border-line text-ink-mute hover:text-ink"
@@ -209,7 +209,7 @@ export function Planner() {
             ))}
           </div>
           {ops && (
-            <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
+            <p className="mt-2 text-[12px] leading-relaxed text-ink-faint">
               Capital works are appraised against design events, not next week&apos;s
               weather. A road is treated as cut at{" "}
               {(ops.cut_depth_m * 100).toFixed(0)} cm of water.
@@ -220,7 +220,7 @@ export function Planner() {
         <div className="border-b border-line-soft p-4">
           <div className="mb-2 flex items-baseline justify-between">
             <p className="eyebrow">Capital budget</p>
-            <p className="tnum text-[13px] font-semibold text-ink">A${budget}M</p>
+            <p className="tnum text-[15px] font-semibold text-ink">A${budget}M</p>
           </div>
           <input
             type="range" min={2} max={60} step={1} value={budget}
@@ -249,7 +249,7 @@ export function Planner() {
               <p className="eyebrow">Selected location</p>
               <button
                 onClick={() => setPoint(null)}
-                className="text-[11px] text-ink-faint hover:text-ink"
+                className="text-[12px] text-ink-faint hover:text-ink"
               >
                 clear
               </button>
@@ -268,12 +268,12 @@ export function Planner() {
               />
             </div>
             {near && (
-              <p className="mt-3 text-[11.5px] leading-relaxed text-ink-mute">
+              <p className="mt-3 text-[13px] leading-relaxed text-ink-mute">
                 Nearest road: <span className="text-ink">{near.name}</span>
                 {near.km < 3 ? ` · ${(near.km * 1000).toFixed(0)} m away` : ""}
               </p>
             )}
-            <p className="tnum mt-1 text-[10.5px] text-ink-faint">
+            <p className="tnum mt-1 text-[12px] text-ink-faint">
               {point.lat.toFixed(4)}, {point.lon.toFixed(4)}
             </p>
           </div>
@@ -281,7 +281,7 @@ export function Planner() {
 
         {tab === "district" && !point && (
           <div className="border-b border-line-soft px-4 py-3">
-            <p className="text-[11.5px] leading-relaxed text-ink-faint">
+            <p className="text-[13px] leading-relaxed text-ink-faint">
               <span className="text-ink-mute">Click anywhere on the map</span> to
               see how deep the water got there in 2022, or click a marker to
               assess a mitigation measure.
@@ -291,8 +291,8 @@ export function Planner() {
 
         {tab === "district" && unavailable && (
           <div className="m-4 rounded-lg border border-warn/40 bg-warn/5 p-3">
-            <p className="text-[12px] font-medium text-warn">Options not available yet</p>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
+            <p className="text-[13px] font-medium text-warn">Options not available yet</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
               {unavailable} The flood model runs on a cluster and its results are
               published here when complete.
             </p>
@@ -306,7 +306,7 @@ export function Planner() {
                 <button
                   key={m}
                   onClick={() => setMode(m)}
-                  className={`flex-1 rounded-md border px-2 py-1.5 text-[11.5px] transition-colors ${
+                  className={`flex-1 rounded-md border px-2 py-1.5 text-[13px] transition-colors ${
                     mode === m
                       ? "border-accent/60 bg-accent/10 text-accent"
                       : "border-line text-ink-mute hover:text-ink"
@@ -347,29 +347,29 @@ export function Planner() {
                         }`}
                       >
                         <div className="flex items-baseline gap-2">
-                          <span className="flex-1 truncate text-[12.5px] text-ink">
+                          <span className="flex-1 truncate text-[13px] text-ink">
                             {o.name}
                           </span>
-                          <span className="tnum text-[11px] text-ink-faint">
+                          <span className="tnum text-[12px] text-ink-faint">
                             {o.id === "base" ? "—" : money(o.cost_aud)}
                           </span>
                         </div>
                         <div className="mt-1 flex items-center gap-2">
                           {o.id === "base" ? (
-                            <span className="text-[11px] text-ink-faint">
+                            <span className="text-[12px] text-ink-faint">
                               {km(o.road_cut_km)} of road cut in this event
                             </span>
                           ) : (o.core_reduction_pct ?? 0) < -0.5 ? (
-                            <span className="text-[11px] font-medium text-bad">
+                            <span className="text-[12px] font-medium text-bad">
                               ⚠ deepens flooding {Math.abs(o.core_reduction_pct ?? 0).toFixed(0)}%
                             </span>
                           ) : (
-                            <span className="text-[11px] text-ok">
+                            <span className="text-[12px] text-ok">
                               cuts flooding {(o.core_reduction_pct ?? 0).toFixed(0)}%
                             </span>
                           )}
                           {recommended?.id === o.id && (
-                            <span className="ml-auto rounded bg-ok/15 px-1.5 py-[1px] text-[9.5px] font-semibold tracking-wide text-ok">
+                            <span className="ml-auto rounded bg-ok/15 px-1.5 py-[1px] text-[11px] font-semibold tracking-wide text-ok">
                               BEST VALUE
                             </span>
                           )}
@@ -416,10 +416,10 @@ export function Planner() {
 
                 {current.makes_worse && (
                   <div className="mt-4 rounded-lg border border-bad/40 bg-bad/5 p-3">
-                    <p className="text-[12px] font-semibold text-bad">
+                    <p className="text-[13px] font-semibold text-bad">
                       This option increases flooding
                     </p>
-                    <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
+                    <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
                       It sits on a drainage path. Walling it off holds water in
                       the floodplain rather than keeping it out, cutting{" "}
                       {km(current.road_cut_change_km ?? 0, 2)} more road than
@@ -433,7 +433,7 @@ export function Planner() {
                     <p className="eyebrow mb-2">Roads affected</p>
                     <ul className="flex flex-col gap-1">
                       {current.named_roads_cut.slice(0, 6).map((r) => (
-                        <li key={r.name} className="flex items-baseline gap-2 text-[11.5px]">
+                        <li key={r.name} className="flex items-baseline gap-2 text-[13px]">
                           <span className="flex-1 truncate text-ink-mute">{r.name}</span>
                           <span className="tnum text-ink-faint">{km(r.km, 1)}</span>
                         </li>
@@ -443,7 +443,7 @@ export function Planner() {
                 )}
 
                 {ops.cost_note && (
-                  <p className="mt-4 border-t border-line-soft pt-3 text-[10.5px] leading-relaxed text-ink-faint">
+                  <p className="mt-4 border-t border-line-soft pt-3 text-[12px] leading-relaxed text-ink-faint">
                     {ops.cost_note}
                   </p>
                 )}
@@ -480,7 +480,7 @@ export function Planner() {
               onClick={() => setFocus(f)}
               // These float over a LIGHT map, so they invert: the panel's own
               // dark ground becomes the chip, and selection is a solid fill.
-              className={`rounded-md border px-2.5 py-1 text-[11px] backdrop-blur transition-colors ${
+              className={`rounded-md border px-2.5 py-1 text-[12px] backdrop-blur transition-colors ${
                 focus === f
                   ? "border-ink bg-ink text-bg font-medium"
                   : "border-ink-faint/40 bg-bg/80 text-ink hover:bg-bg"

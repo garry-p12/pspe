@@ -14,15 +14,15 @@ export function Nav() {
     <header className="z-30 border-b border-line bg-bg-raised">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-2.5">
         <Link href="/" className="flex items-center gap-2.5">
-          <span className="flex h-6 w-6 items-center justify-center rounded bg-accent/15 text-[11px] font-bold text-accent">
+          <span className="flex h-6 w-6 items-center justify-center rounded bg-accent/15 text-[12px] font-bold text-accent">
             FP
           </span>
-          <span className="text-[14px] font-semibold tracking-tight text-ink">
+          <span className="text-[15px] font-semibold tracking-tight text-ink">
             Floodplain Planner
           </span>
         </Link>
         {region && (
-          <span className="hidden border-l border-line pl-5 text-[12px] text-ink-mute sm:inline">
+          <span className="hidden border-l border-line pl-5 text-[13px] text-ink-mute sm:inline">
             {region}
           </span>
         )}
@@ -30,7 +30,7 @@ export function Nav() {
           <Link
             href={inMethod ? "/" : "/methodology"}
             className={clsx(
-              "text-[12px] transition-colors",
+              "text-[13px] transition-colors",
               inMethod ? "text-accent" : "text-ink-faint hover:text-ink-mute",
             )}
           >

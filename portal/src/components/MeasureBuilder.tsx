@@ -83,13 +83,13 @@ export function MeasureBuilder({
     <div className="border-b border-line-soft p-4">
       <div className="mb-2 flex items-baseline justify-between">
         <p className="eyebrow">Build a plan</p>
-        {busy && <span className="text-[10px] text-ink-faint">estimating…</span>}
+        {busy && <span className="text-[11px] text-ink-faint">estimating…</span>}
       </div>
 
       <ul className="flex flex-col gap-2">
         {Array.from({ length: siteCount }, (_, i) => (
           <li key={i} className="flex items-center gap-2.5">
-            <span className="tnum w-6 shrink-0 text-[11px] text-ink-faint">M{i}</span>
+            <span className="tnum w-6 shrink-0 text-[12px] text-ink-faint">M{i}</span>
             <input
               type="range" min={0} max={maxHeight} step={0.5}
               value={heights[i] ?? 0}
@@ -97,7 +97,7 @@ export function MeasureBuilder({
               className="min-w-0 flex-1 accent-[var(--accent)]"
               aria-label={`Measure ${i} height`}
             />
-            <span className="tnum w-12 shrink-0 text-right text-[11px] text-ink-mute">
+            <span className="tnum w-12 shrink-0 text-right text-[12px] text-ink-mute">
               {(heights[i] ?? 0).toFixed(1)} m
             </span>
           </li>
@@ -106,14 +106,14 @@ export function MeasureBuilder({
 
       <div className="mt-3 flex items-baseline justify-between border-t border-line-soft pt-3">
         <span className="eyebrow">Cost</span>
-        <span className={`tnum text-[13px] font-semibold ${overBudget ? "text-bad" : "text-ink"}`}>
+        <span className={`tnum text-[15px] font-semibold ${overBudget ? "text-bad" : "text-ink"}`}>
           A${(cost / 1e6).toFixed(1)}M
-          {overBudget && <span className="ml-1.5 text-[10px] font-normal">over budget</span>}
+          {overBudget && <span className="ml-1.5 text-[11px] font-normal">over budget</span>}
         </span>
       </div>
 
       {unavailable && (
-        <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+        <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
           Estimator not fitted yet — it calibrates against the hydrodynamic runs
           once they complete.
         </p>
@@ -122,39 +122,39 @@ export function MeasureBuilder({
       {est && !unavailable && (
         <div className="mt-3 rounded-lg border border-line bg-bg-inset p-3">
           {active === 0 ? (
-            <p className="text-[12px] text-ink-mute">
+            <p className="text-[13px] text-ink-mute">
               No measures selected. Choose heights above to see the effect.
             </p>
           ) : est.makes_worse ? (
             <>
-              <p className="text-[12.5px] font-semibold text-bad">
+              <p className="text-[13px] font-semibold text-bad">
                 Deepens flooding by {Math.abs(est.reduction_pct).toFixed(0)}%
               </p>
-              <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
+              <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
                 This combination holds water in rather than keeping it out.
               </p>
             </>
           ) : (
             <>
-              <p className="text-[12.5px] font-semibold text-ok">
+              <p className="text-[13px] font-semibold text-ok">
                 Cuts flooding at the settlement by{" "}
                 {est.reduction_pct.toFixed(0)}%
               </p>
               {est.band_pct > 0.5 && (
-                <p className="tnum mt-1 text-[11px] text-ink-mute">
+                <p className="tnum mt-1 text-[12px] text-ink-mute">
                   range {Math.max(0, est.worst_case_pct).toFixed(0)}–
                   {est.best_case_pct.toFixed(0)}%
                 </p>
               )}
               {est.saturating && (
-                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
+                <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
                   Measures overlap: separately they would give{" "}
                   {est.linear_sum_pct.toFixed(0)}%, together they do not add up.
                 </p>
               )}
             </>
           )}
-          <p className="mt-2 border-t border-line-soft pt-2 text-[10.5px] leading-relaxed text-ink-faint">
+          <p className="mt-2 border-t border-line-soft pt-2 text-[12px] leading-relaxed text-ink-faint">
             {est.exact
               ? "Direct hydrodynamic result for this measure."
               : "Fast estimate. Verify with a full model run before adopting."}

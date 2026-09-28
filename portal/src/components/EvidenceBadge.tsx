@@ -56,7 +56,7 @@ export function EvidenceBadge({
     >
       <span className={clsx("h-1.5 w-1.5 rounded-full", s.dot)} aria-hidden />
       <span
-        className={clsx("text-[9.5px] font-semibold tracking-[0.12em]", s.text)}
+        className={clsx("text-[11px] font-semibold tracking-[0.12em]", s.text)}
       >
         {badge}
       </span>
@@ -76,7 +76,7 @@ export function BadgeLegend() {
           <dt className="mb-1.5">
             <EvidenceBadge badge={b} />
           </dt>
-          <dd className="text-[12px] leading-relaxed text-ink-mute">
+          <dd className="text-[13px] leading-relaxed text-ink-mute">
             {BADGE_MEANING[b]}
           </dd>
         </div>

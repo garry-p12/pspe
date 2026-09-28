@@ -73,36 +73,36 @@ export function ObservePanel({
         onClick={run}
         disabled={busy || !bounds}
         className="w-full rounded border border-line bg-bg-raised px-3 py-2
-                   text-[12px] text-ink transition-colors hover:border-accent/50
+                   text-[13px] text-ink transition-colors hover:border-accent/50
                    disabled:cursor-not-allowed disabled:opacity-50"
       >
         {busy ? "Checking the last overpass…" : "Check the latest Sentinel-1 pass"}
       </button>
 
-      {err && <p className="mt-2 text-[11px] leading-snug text-ink-mute">{err}</p>}
+      {err && <p className="mt-2 text-[12px] leading-snug text-ink-mute">{err}</p>}
 
       {obs?.ok && (
         <div className="mt-3 space-y-2">
           <div className="flex items-baseline justify-between">
-            <span className="text-[11px] text-ink-faint">Observed flooding</span>
-            <span className="tnum text-[15px] font-semibold text-ink">
+            <span className="text-[12px] text-ink-faint">Observed flooding</span>
+            <span className="tnum text-[18px] font-semibold text-ink">
               {obs.flooded_km2?.toFixed(1)} km²
             </span>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-[11px] text-ink-faint">Permanent water, excluded</span>
-            <span className="tnum text-[12px] text-ink-mute">
+            <span className="text-[12px] text-ink-faint">Permanent water, excluded</span>
+            <span className="tnum text-[13px] text-ink-mute">
               {obs.permanent_km2?.toFixed(0)} km²
             </span>
           </div>
-          <p className="text-[11px] text-ink-mute">
+          <p className="text-[12px] text-ink-mute">
             {obs.acquired?.slice(0, 10)}
             {obs.days_old !== undefined && (
               <> · {obs.days_old === 0 ? "today" : `${obs.days_old} days ago`}</>
             )}
             {obs.relative_orbit != null && <> · orbit {obs.relative_orbit}</>}
           </p>
-          <p className="text-[10.5px] leading-snug text-ink-faint">
+          <p className="text-[12px] leading-snug text-ink-faint">
             Differenced against {obs.baselines} earlier passes on the same orbit.{" "}
             {obs.note}
           </p>

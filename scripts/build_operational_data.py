@@ -34,49 +34,29 @@ def depth_rgba(d: np.ndarray, vmax: float) -> np.ndarray:
     """
     x = np.clip(np.nan_to_num(d) / max(vmax, 1e-6), 0.0, 1.0) ** 0.42
     out = np.zeros(x.shape + (4,), dtype=np.uint8)
-    # Ink on paper: dry ground stays light, water darkens with depth.
-    #
-    # Two corrections got here. Bright water on a dark base made the flood a
-    # white sheet that erased the terrain, because with both layers achromatic
-    # hue was no longer doing the figure/ground work. Inverting it was right but
-    # not enough: the 0.42 gamma was tuned for a ramp where HUE carried the
-    # signal, so it leaves the actual inundation bunched at x = 0.03-0.32
-    # (measured across the district's frames), and 232 - 208x put that at value
-    # ~199 against a basemap of ~232. Invisible.
-    #
-    # So the gamma'd value is rescaled onto the range the data actually
-    # occupies before it becomes tone. The channel saturates to near-black,
-    # which is correct -- it is always deep -- and the floodplain, the part a
-    # planner reads, gets the whole scale.
-    x = np.clip(x / 0.35, 0.0, 1.0)
-    v = 165 - 140 * x
-    out[..., 0] = v.astype(np.uint8)
-    out[..., 1] = v.astype(np.uint8)
-    out[..., 2] = (v + 8 * (1 - x)).astype(np.uint8)   # a few points of blue
-    a = np.where(np.nan_to_num(d) > 0.01, 205 + 45 * x, 0.0)
+    out[..., 0] = (96 * (1 - x) + 4 * x).astype(np.uint8)
+    out[..., 1] = (200 * (1 - x) + 28 * x).astype(np.uint8)
+    out[..., 2] = (255 * (1 - x) + 128 * x).astype(np.uint8)
+    a = np.where(np.nan_to_num(d) > 0.01, 132 + 118 * x, 0.0)
     out[..., 3] = np.clip(a, 0, 255).astype(np.uint8)
     return out
 
 
 def change_rgba(d: np.ndarray, base: np.ndarray, thresh: float = 0.05) -> np.ndarray:
-    """Where an option makes things WORSE (bright) or better (dark).
+    """Where an option makes things better (blue) or WORSE (red).
 
-    The difference layer earns its place: a planner comparing two similar flood
-    maps cannot see a 3 km change on their own. Without hue the two directions
-    are separated by value against the mid-grey base -- deterioration burns
-    white, improvement falls to near-black -- so the signal that matters most
-    is also the brightest thing on the map.
+    The difference layer is the one that earns its place: a planner comparing
+    two similar-looking flood maps cannot see a 3 km change, but can see red.
     """
     diff = np.nan_to_num(d) - np.nan_to_num(base)
     out = np.zeros(diff.shape + (4,), dtype=np.uint8)
     worse = diff > thresh
     better = diff < -thresh
     mag = np.clip(np.abs(diff) / 1.0, 0.0, 1.0) ** 0.5
-    v = np.where(worse, 255, np.where(better, 16, 0)).astype(np.uint8)
-    out[..., 0] = v
-    out[..., 1] = v
-    out[..., 2] = v
-    out[..., 3] = np.where(worse | better, (95 + 150 * mag).astype(np.uint8), 0)
+    out[..., 0] = np.where(worse, 248, np.where(better, 56, 0))
+    out[..., 1] = np.where(worse, 113, np.where(better, 189, 0))
+    out[..., 2] = np.where(worse, 113, np.where(better, 248, 0))
+    out[..., 3] = np.where(worse | better, (90 + 150 * mag).astype(np.uint8), 0)
     return out
 
 

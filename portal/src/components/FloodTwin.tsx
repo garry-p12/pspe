@@ -56,7 +56,7 @@ export function FloodTwin() {
     return (
       <div className="mx-auto max-w-[1500px] px-5 py-16">
         <p className="text-bad">Could not load the data bundle: {err}</p>
-        <p className="mt-2 text-[13px] text-ink-mute">
+        <p className="mt-2 text-[15px] text-ink-mute">
           Run <code className="text-ink">scripts/build_portal_assets.py</code> and
           copy its output to <code className="text-ink">portal/public/data</code>.
         </p>
@@ -82,10 +82,10 @@ export function FloodTwin() {
     <div className="mx-auto max-w-[1500px] px-5 py-6">
       <header className="mb-5">
         <p className="eyebrow mb-1">Flood digital twin</p>
-        <h1 className="text-[26px] font-semibold leading-tight tracking-tight">
+        <h1 className="text-[30px] font-semibold leading-tight tracking-tight">
           {b.event}
         </h1>
-        <p className="mt-1.5 max-w-3xl text-[13.5px] leading-relaxed text-ink-mute">
+        <p className="mt-1.5 max-w-3xl text-[15px] leading-relaxed text-ink-mute">
           {b.place} — {b.extent_km} km across at {manifest.native_dx_m} m. The
           Richmond River peaked 0.64 m above its 1974 record at Coraki and 1.8 m
           above its 1954 record at Woodburn. Terrain and water below are the
@@ -108,7 +108,7 @@ export function FloodTwin() {
                     key={p}
                     onClick={() => setPreset(p)}
                     className={[
-                      "rounded-md border px-2 py-1 text-[11px] transition-colors",
+                      "rounded-md border px-2 py-1 text-[12px] transition-colors",
                       preset === p
                         ? "border-accent/60 bg-accent/10 text-accent"
                         : "border-line text-ink-mute hover:text-ink",
@@ -119,7 +119,7 @@ export function FloodTwin() {
                 ))}
                 <button
                   onClick={() => setTerrain3d((v) => !v)}
-                  className="rounded-md border border-line px-2 py-1 text-[11px] text-ink-mute transition-colors hover:border-accent/50 hover:text-accent"
+                  className="rounded-md border border-line px-2 py-1 text-[12px] text-ink-mute transition-colors hover:border-accent/50 hover:text-accent"
                 >
                   {terrain3d ? "3D terrain" : "Flat"}
                 </button>
@@ -146,7 +146,7 @@ export function FloodTwin() {
                       "linear-gradient(90deg, rgba(160,220,255,.55), rgb(8,60,140))",
                   }}
                 />
-                <div className="tnum mt-1 flex justify-between text-[10px] text-ink-faint">
+                <div className="tnum mt-1 flex justify-between text-[11px] text-ink-faint">
                   <span>0.01 m</span>
                   <span>{manifest.depth_vmax_m} m</span>
                 </div>
@@ -171,10 +171,10 @@ export function FloodTwin() {
                     onChange={(e) => setExaggeration(Number(e.target.value))}
                     className="w-32 accent-[var(--accent)]"
                   />
-                  <span className="tnum text-[11px] text-ink-faint">
+                  <span className="tnum text-[12px] text-ink-faint">
                     {exaggeration}×
                   </span>
-                  <span className="ml-auto text-[10.5px] text-ink-faint">
+                  <span className="ml-auto text-[12px] text-ink-faint">
                     relief here is {fmt(manifest.dem_range_m[1] - manifest.dem_range_m[0], 0)} m
                     over {b.extent_km} km — flat ground floods
                   </span>
@@ -238,7 +238,7 @@ export function FloodTwin() {
             badge="PROJECTION"
             badgeDetail="each figure is a solver run with that levee in place; no such levee exists"
           >
-            <p className="mb-3 text-[12.5px] leading-relaxed text-ink-mute">
+            <p className="mb-3 text-[13px] leading-relaxed text-ink-mute">
               Six candidate sites ring the settlement, each at the lowest point of
               its perimeter sector. Click one on the map, or below.
             </p>
@@ -257,15 +257,15 @@ export function FloodTwin() {
                           : "border-line bg-bg-inset hover:border-line-soft",
                       ].join(" ")}
                     >
-                      <span className="tnum w-7 text-[11px] text-ink-faint">
+                      <span className="tnum w-7 text-[12px] text-ink-faint">
                         S{s.id}
                       </span>
-                      <span className="tnum w-14 text-[11px] text-ink-mute">
+                      <span className="tnum w-14 text-[12px] text-ink-mute">
                         {fmt(s.elev, 1)} m
                       </span>
                       <span
                         className={[
-                          "tnum ml-auto text-[13px] font-semibold",
+                          "tnum ml-auto text-[15px] font-semibold",
                           bad ? "text-bad" : good ? "text-ok" : "text-ink-mute",
                         ].join(" ")}
                       >
@@ -280,7 +280,7 @@ export function FloodTwin() {
 
             {sel && (
               <div className="mt-3 rounded-lg border border-line bg-bg-inset p-3">
-                <p className="text-[12px] leading-relaxed text-ink-mute">
+                <p className="text-[13px] leading-relaxed text-ink-mute">
                   {sel.reductionPct < -0.05 ? (
                     <>
                       <b className="text-bad">This levee makes flooding worse.</b>{" "}
@@ -306,13 +306,13 @@ export function FloodTwin() {
 
           {harmful.length > 0 && (
             <Panel eyebrow="Measured, not hypothetical" title="Half these levees backfire">
-              <p className="text-[12.5px] leading-relaxed text-ink-mute">
+              <p className="text-[13px] leading-relaxed text-ink-mute">
                 <b className="text-ink">{harmful.length} of {sites.length}</b> candidate
                 sites <b className="text-bad">increase</b> flooding at the
                 settlement. Each is downstream or on a drainage path, so a wall
                 there traps water instead of excluding it.
               </p>
-              <p className="mt-2 text-[12.5px] leading-relaxed text-ink-mute">
+              <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">
                 This is why the planner carries a constraint and a calibrated
                 margin rather than a reward alone: the sign of an intervention is
                 not obvious from the map, and getting it wrong is not a wasted
@@ -322,7 +322,7 @@ export function FloodTwin() {
           )}
 
           <Panel eyebrow="Provenance" title="What you are looking at">
-            <dl className="flex flex-col gap-2.5 text-[12px]">
+            <dl className="flex flex-col gap-2.5 text-[13px]">
               {Object.entries(manifest.provenance).map(([k, v]) => (
                 <div key={k}>
                   <dt className="mb-1 flex items-center gap-2">

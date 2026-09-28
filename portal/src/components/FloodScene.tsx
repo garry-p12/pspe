@@ -22,7 +22,7 @@ import { ELEVATION_DECODER, frameUrl } from "@/lib/data";
  * Note the {y}/{x} ordering -- this service is not {x}/{y} like most.
  */
 const BASEMAP_TILES =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}";
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 
 export interface LeveeSite {
   id: number;
@@ -81,7 +81,7 @@ export function FloodScene({
         id: "basemap",
         data: BASEMAP_TILES,
         minZoom: 0,
-        maxZoom: 19,
+        maxZoom: 18,
         tileSize: 256,
         renderSubLayers: (props) => {
           const { boundingBox } = props.tile;
@@ -110,7 +110,7 @@ export function FloodScene({
           bScaler: ELEVATION_DECODER.bScaler * (showTerrain ? exaggeration : 0),
           offset: showTerrain ? ELEVATION_DECODER.offset * exaggeration : 0,
         },
-        material: { ambient: 0.5, diffuse: 0.6, shininess: 8, specularColor: [40, 41, 45] },
+        material: { ambient: 0.5, diffuse: 0.6, shininess: 8, specularColor: [40, 60, 80] },
         opacity: 1,
       }) as unknown as Layer,
     );
@@ -125,11 +125,11 @@ export function FloodScene({
           getRadius: (d) => (d.id === selected ? 13 : 9),
           getFillColor: (d) =>
             d.reductionPct < -0.5
-              ? [255, 255, 255, 230]
+              ? [248, 113, 113, 230]
               : d.reductionPct > 3
-                ? [122, 125, 132, 230]
-                : [122, 125, 132, 210],
-          getLineColor: (d) => (d.id === selected ? [255, 255, 255, 255] : [11, 12, 14, 200]),
+                ? [52, 211, 153, 230]
+                : [148, 163, 184, 210],
+          getLineColor: (d) => (d.id === selected ? [255, 255, 255, 255] : [10, 13, 18, 200]),
           getLineWidth: 2,
           lineWidthUnits: "pixels",
           stroked: true,
@@ -150,12 +150,12 @@ export function FloodScene({
           getPosition: (d) => [d.lon, d.lat],
           getText: (d) => `S${d.id}`,
           getSize: 11,
-          getColor: [242, 243, 245, 230],
+          getColor: [232, 237, 244, 230],
           getPixelOffset: [0, -16],
           fontFamily: "monospace",
           characterSet: "auto",
           outlineWidth: 2,
-          outlineColor: [11, 12, 14, 220],
+          outlineColor: [8, 11, 16, 220],
           fontSettings: { sdf: true },
           parameters: { depthCompare: "always" as const },
         }) as unknown as Layer,
@@ -242,7 +242,7 @@ export function FloodScene({
       }}
     >
     </DeckGL>
-      <p className="pointer-events-none absolute bottom-1 right-2 text-[9.5px] text-ink-faint">
+      <p className="pointer-events-none absolute bottom-1 right-2 text-[11px] text-ink-faint">
         Imagery © Esri, Maxar, Earthstar Geographics
       </p>
     </div>

@@ -76,8 +76,8 @@ export function Timeline({
       </div>
 
       <div className="tnum shrink-0 text-right">
-        <p className="text-[12.5px] font-medium text-ink">{fmtHours(f.t_hours)}</p>
-        <p className="text-[10.5px] text-ink-faint">
+        <p className="text-[13px] font-medium text-ink">{fmtHours(f.t_hours)}</p>
+        <p className="text-[12px] text-ink-faint">
           t+{f.t_hours.toFixed(1)} h · frame {f.i + 1}/{frames.length}
         </p>
       </div>

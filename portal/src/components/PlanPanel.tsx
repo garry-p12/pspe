@@ -85,34 +85,34 @@ export function PlanPanel({
         onClick={run}
         disabled={busy || crestLengths.length === 0}
         className="w-full rounded border border-accent/50 bg-accent/10 px-3 py-2
-                   text-[12px] text-accent transition-colors hover:bg-accent/20
+                   text-[13px] text-accent transition-colors hover:bg-accent/20
                    disabled:cursor-not-allowed disabled:opacity-50"
       >
         {busy ? "Searching…" : `Find the best plan for A$${budgetM}M`}
       </button>
 
-      {err && <p className="mt-2 text-[11px] text-danger">{err}</p>}
+      {err && <p className="mt-2 text-[12px] text-danger">{err}</p>}
 
       {plan && (
         <div className="mt-3 space-y-3">
           {built.length === 0 ? (
-            <p className="text-[12px] text-ink-mute">
+            <p className="text-[13px] text-ink-mute">
               Nothing affordable at this budget improves flooding here. Raising
               the budget is the next thing to try.
             </p>
           ) : (
             <>
               <div>
-                <p className="text-[11px] text-ink-faint">Build</p>
+                <p className="text-[12px] text-ink-faint">Build</p>
                 <ul className="mt-1 space-y-0.5">
                   {built.map(({ h, i }) => (
-                    <li key={i} className="flex justify-between text-[12px]">
+                    <li key={i} className="flex justify-between text-[13px]">
                       <span className="text-ink">Levee at site {i}</span>
                       <span className="tnum text-ink-mute">{h.toFixed(1)} m</span>
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 tnum text-[11px] text-ink-faint">
+                <p className="mt-1 tnum text-[12px] text-ink-faint">
                   A${(plan.cost_aud / 1e6).toFixed(1)}M of A$
                   {(plan.budget_aud / 1e6).toFixed(0)}M
                 </p>
@@ -120,20 +120,20 @@ export function PlanPanel({
 
               <div className="rounded border border-line-soft bg-bg-raised p-3">
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[11px] text-ink-faint">Estimated</span>
-                  <span className="tnum text-[15px] font-semibold text-ink">
+                  <span className="text-[12px] text-ink-faint">Estimated</span>
+                  <span className="tnum text-[18px] font-semibold text-ink">
                     {plan.reduction_pct.toFixed(0)}%
                   </span>
                 </div>
                 <div className="mt-1.5 flex items-baseline justify-between">
-                  <span className="text-[11px] text-ink-faint">
+                  <span className="text-[12px] text-ink-faint">
                     At least, {plan.confidence_pct ?? 90}% of the time
                   </span>
-                  <span className="tnum text-[15px] font-semibold text-accent">
+                  <span className="tnum text-[18px] font-semibold text-accent">
                     {plan.guaranteed_pct.toFixed(0)}%
                   </span>
                 </div>
-                <p className="mt-2 text-[10.5px] leading-snug text-ink-faint">
+                <p className="mt-2 text-[12px] leading-snug text-ink-faint">
                   {plan.band_attainable
                     ? `Margin ±${plan.band_pct.toFixed(0)} points, from ${plan.n_calibration_runs} held-out solver runs. Write the business case against the lower figure.`
                     : plan.band_note}
@@ -142,12 +142,12 @@ export function PlanPanel({
 
               {plan.attribution?.length > 1 && (
                 <div>
-                  <p className="text-[11px] text-ink-faint">
+                  <p className="text-[12px] text-ink-faint">
                     What each measure adds, in this plan
                   </p>
                   <ul className="mt-1 space-y-1">
                     {plan.attribution.map((a) => (
-                      <li key={a.site} className="text-[11.5px]">
+                      <li key={a.site} className="text-[13px]">
                         <div className="flex justify-between">
                           <span className="text-ink">
                             Site {a.site} ({a.height_m.toFixed(1)} m)
@@ -156,14 +156,14 @@ export function PlanPanel({
                             +{a.marginal_pct.toFixed(0)}%
                           </span>
                         </div>
-                        <p className="text-[10.5px] text-ink-faint">
+                        <p className="text-[12px] text-ink-faint">
                           {a.alone_pct.toFixed(0)}% on its own; {a.overlap_pct.toFixed(0)}
                           {" "}points of that is already covered by the rest of the plan
                         </p>
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-1.5 text-[10.5px] leading-snug text-ink-faint">
+                  <p className="mt-1.5 text-[12px] leading-snug text-ink-faint">
                     Removing a measure from this plan costs what is shown beside
                     it, which is not the same as what it would achieve alone.
                   </p>
@@ -171,7 +171,7 @@ export function PlanPanel({
               )}
 
               {plan.harmful?.length > 0 && (
-                <p className="text-[10.5px] leading-snug text-ink-faint">
+                <p className="text-[12px] leading-snug text-ink-faint">
                   Not selected:{" "}
                   {plan.harmful.map((h) => `site ${h.site} (${h.alone_pct.toFixed(0)}%)`).join(", ")}
                   {" "}— the model measures these as deepening flooding at the
@@ -180,7 +180,7 @@ export function PlanPanel({
               )}
 
               {plan.verify.required && (
-                <p className="text-[10.5px] leading-snug text-ink-faint">
+                <p className="text-[12px] leading-snug text-ink-faint">
                   {plan.verify.why}
                 </p>
               )}

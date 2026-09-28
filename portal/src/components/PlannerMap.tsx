@@ -9,11 +9,8 @@ import { BitmapLayer, GeoJsonLayer, ScatterplotLayer } from "@deck.gl/layers";
 import type { Manifest } from "@/lib/types";
 import { ELEVATION_DECODER, frameUrl } from "@/lib/data";
 
-// A grey canvas rather than colour imagery. Satellite tiles put green fields
-// and brown ground under a flood layer, and the eye reads that hue as data; a
-// neutral base leaves the only tone on the map belonging to the water.
 const IMAGERY =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}";
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 
 export interface MeasureMarker {
   id: number;
@@ -107,7 +104,14 @@ export function PlannerMap({
         id: "imagery",
         data: IMAGERY,
         minZoom: 0,
-        maxZoom: 19,
+        // Esri's imagery reaches z19+ over cities but stops at z17-18 over
+        // farmland and remote ground, and a request past the end of a service
+        // does not fail -- it returns a grey "Map data not available" tile,
+        // which then gets drawn as though it were the world. Capping here makes
+        // deck.gl magnify the deepest real tile instead: slightly soft close in,
+        // but always imagery. This tool opens anywhere on Earth, so the cap has
+        // to hold for the thinnest coverage, not the best.
+        maxZoom: 18,
         tileSize: 256,
         renderSubLayers: (props) => {
           const { boundingBox } = props.tile;
@@ -142,13 +146,8 @@ export function PlannerMap({
           bScaler: ELEVATION_DECODER.bScaler * 5,
           offset: ELEVATION_DECODER.offset * 5,
         },
-        // Flat, map-like shading rather than a lit relief. Now that the flood
-        // drape carries real tonal contrast, 5x-exaggerated terrain under
-        // strong diffuse light gave every DEM bump its own light and shadow,
-        // and the result read as a photograph of a landscape rather than a
-        // drawing of one.
-        material: { ambient: 0.9, diffuse: 0.15, shininess: 1,
-                    specularColor: [0, 0, 0] },
+        material: { ambient: 0.55, diffuse: 0.6, shininess: 6,
+                    specularColor: [30, 45, 60] },
       }) as unknown as Layer,
     );
     if (roads) {
@@ -159,28 +158,20 @@ export function PlannerMap({
           stroked: true,
           filled: false,
           lineWidthUnits: "pixels",
-          // Severity is carried TWICE -- brightness and width -- so the map
-          // still reads printed in greyscale, projected, or by someone who
-          // cannot separate red from amber. A cut road is the brightest and
-          // heaviest line on the panel; an open one recedes into the base.
           getLineWidth: (f) => {
-            const id = (f as GeoJSON.Feature).properties?.id as number | undefined;
-            const frac = id != null ? (cutFraction?.get(id) ?? 0) : 0;
             const c = (f as GeoJSON.Feature).properties?.class;
-            const base = c === "primary" || c === "secondary" ? 2.2 : 1.1;
-            if (frac > 0.5) return base + 1.4;
-            if (frac > 0.05) return base + 0.6;
-            return base;
+            return c === "primary" || c === "secondary" ? 2.2 : 1.1;
           },
+          // Red where the road is cut at the chosen depth, pale where it is
+          // passable. A planner reads the network, not the depth field.
           getLineColor: (f) => {
             const id = (f as GeoJSON.Feature).properties?.id as number | undefined;
             const frac = id != null ? (cutFraction?.get(id) ?? 0) : 0;
-            // On a light ground the loudest mark is the darkest one.
-            if (frac > 0.5) return [11, 12, 14, 250];
-            if (frac > 0.05) return [90, 93, 99, 230];
-            return [150, 153, 159, 130];
+            if (frac > 0.5) return [248, 113, 113, 235];
+            if (frac > 0.05) return [251, 191, 36, 215];
+            return [232, 237, 244, 120];
           },
-          updateTriggers: { getLineColor: cutFraction, getLineWidth: cutFraction },
+          updateTriggers: { getLineColor: cutFraction },
           parameters: { depthCompare: "always" as const },
         }) as unknown as Layer,
       );
@@ -225,9 +216,9 @@ export function PlannerMap({
           radiusUnits: "pixels",
           getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
           getRadius: 9,
-          getFillColor: [11, 12, 14, 235],
+          getFillColor: [56, 189, 248, 235],
           stroked: true,
-          getLineColor: [255, 255, 255, 230],
+          getLineColor: [255, 255, 255, 220],
           getLineWidth: 2,
           lineWidthUnits: "pixels",
           parameters: { depthCompare: "always" as const },
@@ -243,25 +234,15 @@ export function PlannerMap({
           radiusUnits: "pixels",
           getPosition: (d) => [d.lon, d.lat],
           getRadius: (d) => (d.selected ? 15 : 11),
-          // Fill against outline, not colour against colour. A selected measure
-          // that makes flooding WORSE is filled solid white with a heavy dark
-          // ring -- the loudest mark available on a dark ground. A selected
-          // measure that helps is an open ring. Unselected candidates sit at
-          // mid grey and stay out of the way.
           getFillColor: (d) =>
             d.selected
               ? d.worsens
-                ? [11, 12, 14, 250]      // solid black: the loudest mark here
-                : [255, 255, 255, 235]   // open: helps
-              : [255, 255, 255, 180],
+                ? [248, 113, 113, 240]
+                : [56, 189, 248, 240]
+              : [148, 163, 184, 170],
           stroked: true,
-          getLineColor: (d) =>
-            d.selected
-              ? d.worsens
-                ? [255, 255, 255, 250]
-                : [11, 12, 14, 250]
-              : [90, 93, 99, 220],
-          getLineWidth: (d) => (d.selected ? 3 : 2),
+          getLineColor: (d) => (d.selected ? [255, 255, 255, 235] : [8, 11, 16, 190]),
+          getLineWidth: 2,
           lineWidthUnits: "pixels",
           onClick: ({ object }) => object && onMarker(object.id),
           updateTriggers: { getRadius: markers, getFillColor: markers, getLineColor: markers },
@@ -302,7 +283,7 @@ export function PlannerMap({
           };
         }}
       />
-      <p className="pointer-events-none absolute bottom-1 right-2 text-[9.5px] text-ink-faint">
+      <p className="pointer-events-none absolute bottom-1 right-2 text-[11px] text-ink-faint">
         Imagery © Esri · Roads © OpenStreetMap contributors
       </p>
     </div>

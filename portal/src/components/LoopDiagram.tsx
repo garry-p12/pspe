@@ -53,19 +53,19 @@ export function LoopDiagram() {
             className="group flex h-full flex-col rounded-xl border border-line bg-bg-raised p-4 transition-colors hover:border-accent/40"
           >
             <div className="mb-2 flex items-center gap-2">
-              <span className="tnum text-[10px] text-ink-faint">
+              <span className="tnum text-[11px] text-ink-faint">
                 {String(i + 1).padStart(2, "0")}
               </span>
-              <h3 className="text-[14px] font-semibold tracking-tight text-ink group-hover:text-accent">
+              <h3 className="text-[15px] font-semibold tracking-tight text-ink group-hover:text-accent">
                 {m.name}
               </h3>
             </div>
-            <p className="mb-3 text-[12.5px] leading-relaxed text-ink-mute">
+            <p className="mb-3 text-[13px] leading-relaxed text-ink-mute">
               {m.line}
             </p>
             <div className="mt-auto">
               <EvidenceBadge badge={m.badge} />
-              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
+              <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
                 {m.evidence}
               </p>
             </div>

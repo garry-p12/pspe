@@ -49,7 +49,7 @@ export default function LimitsPage() {
         <h1 className="text-[30px] font-semibold leading-tight tracking-tight">
           What this cannot show
         </h1>
-        <p className="mt-3 text-[14px] leading-relaxed text-ink-mute">
+        <p className="mt-3 text-[15px] leading-relaxed text-ink-mute">
           This page is not a disclaimer appended to a demo. Two of the entries
           below are results this project published internally and then withdrew
           after measurement contradicted them. A twin that cannot say what it is
@@ -60,8 +60,8 @@ export default function LimitsPage() {
       <div className="mb-10 flex flex-col gap-3">
         {GAPS.map((g) => (
           <Panel key={g.title} title={g.title}>
-            <p className="text-[13px] leading-relaxed text-ink-mute">{g.body}</p>
-            <p className="mt-2.5 border-l-2 border-line pl-3 text-[12px] leading-relaxed text-ink-faint">
+            <p className="text-[15px] leading-relaxed text-ink-mute">{g.body}</p>
+            <p className="mt-2.5 border-l-2 border-line pl-3 text-[13px] leading-relaxed text-ink-faint">
               <span className="eyebrow mr-1.5">What would close it</span>
               {g.closes}
             </p>

@@ -36,7 +36,7 @@ export function ForecastPanel() {
     return (
       <div className="border-b border-line-soft p-4">
         <p className="eyebrow mb-1">Live forecast</p>
-        <p className="text-[12px] text-ink-faint">
+        <p className="text-[13px] text-ink-faint">
           Forecast feed unavailable. Design-event planning below is unaffected.
         </p>
       </div>
@@ -58,7 +58,7 @@ export function ForecastPanel() {
     <div className={`border-b border-line-soft p-4`}>
       <div className="mb-2 flex items-center justify-between">
         <p className="eyebrow">Next 7 days</p>
-        <span className="text-[10px] text-ink-faint">
+        <span className="text-[11px] text-ink-faint">
           {issued.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
         </span>
       </div>
@@ -66,9 +66,9 @@ export function ForecastPanel() {
       <div className={`rounded-lg border ${t.ring} ${t.bg} px-3 py-2.5`}>
         <div className="flex items-center gap-2">
           <span className={`h-2 w-2 shrink-0 rounded-full ${t.dot}`} />
-          <p className={`text-[13px] font-semibold ${t.text}`}>{f.band.headline}</p>
+          <p className={`text-[15px] font-semibold ${t.text}`}>{f.band.headline}</p>
         </div>
-        <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
           {f.band.detail}
         </p>
       </div>
@@ -80,7 +80,7 @@ export function ForecastPanel() {
               className="w-full rounded-sm bg-accent/60"
               style={{ height: `${Math.max(2, (d.mm / maxDay) * 34)}px` }}
             />
-            <p className="mt-1 text-center text-[9px] text-ink-faint">
+            <p className="mt-1 text-center text-[11px] text-ink-faint">
               {new Date(d.date).toLocaleDateString(undefined, { weekday: "narrow" })}
             </p>
           </div>
@@ -90,19 +90,19 @@ export function ForecastPanel() {
       <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-line-soft pt-3">
         <div>
           <dt className="eyebrow mb-0.5">Worst 48 h</dt>
-          <dd className="tnum text-[14px] font-semibold text-ink">
+          <dd className="tnum text-[15px] font-semibold text-ink">
             {f.max_48h_mm.toFixed(0)} mm
           </dd>
-          <dd className="text-[10px] text-ink-faint">
+          <dd className="text-[11px] text-ink-faint">
             {(f.fraction_of_reference * 100).toFixed(0)}% of the 2022 event
           </dd>
         </div>
         <div>
           <dt className="eyebrow mb-0.5">Peak river flow</dt>
-          <dd className="tnum text-[14px] font-semibold text-ink">
+          <dd className="tnum text-[15px] font-semibold text-ink">
             {f.peak_discharge_m3s.toFixed(1)} m³/s
           </dd>
-          <dd className="text-[10px] text-ink-faint">forecast maximum</dd>
+          <dd className="text-[11px] text-ink-faint">forecast maximum</dd>
         </div>
       </dl>
     </div>

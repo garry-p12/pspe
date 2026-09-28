@@ -75,17 +75,17 @@ export function MarginExplorer() {
     <div className="mx-auto max-w-[1200px] px-5 py-8">
       <header className="mb-6 max-w-3xl">
         <p className="eyebrow mb-2">Safety margin</p>
-        <h1 className="text-[28px] font-semibold leading-tight tracking-tight">
+        <h1 className="text-[30px] font-semibold leading-tight tracking-tight">
           A margin is only usable when it fits
         </h1>
-        <p className="mt-3 text-[13.5px] leading-relaxed text-ink-mute">
+        <p className="mt-3 text-[15px] leading-relaxed text-ink-mute">
           To respect a limit at failure rate δ, the planner tightens it by a
           calibrated margin. That margin has to come out of the gain the
           intervention was going to buy. If it exceeds that gain there is nothing
           left to plan with — so feasibility is a precondition you can check
           before committing, not something to discover afterwards.
         </p>
-        <p className="mt-3 rounded-lg border border-line bg-bg-inset px-3 py-2 font-mono text-[12.5px] text-ink">
+        <p className="mt-3 rounded-lg border border-line bg-bg-inset px-3 py-2 font-mono text-[13px] text-ink">
           b + z<sub>δ</sub>·σ &nbsp;&lt;&nbsp; f · s
         </p>
       </header>
@@ -141,10 +141,10 @@ export function MarginExplorer() {
               onChange={(e) => setF(Number(e.target.value))}
               className="w-full accent-[var(--accent)]"
             />
-            <div className="tnum mt-1 flex justify-between text-[11px] text-ink-faint">
+            <div className="tnum mt-1 flex justify-between text-[12px] text-ink-faint">
               <span>10%</span><span className="text-ink">f = {fmt(f, 2)}</span><span>60%</span>
             </div>
-            <p className="mt-3 text-[12px] leading-relaxed text-ink-mute">
+            <p className="mt-3 text-[13px] leading-relaxed text-ink-mute">
               f is how much of the achievable improvement you are willing to give
               back for a guarantee. It is a decision, not a constant — and moving
               it moves the crossing.
@@ -157,7 +157,7 @@ export function MarginExplorer() {
               unit="% spread"
               tone={crossing ? "warn" : "default"}
             />
-            <p className="mt-2.5 text-[12px] leading-relaxed text-ink-mute">
+            <p className="mt-2.5 text-[13px] leading-relaxed text-ink-mute">
               Below this, a δ=0.1 margin fits inside the gain. Above it, the
               margin consumes more than the intervention was worth. This is the
               number a forecast product can be held to.
@@ -191,14 +191,14 @@ export function MarginExplorer() {
             </ResponsiveContainer>
           </div>
           <div>
-            <p className="text-[12.5px] leading-relaxed text-ink-mute">
+            <p className="text-[13px] leading-relaxed text-ink-mute">
               A structure only matters when the water is near its crest — and that
               is precisely where depth is most sensitive to a forecast error. A
               10% error in discharge becomes a <b className="text-ink">four-fold</b>{" "}
               error in depth at the threshold, decaying to about 2× once the
               defence is comprehensively over-topped.
             </p>
-            <p className="mt-3 text-[12.5px] leading-relaxed text-ink-mute">
+            <p className="mt-3 text-[13px] leading-relaxed text-ink-mute">
               So the regime where an intervention has leverage is the regime where
               a calibrated margin is hardest to fit. That tension is structural,
               and it is not specific to flood.

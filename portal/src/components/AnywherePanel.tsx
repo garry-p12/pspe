@@ -163,7 +163,7 @@ export function AnywherePanel({
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="Search a town, river or region…"
-        className="w-full rounded-md border border-line bg-bg-inset px-2.5 py-1.5 text-[12.5px] text-ink placeholder:text-ink-faint focus:border-accent/60 focus:outline-none"
+        className="w-full rounded-md border border-line bg-bg-inset px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-faint focus:border-accent/60 focus:outline-none"
       />
 
       {places.length > 0 && !busy && (
@@ -173,7 +173,7 @@ export function AnywherePanel({
               <button
                 onMouseEnter={() => onPreview({ lat: p.lat, lon: p.lon })}
                 onClick={() => { setChosen(p); setPlaces([]); setQ(p.short); run(p); }}
-                className="w-full truncate rounded px-2 py-1 text-left text-[11.5px] text-ink-mute hover:bg-bg-inset hover:text-ink"
+                className="w-full truncate rounded px-2 py-1 text-left text-[13px] text-ink-mute hover:bg-bg-inset hover:text-ink"
                 title={p.name}
               >
                 {p.short}
@@ -188,7 +188,7 @@ export function AnywherePanel({
           <button
             key={s.label}
             onClick={() => setStorm(i)}
-            className={`rounded-md border px-1 py-1.5 text-[10.5px] transition-colors ${
+            className={`rounded-md border px-1 py-1.5 text-[12px] transition-colors ${
               i === storm
                 ? "border-accent/60 bg-accent/10 text-accent"
                 : "border-line text-ink-mute hover:text-ink"
@@ -199,12 +199,12 @@ export function AnywherePanel({
           </button>
         ))}
       </div>
-      <p className="mt-1.5 text-[10.5px] text-ink-faint">{STORMS[storm].note}</p>
+      <p className="mt-1.5 text-[12px] text-ink-faint">{STORMS[storm].note}</p>
 
       {chosen && !busy && (
         <button
           onClick={() => run(chosen)}
-          className="mt-3 w-full rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 text-[12px] text-accent transition-colors hover:bg-accent/20"
+          className="mt-3 w-full rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent/20"
         >
           Re-run {chosen.short} with this storm
         </button>
@@ -212,8 +212,8 @@ export function AnywherePanel({
 
       {busy && (
         <div className="mt-3 rounded-lg border border-line bg-bg-inset p-3">
-          <p className="text-[12px] text-ink">Modelling {chosen?.short}…</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
+          <p className="text-[13px] text-ink">Modelling {chosen?.short}…</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-ink-faint">
             Fetching terrain, then solving the shallow-water equations over the
             catchment. About a minute.
           </p>
@@ -223,14 +223,14 @@ export function AnywherePanel({
               style={{ width: `${Math.min(96, elapsed * 1.6)}%` }}
             />
           </div>
-          <p className="tnum mt-1 text-[10px] text-ink-faint">{elapsed}s</p>
+          <p className="tnum mt-1 text-[11px] text-ink-faint">{elapsed}s</p>
         </div>
       )}
 
       {err && (
         <div className="mt-3 rounded-lg border border-bad/40 bg-bad/5 p-3">
-          <p className="text-[12px] font-medium text-bad">Could not model that area</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-ink-mute">{err}</p>
+          <p className="text-[13px] font-medium text-bad">Could not model that area</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-ink-mute">{err}</p>
         </div>
       )}
 
@@ -241,7 +241,7 @@ export function AnywherePanel({
             {levees.length > 0 && (
               <button
                 onClick={() => { onLevees([]); run(chosen, []); }}
-                className="text-[10.5px] text-ink-faint hover:text-ink"
+                className="text-[12px] text-ink-faint hover:text-ink"
               >
                 clear
               </button>
@@ -249,7 +249,7 @@ export function AnywherePanel({
           </div>
           <button
             onClick={() => onPlacing(!placing)}
-            className={`w-full rounded-md border px-2 py-1.5 text-[11.5px] transition-colors ${
+            className={`w-full rounded-md border px-2 py-1.5 text-[13px] transition-colors ${
               placing
                 ? "border-accent/60 bg-accent/15 text-accent"
                 : "border-line text-ink-mute hover:text-ink"
@@ -259,13 +259,13 @@ export function AnywherePanel({
           </button>
           {levees.length > 0 && (
             <>
-              <p className="tnum mt-2 text-[11px] text-ink-mute">
+              <p className="tnum mt-2 text-[12px] text-ink-mute">
                 {levees.length} levee{levees.length > 1 ? "s" : ""} · 2.5 m high,
                 600 m long
               </p>
               <button
                 onClick={() => run(chosen, levees)}
-                className="mt-2 w-full rounded-md border border-accent/50 bg-accent/10 px-2 py-1.5 text-[11.5px] text-accent hover:bg-accent/20"
+                className="mt-2 w-full rounded-md border border-accent/50 bg-accent/10 px-2 py-1.5 text-[13px] text-accent hover:bg-accent/20"
               >
                 Model with these levees
               </button>
@@ -279,7 +279,7 @@ export function AnywherePanel({
                 onClick={() => planHere(chosen, levees)}
                 disabled={planning || levees.length < 2}
                 className="mt-2 w-full rounded-md border border-line px-2 py-1.5
-                           text-[11.5px] text-ink transition-colors
+                           text-[13px] text-ink transition-colors
                            hover:border-accent/50 disabled:opacity-50"
               >
                 {planning
@@ -287,33 +287,33 @@ export function AnywherePanel({
                   : `Plan the best use of a budget (${levees.length} site${levees.length > 1 ? "s" : ""})`}
               </button>
               {levees.length < 4 && (
-                <p className="mt-1 text-[10px] leading-snug text-ink-faint">
+                <p className="mt-1 text-[11px] leading-snug text-ink-faint">
                   Four or more candidate sites are needed before a 90% margin can
                   be calibrated.
                 </p>
               )}
               {planErr && (
-                <p className="mt-1 text-[10.5px] leading-snug text-ink-mute">{planErr}</p>
+                <p className="mt-1 text-[12px] leading-snug text-ink-mute">{planErr}</p>
               )}
               {plan?.ok && (
                 <div className="mt-2 border-t border-line-soft pt-2">
                   <div className="flex items-baseline justify-between">
-                    <span className="text-[10.5px] text-ink-faint">Estimated</span>
-                    <span className="tnum text-[13px] font-semibold text-ink">
+                    <span className="text-[12px] text-ink-faint">Estimated</span>
+                    <span className="tnum text-[15px] font-semibold text-ink">
                       {plan.reduction_pct.toFixed(1)}%
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between">
-                    <span className="text-[10.5px] text-ink-faint">
+                    <span className="text-[12px] text-ink-faint">
                       At least, {plan.confidence_pct}% of the time
                     </span>
-                    <span className="tnum text-[13px] font-semibold text-accent">
+                    <span className="tnum text-[15px] font-semibold text-accent">
                       {plan.guaranteed_pct.toFixed(1)}%
                     </span>
                   </div>
                   <ul className="mt-1.5 space-y-0.5">
                     {plan.attribution.map((a) => (
-                      <li key={a.site} className="flex justify-between text-[10.5px]">
+                      <li key={a.site} className="flex justify-between text-[12px]">
                         <span className="text-ink-mute">
                           Site {a.site} at {a.height_m.toFixed(1)} m
                         </span>
@@ -322,13 +322,13 @@ export function AnywherePanel({
                     ))}
                   </ul>
                   {plan.harmful.length > 0 && (
-                    <p className="mt-1 text-[10px] leading-snug text-ink-faint">
+                    <p className="mt-1 text-[11px] leading-snug text-ink-faint">
                       Rejected:{" "}
                       {plan.harmful.map((h) => `site ${h.site} (${h.alone_pct.toFixed(1)}%)`).join(", ")}
                       {" "}— measured as deepening flooding here.
                     </p>
                   )}
-                  <p className="mt-1 text-[10px] leading-snug text-ink-faint">
+                  <p className="mt-1 text-[11px] leading-snug text-ink-faint">
                     {plan.scenarios_solved} options solved on this terrain in{" "}
                     {plan.timing.seconds}s. {plan.band_note}
                   </p>
@@ -336,7 +336,7 @@ export function AnywherePanel({
               )}
               {baseline && res && res.levees && res.levees.length > 0 && (
                 <div className="mt-2 border-t border-line-soft pt-2">
-                  <p className="text-[11.5px] leading-relaxed">
+                  <p className="text-[13px] leading-relaxed">
                     {res.flooded_km2 < baseline.flooded_km2 - 0.05 ? (
                       <span className="text-ok">
                         Reduces flooding by{" "}
@@ -364,27 +364,27 @@ export function AnywherePanel({
 
       {res && !busy && (
         <div className="mt-3 rounded-lg border border-line bg-bg-inset p-3">
-          <p className="mb-2 text-[12.5px] font-semibold text-ink">{res.name}</p>
+          <p className="mb-2 text-[13px] font-semibold text-ink">{res.name}</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="eyebrow mb-0.5">Area flooded</p>
-              <p className="tnum text-[18px] font-semibold leading-none text-bad">
+              <p className="tnum text-[24px] font-semibold leading-none text-bad">
                 {res.flooded_km2.toFixed(1)} km²
               </p>
             </div>
             <div>
               <p className="eyebrow mb-0.5">Deepest</p>
-              <p className="tnum text-[18px] font-semibold leading-none text-ink">
+              <p className="tnum text-[24px] font-semibold leading-none text-ink">
                 {res.peak_depth_m.toFixed(1)} m
               </p>
             </div>
           </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-ink-mute">
+          <p className="mt-2 text-[12px] leading-relaxed text-ink-mute">
             {res.extent_km[0]}×{res.extent_km[1]} km at {res.dx_m} m ·
             ground {res.elevation_range_m[0].toFixed(0)}–
             {res.elevation_range_m[1].toFixed(0)} m
           </p>
-          <p className="mt-2 border-t border-line-soft pt-2 text-[10.5px] text-ink-faint">
+          <p className="mt-2 border-t border-line-soft pt-2 text-[12px] text-ink-faint">
             Terrain from Copernicus DEM · solved in{" "}
             {(res.timing.dem_seconds + res.timing.seconds).toFixed(0)}s
             {res.cached ? " (cached)" : ""}

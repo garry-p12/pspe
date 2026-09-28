@@ -31,7 +31,7 @@ export function RoadQueryPanel({
     return (
       <div className="border-b border-line-soft p-4">
         <p className="eyebrow mb-1">Road access</p>
-        <p className="text-[11.5px] text-ink-faint">Loading network…</p>
+        <p className="text-[13px] text-ink-faint">Loading network…</p>
       </div>
     );
   }
@@ -45,7 +45,7 @@ export function RoadQueryPanel({
           <button
             key={p.m}
             onClick={() => setIdx(i)}
-            className={`rounded-md border px-1 py-1.5 text-[10.5px] leading-tight transition-colors ${
+            className={`rounded-md border px-1 py-1.5 text-[12px] leading-tight transition-colors ${
               i === idx
                 ? "border-accent/60 bg-accent/10 text-accent"
                 : "border-line text-ink-mute hover:text-ink"
@@ -56,17 +56,17 @@ export function RoadQueryPanel({
           </button>
         ))}
       </div>
-      <p className="mb-3 text-[10.5px] text-ink-faint">
+      <p className="mb-3 text-[12px] text-ink-faint">
         {preset.note} · above {(preset.m * 100).toFixed(0)} cm
       </p>
 
       {q && (
         <>
           <div className="flex items-baseline gap-2">
-            <span className="tnum text-[21px] font-semibold leading-none text-bad">
+            <span className="tnum text-[24px] font-semibold leading-none text-bad">
               {q.cutKm.toFixed(0)} km
             </span>
-            <span className="text-[11.5px] text-ink-mute">
+            <span className="text-[13px] text-ink-mute">
               cut of {q.totalKm.toFixed(0)} km
             </span>
           </div>
@@ -76,7 +76,7 @@ export function RoadQueryPanel({
               style={{ width: `${Math.min(100, (q.cutKm / q.totalKm) * 100)}%` }}
             />
           </div>
-          <p className="mt-1 text-[10.5px] text-ink-faint">
+          <p className="mt-1 text-[12px] text-ink-faint">
             {((q.cutKm / q.totalKm) * 100).toFixed(0)}% of the mapped network
           </p>
 
@@ -88,12 +88,12 @@ export function RoadQueryPanel({
                   .filter((r) => r.name)
                   .slice(0, 7)
                   .map((r) => (
-                    <li key={r.id} className="flex items-baseline gap-2 text-[11.5px]">
+                    <li key={r.id} className="flex items-baseline gap-2 text-[13px]">
                       <span className="flex-1 truncate text-ink-mute">{r.name}</span>
                       <span className="tnum shrink-0 text-ink-faint">
                         {r.cutKm.toFixed(1)} km
                       </span>
-                      <span className="tnum w-9 shrink-0 text-right text-[10px] text-ink-faint">
+                      <span className="tnum w-9 shrink-0 text-right text-[11px] text-ink-faint">
                         {((r.cutKm / r.totalKm) * 100).toFixed(0)}%
                       </span>
                     </li>
