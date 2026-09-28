@@ -2925,6 +2925,100 @@ should trigger a solver run and currently tells the user to do so. And Perceive
 reports the observation beside the model rather than assimilating it: the twin
 loop of §5.2a is not closed in the product.
 
+### 5.12 What drives the flood, and the trench underneath every ad-hoc result (2026-09-28)
+
+**The symptom.** A coastal city returned every mitigation option at "no
+change", with one pair marginally *worse*. Correct, for what was being solved,
+and the reason is structural: the ad-hoc solver applied rainfall uniformly over
+the whole box with every edge open. **A levee redirects water that arrives from
+somewhere; it has nothing to block when the rain lands on both sides of it.**
+The pair that came out worse is the same mechanism — two walls trapping the rain
+falling inside them.
+
+That is why Richmond shows 47% and an arbitrary flat city shows nothing. Rain
+on a river valley still concentrates into a channel and a levee blocks the
+route; flat coastal ground has no route.
+
+**Defect 31 — nodata was filled with sea level, and inland that is a trench.**
+`build_domain` did `nan_to_num(nan=0.0)`, reasoning that Copernicus reads ocean
+as nodata. True, and right for a coastal box. Reprojecting WGS84 tiles into UTM
+leaves wedge-shaped gaps along the edges, so **Cedar Rapids, a city at 247 m,
+was solved with a 247 m trench ringing the domain**: 3.6% of cells at exactly
+0 m, covering 84–100% of every boundary, an artificial sink for the entire
+catchment to drain into.
+
+| | before | after |
+|---|---|---|
+| elevation range | 0 – 296 m | **208 – 296 m** |
+| relief | 296 m | 88 m |
+| cells below 10 m | 3.6% | 0.0% |
+
+Nearest-neighbour fill instead: it extends real terrain outward, so inland
+stays inland, and a true coastline — where the nearest valid cells are already
+near zero — still fills to about sea level. **Every ad-hoc flood extent
+produced before this was drawn over that trench**, including the 29 m depths
+that prompted the question in the first place.
+
+**Rule 34: nodata is unknown ground, not a value.** Substituting a plausible
+number for "no data" is a modelling decision disguised as a cleanup, and one
+that is right in the case you were thinking of is usually wrong in the case you
+were not.
+
+**Three drivers, inferred from the terrain.** `pspe/simulate/real/forcing.py`
+reads the DEM for what can force it, with nothing for the user to draw:
+
+| | Cedar Rapids | Richmond NSW |
+|---|---|---|
+| river | west edge, 240 m wide, drains east, 8.4 m fall | none |
+| coastal | none | east edge, 27.7 km |
+| min elevation | 208 m | −0.9 m |
+
+Two corrections were needed to get that right, and both were caught by a number
+looking wrong rather than by a test. Measuring "channel" as cells below the edge
+**median** selected 78 cells — 4.7 km of floodplain, and spreading a river's
+discharge across that is rainfall again; measured from the edge **minimum** it
+finds the four cells that are the channel. And taking the highest crossing as
+upstream picked a 238 m road cutting, where the real channel runs 217 m in to
+208 m out — the two lowest crossings are the river, and upstream is the higher
+of those.
+
+**Defect 32 — an inflow poured in as a volume rather than held as a stage.**
+Injecting 6,036 m³/s as a source term into the few cells of a channel makes
+water arrive faster than it can spread: the first run reached **112 m deep**, a
+number with no physical meaning. A boundary sets a *state*. Manning's normal
+depth for the discharge over the measured width and bed fall does it with no
+free parameters:
+
+    h = (Q n / (W sqrt(S)))^(3/5)   ->   10.2 m stage, 11.7 m peak
+
+**Rule 35: a boundary condition sets a state, not a volume.** Adding mass at a
+boundary makes the cell the bottleneck and the depth an artefact of the cell
+size. The coastal surge uses the same mechanism — hold a level at named cells,
+raise-only so the boundary never drains the land — so the two drivers differ
+only in where the level comes from.
+
+**What it changes.** Cedar Rapids, four candidate sites, A$20M:
+
+| forcing | best site alone | best plan | verdict |
+|---|---|---|---|
+| rainfall | 0.4% | — | "no measure worth building" |
+| river, as a volume | 7.6% | 8.5% | physically void (112 m deep) |
+| **river, as a stage** | **16.2%** | **21.3%, guaranteed 20.8%** | 17 held-out combinations |
+
+**And the honesty requirement that came with it.** A driver the terrain cannot
+support falls back to rainfall, and both `/analyse` and `/plan` now report what
+was *actually* applied rather than what was asked — "6,036 m³/s on the west
+edge, 2× the forecast peak of 2,414, held as a 10.2 m stage". The baseline takes
+the driver too, so "doing nothing" and the plan cannot disagree about what they
+are comparing.
+
+**What this does not fix.** The discharge is Open-Meteo's forecast peak scaled
+by the chosen storm, not a fitted design flood; the 2× at Cedar Rapids lands at
+6,036 m³/s against the 2008 event's ~5,400, which is the right order and not a
+return period. Roughness is a uniform literature value. And the surge height is
+a user input, not a joint-probability analysis. These are the ordinary
+limitations of a planning tool and are stated in the interface.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
@@ -3075,7 +3169,7 @@ of argument.
     batch all change whether a boundary case is reached, and a diagnosis that
     is right about the mechanism can still be wrong about the consequence.
 
-### Defects 19–30, from the flood and wildfire datasets and the portal
+### Defects 19–32, from the flood and wildfire datasets and the portal
 
 The first eighteen are failures of *measurement protocol*. These eight are
 mostly failures of *belief about data* — what a number in a file means — and
@@ -3095,12 +3189,14 @@ they are harder, because the code is correct and the output looks right.
 | 28 | Surrogate discontinuous between one measure and two | adding a levee that helps LOWERED the prediction; the planner refused to spend half of every budget | building a planner that asks "what if I add one more?" | 5.11 |
 | 29 | Plan, margin and attribution keyed to a precomputed library | the framework worked in one valley; everywhere else was a bare solve | entering another location and finding only a levee slider | 5.11a |
 | 30 | Fitted parameter reported from the edge of its search grid | S = 498 on a grid ending at 500 read as a measurement, not as "no saturation needed" | the value sitting exactly at the boundary | 5.11a |
+| 31 | DEM nodata filled with sea level | a 247 m trench ringing every inland domain; 3.6% of cells at 0 m across 84-100% of each boundary, draining the catchment into it | terrain analysis reporting a coast 1,500 km inland | 5.12 |
+| 32 | River inflow poured in as a volume, not held as a stage | 112 m of water: the cells could not spread it as fast as it arrived | a depth with no physical meaning | 5.12 |
 
 **Defect 25 is the one to remember.** It degrades data continuously rather than
 breaking it, affects only some fires, and leaves every downstream number
 plausible. Nothing short of a conservation check finds it.
 
-### Rules 16–33
+### Rules 16–35
 
 16. A scheme that cannot violate the constrained quantity cannot be used to
     study violating it; verify conservation before trusting a solver.
@@ -3132,6 +3228,13 @@ plausible. Nothing short of a conservation check finds it.
     so the defect stays latent until something searches.
 33. A fitted parameter that lands on the boundary of its own search grid is not
     a fit. Report it as the boundary it is, or widen the grid until it is not.
+34. Nodata is unknown ground, not a value. Substituting a plausible number for
+    "no data" is a modelling decision disguised as a cleanup, and one that is
+    right in the case you were thinking of is usually wrong in the case you
+    were not.
+35. A boundary condition sets a state, not a volume. Adding mass at a boundary
+    makes the cell the bottleneck and the resulting depth an artefact of the
+    grid rather than a property of the flood.
 
 ---
 
