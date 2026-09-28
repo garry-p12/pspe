@@ -36,6 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pspe.observe import sar  # noqa: E402
+from pspe.simulate.real import forcing  # noqa: E402
 from pspe.plan import surrogate  # noqa: E402
 from pspe.simulate.flood import FloodConfig, FloodSolver  # noqa: E402
 from pspe.simulate.real.anywhere import (  # noqa: E402
@@ -82,6 +83,12 @@ class PlanRequest(BaseModel):
     cost_per_m_per_m: float = 2600.0
     delta: float = Field(0.1, ge=0.01, le=0.5)
     protect: Optional[dict] = None   # {"lat":..,"lon":..,"radius_m":..}
+    # What drives the flood. "rain" spreads the storm over the whole box, which
+    # is a real question and the wrong one for a river or coastal city: a levee
+    # has nothing to block when the water falls on both sides of it.
+    driver: str = Field("rain", pattern="^(rain|river|coastal)$")
+    river_q_m3s: Optional[float] = None    # None -> take it from the flood API
+    surge_m: float = Field(2.5, ge=0.0, le=10.0)
 
 
 class AnalyseRequest(BaseModel):
@@ -95,6 +102,11 @@ class AnalyseRequest(BaseModel):
     storm_hours: float = Field(6.0, ge=0.5, le=48.0)
     run_hours: float = Field(12.0, ge=1.0, le=72.0)
     levees: list[dict] = []
+    # The baseline must be driven the same way the plan is, or the two disagree
+    # about what "doing nothing" costs.
+    driver: str = Field("rain", pattern="^(rain|river|coastal)$")
+    river_q_m3s: Optional[float] = None
+    surge_m: float = Field(2.5, ge=0.0, le=10.0)
 
 
 def depth_png(d: np.ndarray, vmax: float) -> str:
@@ -125,7 +137,7 @@ def terrain_png(z: np.ndarray) -> str:
 
 
 def solve(dom, rain_mm_h: float, storm_h: float, run_h: float,
-          levees: list[dict]) -> tuple[np.ndarray, dict]:
+          levees: list[dict], req=None) -> tuple[np.ndarray, dict]:
     z = torch.as_tensor(dom.z, dtype=torch.float32)
     h_, w_ = z.shape
 
@@ -150,19 +162,27 @@ def solve(dom, rain_mm_h: float, storm_h: float, run_h: float,
     h = torch.zeros(1, h_, w_)
     qx, qy = solver.zeros_flux(1)
     peak = h.clone()
-    rain = rain_mm_h / 3.6e6
+    fx = build_forcing(dom, req) if req is not None else {
+        "source": rain_mm_h / 3.6e6, "sea_mask": None, "sea_level": None,
+        "driver": "rain", "note": "", "q_m3s": None, "stage_m": None}
+    src, sea_mask, sea_level = fx["source"], fx["sea_mask"], fx["sea_level"]
     t, dur, steps = 0.0, run_h * 3600.0, 0
     t0 = time.time()
     while t < dur:
         dt = min(solver.adaptive_dt(h), dur - t)
         if dt <= 0:
             break
-        h, qx, qy = solver.step(h, qx, qy, dt,
-                                rain=rain if t < storm_h * 3600 else 0.0)
+        on = t < storm_h * 3600.0
+        r = (src if on else 0.0) if src is not None else 0.0
+        h, qx, qy = solver.step(h, qx, qy, dt, rain=r, z=z[None])
+        if sea_mask is not None and on:
+            want = torch.clamp(sea_level - z, min=0.0)
+            h = torch.where(sea_mask[None].expand_as(h), torch.maximum(h, want), h)
         peak = torch.maximum(peak, h)
-        t += dt
-        steps += 1
-    return peak[0].numpy(), {"steps": steps, "seconds": round(time.time() - t0, 1)}
+        t += dt; steps += 1
+
+    return peak[0].numpy(), {"driver": fx["driver"], "driver_note": fx["note"],
+                             "steps": steps, "seconds": round(time.time() - t0, 1)}
 
 
 @app.get("/health")
@@ -409,6 +429,107 @@ def roads(req: RoadsRequest) -> dict:
                 sum(f["properties"]["len_m"] for f in fc["features"]) / 1000, 1)}
 
 
+def river_discharge(lat: float, lon: float) -> float | None:
+    """Forecast peak river discharge here, m3/s, from Open-Meteo's flood API.
+
+    The same service the forecast panel already uses. Returns None where there
+    is no gauge-equivalent reach, which is most small streams.
+    """
+    url = (f"https://flood-api.open-meteo.com/v1/flood?latitude={lat}"
+           f"&longitude={lon}&daily=river_discharge_max&forecast_days=7")
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            d = json.loads(r.read().decode())
+        vals = [v for v in d["daily"]["river_discharge_max"] if v is not None]
+        return float(max(vals)) if vals else None
+    except Exception:
+        return None
+
+
+def build_forcing(dom, req) -> dict:
+    """Turn the chosen driver into things the timestep loop can apply.
+
+    Returns the per-cell source (m/s), the cells a surge is held against, the
+    level to hold, and a sentence saying what was actually done -- which the
+    interface shows, because a user cannot read a number without knowing what
+    produced it.
+    """
+    z = np.asarray(dom.z, dtype=np.float32)
+    rain_ms = req.rain_mm_h / 3.6e6
+    out = {"source": None, "sea_mask": None, "sea_level": None,
+           "driver": req.driver, "note": "", "q_m3s": None, "stage_m": None}
+
+    if req.driver == "river":
+        inflow = forcing.river_inflow(z)
+        if inflow is None:
+            out["driver"] = "rain"
+            out["note"] = ("No through-channel crosses this box, so the storm "
+                           "is applied as rainfall instead.")
+            return out
+        q = req.river_q_m3s
+        if q is None:
+            lat = (dom.bounds["south"] + dom.bounds["north"]) / 2
+            lon = (dom.bounds["west"] + dom.bounds["east"]) / 2
+            q = river_discharge(lat, lon)
+        if not q or q <= 0:
+            out["driver"] = "rain"
+            out["note"] = ("No river discharge is published for this reach, so "
+                           "the storm is applied as rainfall instead.")
+            return out
+        # The forecast peak is this week's weather, not a design flood. Scaled
+        # by the chosen storm so the question stays "what would a big one do".
+        scale = max(1.0, req.rain_mm_h / 20.0)
+        q_design = q * scale
+
+        # Held as a STAGE, not poured in as a volume.
+        #
+        # Injecting Q as a source into the few cells of a channel makes water
+        # arrive faster than it can spread, and the first attempt reached 112 m
+        # deep at Cedar Rapids -- a number with no physical meaning. A real
+        # inflow boundary sets the water level the discharge corresponds to.
+        # Manning's normal depth for Q over the channel width and the measured
+        # bed fall does that with no free parameters:
+        #
+        #     h = (Q n / (W sqrt(S)))^(3/5)
+        outflow = forcing.river_outflow(z)
+        width_m = max(inflow.width_cells * dom.dx, dom.dx)
+        fall = (inflow.bed_m - outflow.bed_m) if outflow else 1.0
+        span = max(z.shape[0], z.shape[1]) * dom.dx
+        slope = max(abs(fall) / span, 1e-4)
+        stage = (q_design * 0.035 / (width_m * math.sqrt(slope))) ** 0.6
+        stage = float(min(stage, 15.0))          # a river, not a reservoir
+
+        out["sea_mask"] = torch.as_tensor(inflow.mask)
+        out["sea_level"] = inflow.bed_m + stage
+        out["q_m3s"] = round(q_design, 1)
+        out["stage_m"] = round(stage, 2)
+        out["note"] = (
+            f"{q_design:,.0f} m3/s on the {inflow.edge} edge, {scale:.0f}x the "
+            f"forecast peak of {q:,.0f} m3/s. Held as a {stage:.1f} m stage over "
+            f"a {width_m:,.0f} m channel at a {slope:.4f} bed slope, draining "
+            f"to the {outflow.edge if outflow else 'open'} edge. No rain on the box.")
+        return out
+
+    if req.driver == "coastal":
+        sea = forcing.sea_edge(z)
+        if sea is None:
+            out["driver"] = "rain"
+            out["note"] = ("No edge of this box is open water, so the storm is "
+                           "applied as rainfall instead.")
+            return out
+        out["sea_mask"] = torch.as_tensor(sea.mask)
+        out["sea_level"] = float(req.surge_m)
+        out["note"] = (
+            f"A {req.surge_m:.1f} m surge held against {sea.width_cells * dom.dx / 1000:.1f} km "
+            f"of open water on the {sea.edge} edge. No rain on the box.")
+        return out
+
+    out["source"] = rain_ms
+    out["note"] = (f"{req.rain_mm_h:.0f} mm/h for {req.storm_hours:.0f} h falling "
+                   f"evenly over the whole box, draining at the edges.")
+    return out
+
+
 def site_masks(dom, sites: list[dict]) -> "torch.Tensor":
     """One Gaussian ridge per candidate site, in METRES (defect 20)."""
     h_, w_ = dom.z.shape
@@ -468,14 +589,26 @@ def plan_anywhere(req: PlanRequest) -> dict:
     h = torch.zeros(b, z.shape[1], z.shape[2])
     qx, qy = solver.zeros_flux(b)
     peak = h.clone()
-    rain = req.rain_mm_h / 3.6e6
+    fx = build_forcing(dom, req)
+    src = fx["source"]
+    sea_mask, sea_level = fx["sea_mask"], fx["sea_level"]
     tt, dur, steps = 0.0, req.run_hours * 3600.0, 0
     while tt < dur:
         dt = min(solver.adaptive_dt(h), dur - tt)
         if dt <= 0:
             break
-        r = rain if tt < req.storm_hours * 3600.0 else 0.0
+        # Forcing is on for the storm and off afterwards, so the run shows the
+        # recession as well as the peak.
+        on = tt < req.storm_hours * 3600.0
+        r = (src if on else 0.0) if src is not None else 0.0
         h, qx, qy = solver.step(h, qx, qy, dt, rain=r, z=z)
+        if sea_mask is not None and on:
+            # A boundary stage, held not poured: set depth so the free surface
+            # sits at the given level, and only ever raise it, so the boundary
+            # never drains the land. Used for both a coastal surge and a river
+            # inflow, which differ only in where the level comes from.
+            want = torch.clamp(sea_level - z, min=0.0)
+            h = torch.where(sea_mask.expand_as(h), torch.maximum(h, want), h)
         peak = torch.maximum(peak, h)
         tt += dt; steps += 1
 
@@ -597,6 +730,11 @@ def plan_anywhere(req: PlanRequest) -> dict:
         "attribution": attribution,
         "steps": trace,
         "scenarios_solved": b,
+        "driver": fx["driver"],
+        "driver_note": fx["note"],
+        "river_q_m3s": fx["q_m3s"],
+        "river_stage_m": fx.get("stage_m"),
+        "terrain": forcing.describe(np.asarray(dom.z, dtype=np.float32), dom.dx),
         "options": options,
         "base_depth_m": base,
         "base_area_km2": options[0]["area_flooded_km2"],
@@ -637,7 +775,7 @@ def analyse(req: AnalyseRequest) -> dict:
         fc = {"total_mm": None, "peak_discharge_m3s": None}
 
     peak, stats = solve(dom, req.rain_mm_h, req.storm_hours, req.run_hours,
-                        req.levees)
+                        req.levees, req)
 
     # What fraction of this flood simply fell where it lies?
     #
@@ -671,6 +809,9 @@ def analyse(req: AnalyseRequest) -> dict:
         "depth_png": depth_png(peak, DEPTH_VMAX),
         "terrain_png": terrain_png(dom.z),
         **roads_and_grids(dom, peak, req.west, req.south, req.east, req.north),
+        "terrain": forcing.describe(np.asarray(dom.z, dtype=np.float32), dom.dx),
+        "driver": stats.get("driver", req.driver),
+        "driver_note": stats.get("driver_note", ""),
         "forecast": fc,
         "timing": {"dem_seconds": round(t_dem, 1), **stats},
         "storm": {"rain_mm_h": req.rain_mm_h, "storm_hours": req.storm_hours,

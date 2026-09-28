@@ -10,6 +10,8 @@ import type { RoadQuery } from "@/lib/roadquery";
 
 export interface AnalysisResult {
   name: string;
+  driver?: string;
+  driver_note?: string;
   roads?: GeoJSON.FeatureCollection | null;
   roads_note?: string | null;
   inspect?: {
@@ -103,6 +105,7 @@ export function AnywherePanel({
   const [planning, setPlanning] = useState(false);
   const [planErr, setPlanErr] = useState<string | null>(null);
   const [budgetM, setBudgetM] = useState(20);
+  const [driver, setDriver] = useState<"rain" | "river" | "coastal">("river");
   const [planChosen, setPlanChosen] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -202,6 +205,7 @@ export function AnywherePanel({
           south: p.lat - dLat, north: p.lat + dLat,
           name: p.short, dx: 90,
           rain_mm_h: s.mm_h, storm_hours: s.hours, run_hours: 10,
+          driver,
           sites: lv.map((l) => ({ lat: l.lat, lon: l.lon, width_m: l.width_m })),
           max_height_m: 3.0, budget_aud: budgetM * 1e6, delta: 0.1,
           protect: { lat: p.lat, lon: p.lon, radius_m: 2500 },
@@ -215,7 +219,7 @@ export function AnywherePanel({
     } finally {
       setPlanning(false);
     }
-  }, [storm, budgetM]);
+  }, [storm, budgetM, driver]);
 
   const run = useCallback(async (p: Place, lv: PlacedLevee[] = []) => {
     setBusy(true); setErr(null); setElapsed(0);
@@ -234,6 +238,7 @@ export function AnywherePanel({
           south: p.lat - dLat, north: p.lat + dLat,
           name: p.short, dx: 60,
           rain_mm_h: s.mm_h, storm_hours: s.hours, run_hours: 12,
+          driver,
           levees: lv,
         }),
       });
@@ -248,7 +253,7 @@ export function AnywherePanel({
       setBusy(false);
       if (timer.current) clearInterval(timer.current);
     }
-  }, [storm, onResult]);
+  }, [storm, driver, onResult]);
 
   return (
     <div className="px-5 pb-5 pt-4">
@@ -281,6 +286,34 @@ export function AnywherePanel({
         </ul>
       )}
 
+      {/* What drives the flood. Asked before the solve because it changes what
+          is solved, not how it is drawn -- and because "rain everywhere" is
+          the assumption that quietly made every levee useless at a river
+          city. */}
+      <div className="mt-3 grid grid-cols-3 gap-1">
+        {([["river", "River"], ["coastal", "Coastal"], ["rain", "Rainfall"]] as const)
+          .map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setDriver(k)}
+              className={`rounded-md border px-1 py-1.5 text-[13px] transition-colors ${
+                driver === k
+                  ? "border-ink bg-bg-inset font-medium text-ink"
+                  : "border-line text-ink-mute hover:text-ink"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+      </div>
+      <p className="anno mt-1.5 leading-relaxed">
+        {driver === "river"
+          ? "Discharge held as a stage where the channel enters, from the flood forecast for this reach. Falls back to rainfall if no channel crosses this area."
+          : driver === "coastal"
+            ? "A surge held against the open-water edge. Falls back to rainfall if this area has no coast."
+            : "Rain falling evenly over the whole area. A levee has little to block when the water lands on both sides of it."}
+      </p>
+
       <div className="mt-3 grid grid-cols-3 gap-1">
         {STORMS.map((s, i) => (
           <button
@@ -297,7 +330,13 @@ export function AnywherePanel({
           </button>
         ))}
       </div>
-      <p className="mt-1.5 text-[12px] text-ink-faint">{STORMS[storm].note}</p>
+      <p className="anno mt-1.5">{STORMS[storm].note}</p>
+      {/* What the service ACTUALLY did, which is not always what was asked: a
+          river driver over terrain with no channel falls back to rainfall, and
+          the user should be told rather than left to infer it. */}
+      {res?.driver_note && !busy && (
+        <p className="anno mt-2 leading-relaxed">{res.driver_note}</p>
+      )}
 
       {chosen && !busy && (
         <button

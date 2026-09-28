@@ -130,9 +130,26 @@ def build_domain(
     )
 
     nodata_frac = float(np.isnan(dst).mean())
-    # Ocean reads as nodata in places; treat it as sea level rather than a hole,
-    # which would otherwise act as an infinite sink in the solver.
-    dst = np.nan_to_num(dst, nan=0.0)
+    # Nodata is UNKNOWN GROUND, not sea level.
+    #
+    # Filling it with zero was right for a coastal box -- Copernicus reads the
+    # ocean as nodata -- and catastrophic anywhere else. Reprojecting WGS84
+    # tiles into UTM leaves wedge-shaped gaps along the edges, and at Cedar
+    # Rapids, which sits at 247 m, those became a 247 m trench ringing the
+    # domain: 3.6% of cells at exactly 0 m, covering 84-100% of every boundary,
+    # an artificial sink for the whole catchment to drain into.
+    #
+    # Nearest-neighbour fill instead. It extends the real terrain outward, so
+    # inland ground stays inland, and a genuine coastline -- where the nearest
+    # valid cells are already near zero -- still fills to about sea level.
+    if np.isnan(dst).any():
+        from scipy import ndimage
+        holes = np.isnan(dst)
+        if holes.all():
+            raise RuntimeError("DEM covers none of this box")
+        idx = ndimage.distance_transform_edt(
+            holes, return_distances=False, return_indices=True)
+        dst = dst[tuple(idx)]
 
     return Domain(
         z=dst, dx=dx,
