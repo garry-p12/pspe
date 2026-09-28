@@ -92,29 +92,29 @@ body {
   color: var(--ink-faint);
 }
 
-/* The segmented control at the top of the panel: a light track with the
- * active section lifted onto a white card. */
+/* Section tabs. An underline rather than a segmented control: there are only
+ * three, they sit directly under the product name, and a rule under the live
+ * one is quieter than three boxes competing for the same attention. */
 .seg {
-  background: var(--bg-inset);
-  border-radius: 8px;
-  padding: 3px;
   display: flex;
-  gap: 2px;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
 }
 .seg > button {
-  flex: 1;
-  border-radius: 6px;
-  padding: 7px 10px;
-  font-size: 13px;
+  position: relative;
+  padding: 0 0 10px;
+  font-size: 14px;
   color: var(--ink-mute);
-  transition: background 120ms, color 120ms;
+  transition: color 120ms;
 }
 .seg > button:hover { color: var(--ink); }
-.seg > button[data-on="true"] {
-  background: var(--bg);
-  color: var(--ink);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 0 0 1px rgb(0 0 0 / 0.04);
+.seg > button[data-on="true"] { color: var(--ink); font-weight: 600; }
+.seg > button[data-on="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: var(--ink);
 }
 
 /* A binary choice stated as a solid pill, e.g. which area is being planned. */

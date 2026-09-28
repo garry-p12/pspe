@@ -7,6 +7,7 @@ import { MeasureBuilder } from "./MeasureBuilder";
 import { RoadQueryPanel } from "./RoadQueryPanel";
 import { AnywherePanel, type AnalysisResult, type PlacedLevee } from "./AnywherePanel";
 import { PlanPanel } from "./PlanPanel";
+import { PlanSection } from "./PlanSection";
 import { ObservePanel, type Observation } from "./ObservePanel";
 import type { RoadQuery } from "@/lib/roadquery";
 import { loadManifest } from "@/lib/data";
@@ -59,6 +60,8 @@ export function Planner() {
   // actually arrives with -- what is coming, what does it cut, what do we
   // build -- and only one is ever open.
   const [section, setSection] = useState<"forecast" | "roads" | "plan">("forecast");
+  const [planTrigger, setPlanTrigger] = useState(0);
+  const [planning, setPlanning] = useState(false);
   const { setRegion } = useRegion();
 
   // Keep the header honest about which place is on screen.
@@ -162,7 +165,7 @@ export function Planner() {
     <div className="flex h-full min-h-0">
       {/* ---- decision panel ------------------------------------------- */}
       <aside className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-r border-line bg-bg">
-        <div className="px-5 pb-3 pt-4">
+        <div className="px-5 pt-4">
           <div className="seg" role="tablist">
             {(["forecast", "roads", "plan"] as const).map((k) => (
               <button
@@ -178,7 +181,7 @@ export function Planner() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-b border-line px-5 pb-3">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <span className="text-[13px] text-ink-mute">Area</span>
           <div className="flex gap-1">
             {(["district", "anywhere"] as const).map((k) => (
@@ -222,53 +225,29 @@ export function Planner() {
         />
         </>}
 
-        {tab === "district" && section === "plan" && <>
-        <div className="border-b border-line-soft p-4">
-          <p className="eyebrow mb-1.5">Plan against</p>
-          <div className="flex gap-1.5">
-            {(ops?.event_scales ?? [1]).map((s) => (
-              <button
-                key={s}
-                onClick={() => setScale(s)}
-                className={`flex-1 rounded-md border px-2 py-1.5 text-[13px] transition-colors ${
-                  scale === s
-                    ? "border-accent/60 bg-accent/10 text-accent"
-                    : "border-line text-ink-mute hover:text-ink"
-                }`}
-              >
-                {eventLabel(s)}
-              </button>
-            ))}
-          </div>
-          {ops && (
-            <p className="mt-2 text-[12px] leading-relaxed text-ink-faint">
-              Capital works are appraised against design events, not next week&apos;s
-              weather. A road is treated as cut at{" "}
-              {(ops.cut_depth_m * 100).toFixed(0)} cm of water.
-            </p>
-          )}
-        </div>
-
-        <div className="border-b border-line-soft p-4">
-          <div className="mb-2 flex items-baseline justify-between">
-            <p className="eyebrow">Capital budget</p>
-            <p className="tnum text-[15px] font-semibold text-ink">A${budget}M</p>
-          </div>
-          <input
-            type="range" min={2} max={60} step={1} value={budget}
-            onChange={(e) => setBudget(Number(e.target.value))}
-            className="w-full accent-[var(--accent)]"
-          />
-        </div>
-
-        <PlanPanel
-          budgetM={budget}
-          eventScale={scale}
-          crestLengths={(ops?.sites ?? []).map((s) => s.crest_length_m)}
-          onPlan={(h) => { setMode("build"); setCustom(h); }}
-        />
-
-        </>}
+        {tab === "district" && section === "plan" && ops && (
+          <PlanSection
+            ops={ops}
+            budgetM={budget}
+            onBudget={setBudget}
+            scale={scale}
+            onScale={setScale}
+            chosen={chosen}
+            onChoose={(id) => { setChosen(id); setFocus("town"); setMode("options"); }}
+            onBuildYourOwn={() => setMode("build")}
+            onFindPlan={() => setPlanTrigger((n) => n + 1)}
+            planning={planning}
+          >
+            <PlanPanel
+              budgetM={budget}
+              eventScale={scale}
+              crestLengths={(ops.sites ?? []).map((s) => s.crest_length_m)}
+              onPlan={(h) => { setMode("build"); setCustom(h); }}
+              trigger={planTrigger}
+              onBusy={setPlanning}
+            />
+          </PlanSection>
+        )}
 
         {tab === "district" && section === "plan" && point && (
           <div className="border-b border-line-soft p-4">
@@ -326,98 +305,24 @@ export function Planner() {
           </div>
         )}
 
+        {tab === "district" && section === "plan" && ops && mode === "build"
+          && manifest?.levee_geometry && (
+          <div className="px-5 pb-5">
+            <MeasureBuilder
+              siteCount={manifest.levee_geometry.sites.length}
+              siteElev={manifest.levee_geometry.sites.map((s) => s.elev)}
+              heights={custom}
+              onHeights={setCustom}
+              eventScale={scale}
+              crestLengths={ops.sites.map((s) => s.crest_length_m)}
+              budgetM={budget}
+            />
+          </div>
+        )}
+
         {tab === "district" && section === "plan" && ops && (
           <>
-            <div className="flex gap-1.5 border-b border-line-soft px-4 py-3">
-              {(["options", "build"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`flex-1 rounded-md border px-2 py-1.5 text-[13px] transition-colors ${
-                    mode === m
-                      ? "border-accent/60 bg-accent/10 text-accent"
-                      : "border-line text-ink-mute hover:text-ink"
-                  }`}
-                >
-                  {m === "options" ? "Appraised options" : "Build your own"}
-                </button>
-              ))}
-            </div>
-
-            {mode === "build" && manifest?.levee_geometry && (
-              <MeasureBuilder
-                siteCount={manifest.levee_geometry.sites.length}
-                siteElev={manifest.levee_geometry.sites.map((s) => s.elev)}
-                heights={custom}
-                onHeights={setCustom}
-                eventScale={scale}
-                crestLengths={ops.sites.map((s) => s.crest_length_m)}
-                budgetM={budget}
-              />
-            )}
-
-            {mode === "options" && (
-            <div className="border-b border-line-soft p-4">
-              <p className="eyebrow mb-2">Mitigation options</p>
-              <ul className="flex flex-col gap-1.5">
-                {affordable.map((o) => {
-                  const worse = (o.core_reduction_pct ?? 0) < -0.5;
-                  const sel = o.id === chosen;
-                  const prot = o.road_protected_km ?? 0;
-                  return (
-                    <li key={o.id}>
-                      <button
-                        onClick={() => { setChosen(o.id); setFocus("town"); }}
-                        className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
-                          sel ? "border-accent/60 bg-accent/10"
-                              : "border-line bg-bg-inset hover:border-line-soft"
-                        }`}
-                      >
-                        <div className="flex items-baseline gap-2">
-                          <span className="flex-1 truncate text-[13px] text-ink">
-                            {o.name}
-                          </span>
-                          <span className="tnum text-[12px] text-ink-faint">
-                            {o.id === "base" ? "—" : money(o.cost_aud)}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-2">
-                          {o.id === "base" ? (
-                            <span className="text-[12px] text-ink-faint">
-                              {km(o.road_cut_km)} of road cut in this event
-                            </span>
-                          ) : (o.core_reduction_pct ?? 0) < -0.5 ? (
-                            // Inverted, not coloured. This is the one line on
-                            // the panel that must not be skimmed past, and a
-                            // solid chip carries further than a red word --
-                            // including in greyscale print and to a reader who
-                            // cannot separate red from grey.
-                            <span className="chip-harm text-[12px]">
-                              Deepens flooding {Math.abs(o.core_reduction_pct ?? 0).toFixed(0)}%
-                            </span>
-                          ) : (
-                            <span className="text-[12px] text-ink-mute">
-                              Cuts flooding{" "}
-                              <span className="font-semibold text-ink">
-                                {(o.core_reduction_pct ?? 0).toFixed(0)}%
-                              </span>
-                            </span>
-                          )}
-                          {recommended?.id === o.id && (
-                            <span className="chip-good ml-auto text-[11px] font-medium">
-                              Best value
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-            )}
-
-            {mode === "options" && current && (
+            {mode === "options" && current && chosen !== "base" && (
               <div className="p-4">
                 <p className="eyebrow mb-3">Projected impact</p>
                 <div className="grid grid-cols-2 gap-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * Spend a budget, under a guarantee.
@@ -40,12 +40,15 @@ interface Plan {
 }
 
 export function PlanPanel({
-  budgetM, crestLengths, eventScale, onPlan,
+  budgetM, crestLengths, eventScale, onPlan, trigger = 0, onBusy,
 }: {
   budgetM: number;
   crestLengths: number[];
   eventScale: number;
   onPlan?: (heights: number[]) => void;
+  /** Bumped by whoever owns the action button; the panel shows results only. */
+  trigger?: number;
+  onBusy?: (v: boolean) => void;
 }) {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,27 +74,26 @@ export function PlanPanel({
       setErr(e instanceof Error ? e.message : "could not plan");
     } finally {
       setBusy(false);
+      onBusy?.(false);
     }
   }
+
+  // The button that used to live here now sits in the section's footer, where
+  // it stays reachable without scrolling past twelve options to find it.
+  useEffect(() => {
+    if (trigger > 0) { onBusy?.(true); run(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trigger]);
 
   const built = plan?.heights
     .map((h, i) => ({ h, i }))
     .filter((x) => x.h > 0) ?? [];
 
   return (
-    <div className="border-b border-line-soft p-4">
-      <p className="eyebrow mb-2">Plan for this budget</p>
-      <button
-        onClick={run}
-        disabled={busy || crestLengths.length === 0}
-        className="w-full rounded border border-accent/50 bg-accent/10 px-3 py-2
-                   text-[13px] text-accent transition-colors hover:bg-accent/20
-                   disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {busy ? "Searching…" : `Find the best plan for A$${budgetM}M`}
-      </button>
-
-      {err && <p className="mt-2 text-[12px] text-danger">{err}</p>}
+    <div className={plan || err || busy ? "mt-5" : "hidden"}>
+      <h3 className="eyebrow mb-2">Best plan for this budget</h3>
+      {busy && <div className="h-20 animate-pulse rounded-lg bg-bg-inset" />}
+      {err && <p className="text-[13px] text-ink-mute">{err}</p>}
 
       {plan && (
         <div className="mt-3 space-y-3">
