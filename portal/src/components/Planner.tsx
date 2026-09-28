@@ -53,6 +53,12 @@ export function Planner() {
   const [placed, setPlaced] = useState<PlacedLevee[]>([]);
   const [placing, setPlacing] = useState(false);
   const [observed, setObserved] = useState<Observation | null>(null);
+  // The panel used to be one continuous scroll: forecast, roads, design event,
+  // budget, options, impact, all stacked. Everything was on screen and nothing
+  // was findable. Three sections match the three questions an operator
+  // actually arrives with -- what is coming, what does it cut, what do we
+  // build -- and only one is ever open.
+  const [section, setSection] = useState<"forecast" | "roads" | "plan">("forecast");
   const { setRegion } = useRegion();
 
   // Keep the header honest about which place is on screen.
@@ -155,21 +161,37 @@ export function Planner() {
   return (
     <div className="flex h-full min-h-0">
       {/* ---- decision panel ------------------------------------------- */}
-      <aside className="flex w-[370px] shrink-0 flex-col overflow-y-auto border-r border-line bg-bg-raised">
-        <div className="flex gap-1.5 border-b border-line-soft px-4 py-3">
-          {(["district", "anywhere"] as const).map((k) => (
-            <button
-              key={k}
-              onClick={() => { setTab(k); if (k === "district") setAnalysis(null); }}
-              className={`flex-1 rounded-md border px-2 py-1.5 text-[13px] transition-colors ${
-                tab === k
-                  ? "border-accent/60 bg-accent/10 text-accent"
-                  : "border-line text-ink-mute hover:text-ink"
-              }`}
-            >
-              {k === "district" ? "This district" : "Anywhere"}
-            </button>
-          ))}
+      <aside className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-r border-line bg-bg">
+        <div className="px-5 pb-3 pt-4">
+          <div className="seg" role="tablist">
+            {(["forecast", "roads", "plan"] as const).map((k) => (
+              <button
+                key={k}
+                role="tab"
+                aria-selected={section === k}
+                data-on={section === k}
+                onClick={() => setSection(k)}
+              >
+                {k === "forecast" ? "Forecast" : k === "roads" ? "Roads" : "Plan"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between border-b border-line px-5 pb-3">
+          <span className="text-[13px] text-ink-mute">Area</span>
+          <div className="flex gap-1">
+            {(["district", "anywhere"] as const).map((k) => (
+              <button
+                key={k}
+                className="pill"
+                data-on={tab === k}
+                onClick={() => { setTab(k); if (k === "district") setAnalysis(null); }}
+              >
+                {k === "district" ? "This district" : "Anywhere"}
+              </button>
+            ))}
+          </div>
         </div>
 
         {tab === "anywhere" && (
@@ -183,14 +205,24 @@ export function Planner() {
           />
         )}
 
-        {tab === "district" && <>
+        {tab === "district" && section === "forecast" && <>
         <ForecastPanel />
+        <ObservePanel
+          bounds={manifest?.bounds ?? null}
+          onObservation={setObserved}
+        />
+        </>}
+
+        {tab === "district" && section === "roads" && <>
         <RoadQueryPanel
           roads={roads}
           grids={grids}
           bounds={manifest?.bounds ?? null}
           onQuery={setRoadQ}
         />
+        </>}
+
+        {tab === "district" && section === "plan" && <>
         <div className="border-b border-line-soft p-4">
           <p className="eyebrow mb-1.5">Plan against</p>
           <div className="flex gap-1.5">
@@ -229,11 +261,6 @@ export function Planner() {
           />
         </div>
 
-        <ObservePanel
-          bounds={manifest?.bounds ?? null}
-          onObservation={setObserved}
-        />
-
         <PlanPanel
           budgetM={budget}
           eventScale={scale}
@@ -243,7 +270,7 @@ export function Planner() {
 
         </>}
 
-        {tab === "district" && point && (
+        {tab === "district" && section === "plan" && point && (
           <div className="border-b border-line-soft p-4">
             <div className="mb-2 flex items-start justify-between gap-2">
               <p className="eyebrow">Selected location</p>
@@ -279,7 +306,7 @@ export function Planner() {
           </div>
         )}
 
-        {tab === "district" && !point && (
+        {tab === "district" && section === "plan" && !point && (
           <div className="border-b border-line-soft px-4 py-3">
             <p className="text-[13px] leading-relaxed text-ink-faint">
               <span className="text-ink-mute">Click anywhere on the map</span> to
@@ -289,7 +316,7 @@ export function Planner() {
           </div>
         )}
 
-        {tab === "district" && unavailable && (
+        {tab === "district" && section === "plan" && unavailable && (
           <div className="m-4 rounded-lg border border-warn/40 bg-warn/5 p-3">
             <p className="text-[13px] font-medium text-warn">Options not available yet</p>
             <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
@@ -299,7 +326,7 @@ export function Planner() {
           </div>
         )}
 
-        {tab === "district" && ops && (
+        {tab === "district" && section === "plan" && ops && (
           <>
             <div className="flex gap-1.5 border-b border-line-soft px-4 py-3">
               {(["options", "build"] as const).map((m) => (
@@ -360,17 +387,25 @@ export function Planner() {
                               {km(o.road_cut_km)} of road cut in this event
                             </span>
                           ) : (o.core_reduction_pct ?? 0) < -0.5 ? (
-                            <span className="text-[12px] font-medium text-bad">
-                              ⚠ deepens flooding {Math.abs(o.core_reduction_pct ?? 0).toFixed(0)}%
+                            // Inverted, not coloured. This is the one line on
+                            // the panel that must not be skimmed past, and a
+                            // solid chip carries further than a red word --
+                            // including in greyscale print and to a reader who
+                            // cannot separate red from grey.
+                            <span className="chip-harm text-[12px]">
+                              Deepens flooding {Math.abs(o.core_reduction_pct ?? 0).toFixed(0)}%
                             </span>
                           ) : (
-                            <span className="text-[12px] text-ok">
-                              cuts flooding {(o.core_reduction_pct ?? 0).toFixed(0)}%
+                            <span className="text-[12px] text-ink-mute">
+                              Cuts flooding{" "}
+                              <span className="font-semibold text-ink">
+                                {(o.core_reduction_pct ?? 0).toFixed(0)}%
+                              </span>
                             </span>
                           )}
                           {recommended?.id === o.id && (
-                            <span className="ml-auto rounded bg-ok/15 px-1.5 py-[1px] text-[11px] font-semibold tracking-wide text-ok">
-                              BEST VALUE
+                            <span className="chip-good ml-auto text-[11px] font-medium">
+                              Best value
                             </span>
                           )}
                         </div>

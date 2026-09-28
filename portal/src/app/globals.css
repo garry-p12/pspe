@@ -1,56 +1,44 @@
 @import "tailwindcss";
 
-/* PSPE portal — achromatic panel beside a colour map.
+/* PSPE portal — a light document beside a colour map.
  *
- * The CHROME is black and white; the map is not. Hue in the interface competed
- * with hue in the data, so taking it out of the panel leaves the only colour on
- * screen belonging to the thing being measured — the flood, the imagery, the
- * severity of a cut road. Desaturating the map too was a mistake: with both
- * layers grey the flood erased the terrain under it, because hue had been doing
- * the figure/ground work all along.
+ * The panel is a working document: read at a desk, for an hour, by someone
+ * deciding where public money goes. So it is set like one — white ground,
+ * near-black text, sentence-case headings, real whitespace — and the only
+ * colour on screen belongs to the map, where it is carrying data.
  *
- * The neutrals are not pure grey. A flat #808080 reads as unconsidered, and on
- * a panel that sits beside satellite imagery it goes muddy. These carry about
- * two points of blue, which is enough to read as chosen and not enough to read
- * as blue.
- *
- * Meaning is carried by VALUE and FORM, not by hue: severity is brightness and
- * line weight, state is fill against outline, and the one signal that must
- * never be missed — a measure that makes flooding worse — gets an inverted
- * chip rather than a red one. That is how cartography did this before screens,
- * and it survives greyscale printing, projection and colour-blind readers.
+ * Technical annotation is set in mono: thresholds, axis labels, units, run
+ * counts. It marks which numbers came off an instrument rather than out of a
+ * sentence, and it keeps columns of figures aligned without extra rules.
  */
 :root {
-  --bg:        #0b0c0e;
-  --bg-raised: #131417;
-  --bg-inset:  #070809;
-  --line:      #24262b;
-  --line-soft: #1a1c1f;
+  --bg:        #ffffff;
+  --bg-raised: #fafafa;
+  --bg-inset:  #f4f4f5;
+  --line:      #e4e4e7;
+  --line-soft: #efeff1;
 
-  --ink:       #f2f3f5;
-  --ink-mute:  #9a9da4;
-  --ink-faint: #64676e;
+  --ink:       #18181b;
+  --ink-mute:  #52525b;
+  --ink-faint: #8b8b93;
 
-  /* The single interactive tone: near-white. Selection and focus read as
-     "lit", which is unambiguous on a dark ground and needs no hue. */
-  --accent:      #ffffff;
-  --accent-soft: rgba(255, 255, 255, 0.14);
+  /* One interactive tone, and it is ink. Selection is a solid black pill:
+     unmistakable, achromatic, and it needs no second colour to mean "chosen". */
+  --accent:      #18181b;
+  --accent-soft: #f4f4f5;
 
-  /* Severity by value. Danger is the brightest thing on the panel, because on
-     a dark ground brightness is what the eye goes to first. */
-  --sev-high:  #ffffff;
-  --sev-mid:   #a7aab1;
-  --sev-low:   #55585e;
+  --sev-high:  #18181b;
+  --sev-mid:   #71717a;
+  --sev-low:   #a1a1aa;
 
-  /* Kept as names so component code stays readable; all achromatic. */
-  --ok:   #d6d8dc;
-  --warn: #a7aab1;
-  --bad:  #ffffff;
-  --accent-warm: #d6d8dc;
+  --ok:   #18181b;
+  --warn: #52525b;
+  --bad:  #18181b;
+  --accent-warm: #52525b;
 
-  --badge-observed:  #f2f3f5;
-  --badge-validated: #a7aab1;
-  --badge-projection:#64676e;
+  --badge-observed:  #18181b;
+  --badge-validated: #52525b;
+  --badge-projection:#8b8b93;
 }
 
 @theme inline {
@@ -83,54 +71,92 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Numerals must line up in every table and readout. */
 .tnum { font-variant-numeric: tabular-nums; }
 
-/* The panel is read at a desk for an hour, not glanced at. Body copy sits at
- * 13px with generous leading; the old 10-12px chrome was the main reason it
- * felt dense even when the words were short. */
-aside p, aside li, aside label { line-height: 1.5; }
-
-/* Uppercase micro-labels used throughout the chrome. */
+/* Section heading. Sentence case, not an uppercase eyebrow: the panel has
+ * three or four headings on screen at once and shouting all of them flattens
+ * the hierarchy it was supposed to create. */
 .eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  text-transform: none;
+}
+
+/* Technical annotation: thresholds, axis labels, provenance. */
+.anno {
+  font-family: var(--font-mono-stack);
+  font-size: 11px;
+  letter-spacing: -0.01em;
+  color: var(--ink-faint);
+}
+
+/* The segmented control at the top of the panel: a light track with the
+ * active section lifted onto a white card. */
+.seg {
+  background: var(--bg-inset);
+  border-radius: 8px;
+  padding: 3px;
+  display: flex;
+  gap: 2px;
+}
+.seg > button {
+  flex: 1;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--ink-mute);
+  transition: background 120ms, color 120ms;
+}
+.seg > button:hover { color: var(--ink); }
+.seg > button[data-on="true"] {
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 0 0 1px rgb(0 0 0 / 0.04);
+}
+
+/* A binary choice stated as a solid pill, e.g. which area is being planned. */
+.pill {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: var(--ink-mute);
+  transition: background 120ms, color 120ms;
+}
+.pill:hover { color: var(--ink); }
+.pill[data-on="true"] {
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 500;
+}
+
+/* A measure that deepens flooding: inverted, so it survives greyscale print,
+ * a projector and a colour-blind reader where red would not. */
+.chip-harm {
+  background: var(--ink);
+  color: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.chip-good {
+  border: 1px solid var(--line);
+  color: var(--ink-mute);
+  padding: 1px 5px;
+  border-radius: 3px;
 }
 
 .rule { border-color: var(--line); }
 
-/* A measure that makes flooding worse. Inverted rather than coloured: it is the
- * one thing on the panel that must not be missed, and inversion survives
- * greyscale print, a projector and a colour-blind reader where red does not. */
-.chip-harm {
-  background: var(--ink);
-  color: var(--bg);
-  padding: 0 4px;
-  border-radius: 2px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-/* The opposite signal, stated quietly: an outline, not a fill. */
-.chip-good {
-  border: 1px solid var(--ink-mute);
-  color: var(--ink);
-  padding: 0 4px;
-  border-radius: 2px;
-}
-
-/* Keyboard focus, visible on every control. */
 :where(button, a, input, select, [tabindex]):focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 
-/* MapLibre's own chrome, retoned to the panel palette. */
 .maplibregl-ctrl-attrib {
-  background: rgba(11, 12, 14, 0.82) !important;
+  background: rgba(255, 255, 255, 0.86) !important;
   color: var(--ink-faint) !important;
   font-size: 10px !important;
 }
@@ -138,9 +164,9 @@ aside p, aside li, aside label { line-height: 1.5; }
 .maplibregl-canvas { outline: none; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: var(--bg-inset); }
+::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: #33363c; }
+::-webkit-scrollbar-thumb:hover { background: #d4d4d8; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
