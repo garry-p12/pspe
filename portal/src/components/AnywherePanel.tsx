@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { OptionList, type OptionRow } from "./OptionList";
+import { formatChange, MATERIAL_PCT, OptionList, type OptionRow } from "./OptionList";
 
 export interface AnalysisResult {
   name: string;
@@ -333,14 +333,33 @@ export function AnywherePanel({
       )}
 
       {/* ---- the recommendation, and what it is worth ------------------- */}
-      {plan?.ok && (
+      {/* A recommendation is only a recommendation if it beats doing nothing by
+          more than the tool's own resolution. Below that, saying "0.1%, at
+          least 90% of the time" dresses up a null result as a plan. */}
+      {plan?.ok && plan.reduction_pct < MATERIAL_PCT && (
+        <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
+          <h3 className="eyebrow">No measure here is worth building</h3>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
+            The best allocation of A${budgetM}M changes flood depth by{" "}
+            {plan.reduction_pct.toFixed(2)}%, which this model cannot
+            distinguish from doing nothing. Try candidate sites closer to where
+            the water actually runs, or a larger budget.
+          </p>
+          <p className="anno mt-2.5 leading-relaxed">
+            {plan.scenarios_solved} options solved on this terrain in{" "}
+            {plan.timing.seconds.toFixed(0)}s.
+          </p>
+        </div>
+      )}
+
+      {plan?.ok && plan.reduction_pct >= MATERIAL_PCT && (
         <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
           <h3 className="eyebrow">Best plan for this budget</h3>
           <ul className="mt-2 space-y-0.5">
             {plan.attribution.map((a) => (
               <li key={a.site} className="flex justify-between text-[13px]">
                 <span className="text-ink">Site {a.site} at {a.height_m.toFixed(1)} m</span>
-                <span className="tnum text-ink-mute">+{a.marginal_pct.toFixed(1)}%</span>
+                <span className="tnum text-ink-mute">{formatChange(a.marginal_pct)}</span>
               </li>
             ))}
           </ul>
@@ -363,7 +382,7 @@ export function AnywherePanel({
           {plan.harmful.length > 0 && (
             <p className="anno mt-3 leading-relaxed">
               Rejected:{" "}
-              {plan.harmful.map((h) => `site ${h.site} (${h.alone_pct.toFixed(1)}%)`).join(", ")}
+              {plan.harmful.map((h) => `site ${h.site} (${formatChange(h.alone_pct)})`).join(", ")}
               {" "}— measured as deepening flooding here.
             </p>
           )}

@@ -34,6 +34,24 @@ export function describe(o: OptionRow): { title: string; detail: string } {
   };
 }
 
+/** Below this, an option is not distinguishable from doing nothing. */
+export const MATERIAL_PCT = 0.05;
+
+/**
+ * A change, signed and at a precision that does not hide it.
+ *
+ * Two bugs lived here. The sign was hardcoded as a minus in front of a value
+ * that could already be negative, so a small worsening rendered as "−-0%"; and
+ * rounding to whole percent turned 0.04% and 0.4% into the same "−0%", which
+ * is the difference between nothing and ten times nothing.
+ */
+export function formatChange(d: number): string {
+  if (Math.abs(d) < MATERIAL_PCT) return "no change";
+  const sign = d > 0 ? "−" : "+";          // a reduction in flooding reads as −
+  const mag = Math.abs(d);
+  return `${sign}${mag < 10 ? mag.toFixed(1) : mag.toFixed(0)}%`;
+}
+
 export function OptionList({
   options, budgetM, chosen, onChoose, unit = "flood depth",
 }: {
@@ -118,13 +136,15 @@ export function OptionList({
                     {detail} · {money(o.cost_aud)}
                   </span>
                 </span>
-                {d < -0.5 ? (
+                {d < -MATERIAL_PCT ? (
                   <span className="chip-harm tnum shrink-0 text-[13px]">
-                    +{Math.abs(d).toFixed(0)}%
+                    {formatChange(d)}
                   </span>
+                ) : Math.abs(d) < MATERIAL_PCT ? (
+                  <span className="anno shrink-0">no change</span>
                 ) : (
                   <span className="tnum shrink-0 text-[15px] font-semibold text-ink">
-                    −{d.toFixed(0)}%
+                    {formatChange(d)}
                   </span>
                 )}
               </button>
@@ -149,6 +169,14 @@ export function OptionList({
           </li>
         )}
       </ul>
+
+      {filtered.length > 0 && !best && (
+        <p className="mt-2.5 text-[13px] leading-relaxed text-ink-mute">
+          Nothing in this budget changes {unit} here by a measurable amount.
+          Either the water is not passing where these sites sit, or it is far
+          deeper than a levee of this height can hold.
+        </p>
+      )}
 
       <p className="anno mt-2.5">Change in {unit} vs. doing nothing</p>
     </>
