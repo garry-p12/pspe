@@ -54,31 +54,55 @@ def terrain_rgb(z: np.ndarray) -> np.ndarray:
 
 
 def depth_rgba(d: np.ndarray, vmax: float) -> np.ndarray:
-    """Blue-scale depth over aerial imagery; fully transparent below 1 cm.
+    """Depth as brightness over a grey basemap; transparent below 1 cm.
 
-    Scaled by a gamma rather than linearly in depth. The field runs to ~19 m in
-    the river channel while almost all *inundation* is 0.5-3 m, so a linear ramp
-    renders the flooded floodplain — the part that matters — as barely-visible
-    haze. x**0.42 lifts the shallow end into a readable blue while keeping the
-    deep channel distinct, and the alpha floor guarantees any wet cell is seen.
+    Deeper reads brighter. That is the sonar and radar convention, and it is the
+    only achromatic ramp that works laid over a neutral base: the ground sits at
+    mid-grey, shallow inundation lifts just clear of it, and the channel runs to
+    white. Hue carried no more information than this does, and removing it means
+    the map survives greyscale print, a projector, and a reader who cannot
+    separate blue from green.
+
+    Scaled by a gamma rather than linearly. The field reaches ~19 m in the river
+    channel while almost all *inundation* is 0.5-3 m, so a linear ramp renders
+    the flooded floodplain -- the part that matters -- as barely-visible haze.
+    x**0.42 lifts the shallow end into readable tone while keeping the deep
+    channel distinct, and the alpha floor guarantees any wet cell is seen.
     """
     x = np.clip(np.nan_to_num(d) / max(vmax, 1e-6), 0.0, 1.0) ** 0.42
     out = np.zeros(x.shape + (4,), dtype=np.uint8)
-    out[..., 0] = (96 * (1 - x) + 4 * x).astype(np.uint8)
-    out[..., 1] = (200 * (1 - x) + 28 * x).astype(np.uint8)
-    out[..., 2] = (255 * (1 - x) + 128 * x).astype(np.uint8)
-    a = np.where(np.nan_to_num(d) > 0.01, 132 + 118 * x, 0.0)
+    # Ink on paper: dry ground stays light, water darkens with depth.
+    #
+    # Two corrections got here. Bright water on a dark base made the flood a
+    # white sheet that erased the terrain, because with both layers achromatic
+    # hue was no longer doing the figure/ground work. Inverting it was right but
+    # not enough: the 0.42 gamma was tuned for a ramp where HUE carried the
+    # signal, so it leaves the actual inundation bunched at x = 0.03-0.32
+    # (measured across the district's frames), and 232 - 208x put that at value
+    # ~199 against a basemap of ~232. Invisible.
+    #
+    # So the gamma'd value is rescaled onto the range the data actually
+    # occupies before it becomes tone. The channel saturates to near-black,
+    # which is correct -- it is always deep -- and the floodplain, the part a
+    # planner reads, gets the whole scale.
+    x = np.clip(x / 0.35, 0.0, 1.0)
+    v = 165 - 140 * x
+    out[..., 0] = v.astype(np.uint8)
+    out[..., 1] = v.astype(np.uint8)
+    out[..., 2] = (v + 8 * (1 - x)).astype(np.uint8)   # a few points of blue
+    a = np.where(np.nan_to_num(d) > 0.01, 205 + 45 * x, 0.0)
     out[..., 3] = np.clip(a, 0, 255).astype(np.uint8)
     return out
 
 
 def scalar_rgba(v: np.ndarray, vmax: float) -> np.ndarray:
-    """Amber ramp for the controllability field."""
+    """Controllability as brightness, on the same achromatic scale as depth."""
     x = np.clip(np.nan_to_num(v) / max(vmax, 1e-9), 0.0, 1.0)
     out = np.zeros(x.shape + (4,), dtype=np.uint8)
-    out[..., 0] = (255 * x).astype(np.uint8)
-    out[..., 1] = (200 * x**1.4).astype(np.uint8)
-    out[..., 2] = (40 * x).astype(np.uint8)
+    g = (232 - 208 * x**0.8).astype(np.uint8)
+    out[..., 0] = g
+    out[..., 1] = g
+    out[..., 2] = g
     out[..., 3] = (235 * x**0.7).astype(np.uint8)
     return out
 

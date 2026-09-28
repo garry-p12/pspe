@@ -478,10 +478,12 @@ export function Planner() {
             <button
               key={f}
               onClick={() => setFocus(f)}
+              // These float over a LIGHT map, so they invert: the panel's own
+              // dark ground becomes the chip, and selection is a solid fill.
               className={`rounded-md border px-2.5 py-1 text-[11px] backdrop-blur transition-colors ${
                 focus === f
-                  ? "border-accent/60 bg-accent/15 text-accent"
-                  : "border-line bg-bg/70 text-ink-mute hover:text-ink"
+                  ? "border-ink bg-ink text-bg font-medium"
+                  : "border-ink-faint/40 bg-bg/80 text-ink hover:bg-bg"
               }`}
             >
               {f === "region" ? "Whole valley" : "Town"}

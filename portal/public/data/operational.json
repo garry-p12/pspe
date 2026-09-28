@@ -1,6 +1,6 @@
 {
   "region": "Richmond Valley, NSW",
-  "has_overlays": true,
+  "has_overlays": false,
   "reference_event": "February\u2013March 2022 Northern Rivers flood",
   "cut_depth_m": 0.25,
   "dx_m": 60.0,

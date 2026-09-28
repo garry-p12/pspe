@@ -98,10 +98,26 @@ def depth_png(d: np.ndarray, vmax: float) -> str:
     """Depth as a base64 PNG overlay, on the same ramp the portal uses."""
     x = np.clip(np.nan_to_num(d) / max(vmax, 1e-6), 0.0, 1.0) ** 0.42
     out = np.zeros(x.shape + (4,), dtype=np.uint8)
-    out[..., 0] = (96 * (1 - x) + 4 * x).astype(np.uint8)
-    out[..., 1] = (200 * (1 - x) + 28 * x).astype(np.uint8)
-    out[..., 2] = (255 * (1 - x) + 128 * x).astype(np.uint8)
-    a = np.where(np.nan_to_num(d) > 0.01, 132 + 118 * x, 0.0)
+    # Ink on paper: dry ground stays light, water darkens with depth.
+    #
+    # Two corrections got here. Bright water on a dark base made the flood a
+    # white sheet that erased the terrain, because with both layers achromatic
+    # hue was no longer doing the figure/ground work. Inverting it was right but
+    # not enough: the 0.42 gamma was tuned for a ramp where HUE carried the
+    # signal, so it leaves the actual inundation bunched at x = 0.03-0.32
+    # (measured across the district's frames), and 232 - 208x put that at value
+    # ~199 against a basemap of ~232. Invisible.
+    #
+    # So the gamma'd value is rescaled onto the range the data actually
+    # occupies before it becomes tone. The channel saturates to near-black,
+    # which is correct -- it is always deep -- and the floodplain, the part a
+    # planner reads, gets the whole scale.
+    x = np.clip(x / 0.35, 0.0, 1.0)
+    v = 165 - 140 * x
+    out[..., 0] = v.astype(np.uint8)
+    out[..., 1] = v.astype(np.uint8)
+    out[..., 2] = (v + 8 * (1 - x)).astype(np.uint8)   # a few points of blue
+    a = np.where(np.nan_to_num(d) > 0.01, 205 + 45 * x, 0.0)
     out[..., 3] = np.clip(a, 0, 255).astype(np.uint8)
     buf = io.BytesIO()
     Image.fromarray(out).save(buf, format="PNG", optimize=True)
@@ -177,8 +193,10 @@ def observed_png(flooded: np.ndarray, permanent: np.ndarray) -> str:
     """
     h, w = flooded.shape
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
-    rgba[permanent] = (90, 130, 170, 90)
-    rgba[flooded] = (37, 99, 168, 205)
+    # Permanent water recedes into the base; new water is bright. The two must
+    # stay distinguishable without hue, because conflating them is defect 21.
+    rgba[permanent] = (168, 170, 176, 110)
+    rgba[flooded] = (11, 12, 14, 220)
     buf = io.BytesIO()
     Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", optimize=True)
     return base64.b64encode(buf.getvalue()).decode()
