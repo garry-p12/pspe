@@ -15,6 +15,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import json
+import urllib.parse
+import urllib.request
 import math
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -257,6 +260,155 @@ def observe(req: ObserveRequest) -> dict:
     return {**out, "cached": False}
 
 
+# Overpass is free, public and frequently overloaded -- the main instance
+# returns 504 often enough that a single endpoint is not a dependency, it is a
+# coin flip. Tried in order; the first that answers wins.
+OVERPASS_MIRRORS = (
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+)
+ROAD_CLASSES = ("motorway", "trunk", "primary", "secondary", "tertiary",
+                "unclassified", "residential")
+
+
+def _first_ref(ref: str | None) -> str | None:
+    if not ref:
+        return None
+    parts = [r.strip() for r in ref.split(";") if r.strip()]
+    if not parts:
+        return None
+    return parts[0] if len(parts) == 1 else f"{parts[0]} (+{len(parts) - 1})"
+
+
+def _seg_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Great-circle-ish length of a short segment, in km."""
+    dlat = (b[1] - a[1]) * 111.0
+    dlon = (b[0] - a[0]) * 111.0 * math.cos(math.radians((a[1] + b[1]) / 2))
+    return math.hypot(dlat, dlon)
+
+
+def fetch_roads(west: float, south: float, east: float, north: float,
+                timeout: float = 90.0, rounds: int = 2) -> dict:
+    """The road network over this box, from OpenStreetMap via Overpass.
+
+    The district's roads were prepared in advance, which is why road impact
+    only worked there. Nothing about the analysis needs that: the geometry is
+    public and the query is small. Fetched live, cached per box, and returned
+    in the same GeoJSON shape the district uses so one piece of client code
+    scores both.
+
+    A failure here is not a failure of the model. The flood answer stands
+    without roads, so this returns an empty collection and says why rather
+    than taking the whole request down with it.
+    """
+    q = (f"[out:json][timeout:{int(timeout)}];"
+         f'way["highway"~"^({"|".join(ROAD_CLASSES)})$"]'
+         f"({south},{west},{north},{east});out geom;")
+    payload, last = None, None
+    for url in [u for _ in range(rounds) for u in OVERPASS_MIRRORS]:
+        try:
+            req = urllib.request.Request(
+                url, data=urllib.parse.urlencode({"data": q}).encode(),
+                headers={"User-Agent": "PSPE-floodplain-planner/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                payload = json.loads(r.read().decode())
+            break
+        except Exception as exc:                       # noqa: BLE001
+            last = exc
+            continue
+    if payload is None:
+        raise RuntimeError(f"every Overpass mirror failed ({last})")
+
+    feats = []
+    for el in payload.get("elements", []):
+        geom = el.get("geometry") or []
+        if len(geom) < 2:
+            continue
+        coords = [[g["lon"], g["lat"]] for g in geom]
+        length_km = sum(_seg_km(tuple(coords[i]), tuple(coords[i + 1]))
+                        for i in range(len(coords) - 1))
+        tags = el.get("tags", {})
+        feats.append({
+            "type": "Feature",
+            "properties": {
+                "id": el["id"],
+                # OSM packs concurrent designations into one ref field as
+                # "US 30;US 151;US 218". A worst-affected list is read, not
+                # parsed, so take the first and note the rest.
+                "name": (tags.get("name")
+                         or _first_ref(tags.get("ref"))
+                         or "Unnamed road"),
+                "class": tags.get("highway", "unclassified"),
+                "len_m": int(length_km * 1000),
+            },
+            "geometry": {"type": "LineString", "coordinates": coords},
+        })
+    return {"type": "FeatureCollection", "features": feats}
+
+
+def inspect_grids(peak: np.ndarray, z: np.ndarray, vmax: float) -> dict:
+    """Depth and ground as the quantised grids the client already knows how to
+    sample. Same encoding as the district's `inspect.json` + `.u8` / `.u16`, so
+    the point query and the road scoring are the same code in both places."""
+    d = np.clip(np.nan_to_num(peak) / max(vmax, 1e-6), 0.0, 1.0)
+    depth_u8 = (d * 255).astype(np.uint8)
+    zmin, zmax = float(np.nanmin(z)), float(np.nanmax(z))
+    span = max(zmax - zmin, 1e-6)
+    elev_u16 = (np.clip((np.nan_to_num(z) - zmin) / span, 0, 1) * 65535).astype(np.uint16)
+    return {
+        "meta": {
+            "grid": [int(peak.shape[0]), int(peak.shape[1])],
+            "depth_vmax_m": vmax,
+            "elev_min_m": zmin,
+            "elev_max_m": zmax,
+        },
+        "depth_u8": base64.b64encode(depth_u8.tobytes()).decode(),
+        "elev_u16": base64.b64encode(elev_u16.tobytes()).decode(),
+    }
+
+
+def roads_and_grids(dom, peak: np.ndarray, west: float, south: float,
+                    east: float, north: float) -> dict:
+    """The samplable grids. Roads are fetched separately, on purpose.
+
+    Overpass is free, public, and takes 20-60 s for a city-sized box when it
+    answers at all. Fetching it inside the solve put a flaky third party on the
+    critical path of a result that already takes two minutes: a slow lookup
+    delayed the flood answer and a failed one wasted the whole wait. It is now
+    its own endpoint, called only when the roads view is actually opened.
+    """
+    return {"inspect": inspect_grids(peak, dom.z, DEPTH_VMAX)}
+
+
+class RoadsRequest(BaseModel):
+    west: float
+    south: float
+    east: float
+    north: float
+
+
+@app.post("/roads")
+def roads(req: RoadsRequest) -> dict:
+    """The road network over this box, cached per box."""
+    key = f"roads:{req.west:.4f},{req.south:.4f},{req.east:.4f},{req.north:.4f}"
+    if key in CACHE:
+        return {"ok": True, "roads": CACHE[key], "cached": True}
+    t0 = time.time()
+    try:
+        fc = fetch_roads(req.west, req.south, req.east, req.north)
+    except Exception as exc:
+        return {"ok": False,
+                "roads": {"type": "FeatureCollection", "features": []},
+                "reason": f"OpenStreetMap is not answering right now ({exc}). "
+                          f"Flood depth and mitigation options are unaffected."}
+    CACHE[key] = fc
+    return {"ok": True, "roads": fc, "cached": False,
+            "seconds": round(time.time() - t0, 1),
+            "network_km": round(
+                sum(f["properties"]["len_m"] for f in fc["features"]) / 1000, 1)}
+
+
 def site_masks(dom, sites: list[dict]) -> "torch.Tensor":
     """One Gaussian ridge per candidate site, in METRES (defect 20)."""
     h_, w_ = dom.z.shape
@@ -455,6 +607,8 @@ def plan_anywhere(req: PlanRequest) -> dict:
                    "east": req.east, "north": req.north},
         "depth_png": depth_png(peak[0].numpy(), DEPTH_VMAX),
         "terrain_png": terrain_png(dom.z),
+        **roads_and_grids(dom, peak[0].numpy(), req.west, req.south,
+                          req.east, req.north),
         "timing": {"seconds": round(time.time() - t0, 1), "steps": steps},
         "verify": ("Every number here is a solver run on this terrain: the "
                    "single-measure effects exactly, the combinations through a "
@@ -516,6 +670,7 @@ def analyse(req: AnalyseRequest) -> dict:
         "depth_vmax_m": DEPTH_VMAX,
         "depth_png": depth_png(peak, DEPTH_VMAX),
         "terrain_png": terrain_png(dom.z),
+        **roads_and_grids(dom, peak, req.west, req.south, req.east, req.north),
         "forecast": fc,
         "timing": {"dem_seconds": round(t_dem, 1), **stats},
         "storm": {"rain_mm_h": req.rain_mm_h, "storm_hours": req.storm_hours,

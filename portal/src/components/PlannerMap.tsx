@@ -29,6 +29,7 @@ export function PlannerMap({
   onPick,
   pin,
   cutFraction,
+  cutSignature,
   analysis,
   observed,
   placed,
@@ -42,6 +43,8 @@ export function PlannerMap({
   onPick?: (lon: number, lat: number) => void;
   pin?: { lon: number; lat: number } | null;
   cutFraction?: Map<number, number> | null;
+  /** Changes whenever the cut query changes; deck.gl needs a primitive. */
+  cutSignature?: string;
   /** An on-demand result for an arbitrary place, drawn instead of the archive. */
   analysis?: {
     bounds: { west: number; south: number; east: number; north: number };
@@ -96,6 +99,8 @@ export function PlannerMap({
     const fit = vp.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: 70 });
     return { ...c, zoom: fit.zoom + 0.5 };
   }, [b, size, focus, settle, ab]);
+
+  const cutKey = cutFraction ? `${cutFraction.size}:${cutSignature}` : "none";
 
   const layers = useMemo(() => {
     const out: Layer[] = [];
@@ -158,20 +163,40 @@ export function PlannerMap({
           stroked: true,
           filled: false,
           lineWidthUnits: "pixels",
+          // Severity carried twice -- width AND colour -- because on satellite
+          // imagery a thin red line over a brown field is not a signal. A cut
+          // road is the heaviest thing on the map; an open one recedes.
+          // Severity carried twice -- width AND colour -- because a thin red
+          // line over brown farmland is not a signal.
           getLineWidth: (f) => {
-            const c = (f as GeoJSON.Feature).properties?.class;
-            return c === "primary" || c === "secondary" ? 2.2 : 1.1;
+            const props = (f as GeoJSON.Feature).properties;
+            const frac = props?.id != null
+              ? (cutFraction?.get(props.id as number) ?? 0) : 0;
+            const c = props?.class;
+            const base = c === "motorway" || c === "trunk" || c === "primary"
+              ? 2.4 : c === "secondary" || c === "tertiary" ? 1.8 : 1.0;
+            if (frac > 0.5) return base + 2.6;
+            if (frac > 0.05) return base + 1.2;
+            return base;
           },
-          // Red where the road is cut at the chosen depth, pale where it is
-          // passable. A planner reads the network, not the depth field.
           getLineColor: (f) => {
-            const id = (f as GeoJSON.Feature).properties?.id as number | undefined;
-            const frac = id != null ? (cutFraction?.get(id) ?? 0) : 0;
-            if (frac > 0.5) return [248, 113, 113, 235];
-            if (frac > 0.05) return [251, 191, 36, 215];
-            return [232, 237, 244, 120];
+            const props = (f as GeoJSON.Feature).properties;
+            const frac = props?.id != null
+              ? (cutFraction?.get(props.id as number) ?? 0) : 0;
+            if (frac > 0.5) return [239, 68, 68, 255];
+            if (frac > 0.05) return [251, 191, 36, 240];
+            return [255, 255, 255, 110];
           },
-          updateTriggers: { getLineColor: cutFraction },
+          // A PRIMITIVE trigger, not the Map itself.
+          //
+          // deck.gl caches the evaluated attribute buffers; a changed accessor
+          // closure alone does not re-evaluate them, updateTriggers has to say
+          // so. Handing it the cut Map looked right and did not work -- every
+          // road kept the colour it was given on the first build, when the map
+          // was still null, so the network drew uniformly white while the panel
+          // correctly reported 72 km cut. A string that changes whenever the
+          // query changes is compared the way deck.gl expects.
+          updateTriggers: { getLineColor: cutKey, getLineWidth: cutKey },
           parameters: { depthCompare: "always" as const },
         }) as unknown as Layer,
       );
@@ -251,7 +276,8 @@ export function PlannerMap({
       );
     }
     return out;
-  }, [b, frame, ext, roads, markers, onMarker, pin, cutFraction, analysis, placed]);
+  }, [b, frame, ext, roads, markers, onMarker, pin, cutFraction, cutKey,
+      observed, analysis, placed]);
 
   if (!size) return <div ref={host} className="h-full w-full bg-bg-inset" />;
 

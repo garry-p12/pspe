@@ -11,8 +11,15 @@ export interface FrameMeta {
   mean_depth_wet: number;
 }
 
-export interface Bounds {
+/** A geographic box. Everything that samples a grid needs only this. */
+export interface Box {
   west: number; east: number; south: number; north: number;
+}
+
+/** The district's box, with the provenance the archive carries. `Box` is what
+ *  the point query and road scoring take, so an ad-hoc area that has no EPSG
+ *  or named event can be scored by exactly the same code. */
+export interface Bounds extends Box {
   epsg: number; extent_km: number; place: string; event: string;
 }
 

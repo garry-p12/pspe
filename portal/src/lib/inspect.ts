@@ -1,4 +1,4 @@
-import type { Bounds } from "./types";
+import type { Box } from "./types";
 
 /** Point-query grids: peak depth over the event, and ground elevation. */
 export interface InspectMeta {
@@ -34,7 +34,7 @@ export interface PointInfo {
 /** Sample both grids at a geographic point. */
 export function sampleAt(
   g: InspectGrids,
-  b: Bounds,
+  b: Box,
   lon: number,
   lat: number,
 ): PointInfo | null {

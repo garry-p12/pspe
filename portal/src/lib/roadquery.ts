@@ -1,4 +1,4 @@
-import type { Bounds } from "./types";
+import type { Box } from "./types";
 import type { InspectGrids } from "./inspect";
 import { sampleAt } from "./inspect";
 
@@ -36,7 +36,7 @@ function segKm(a: [number, number], b: [number, number]): number {
 export function queryRoads(
   roads: GeoJSON.FeatureCollection | null,
   grids: InspectGrids | null,
-  bounds: Bounds | null,
+  bounds: Box | null,
   threshold: number,
 ): RoadQuery | null {
   if (!roads || !grids || !bounds) return null;

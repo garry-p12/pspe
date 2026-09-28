@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { Bounds } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import type { Box } from "@/lib/types";
 import type { InspectGrids } from "@/lib/inspect";
 import { DEPTH_PRESETS, queryRoads, type RoadQuery } from "@/lib/roadquery";
 
@@ -13,7 +13,7 @@ export function RoadQueryPanel({
 }: {
   roads: GeoJSON.FeatureCollection | null;
   grids: InspectGrids | null;
-  bounds: Bounds | null;
+  bounds: Box | null;
   onQuery: (q: RoadQuery | null) => void;
 }) {
   const [idx, setIdx] = useState(1); // default: car
@@ -25,7 +25,14 @@ export function RoadQueryPanel({
   );
 
   // Hand the result up so the map can colour the network.
-  useMemo(() => onQuery(q), [q, onQuery]);
+  //
+  // In an effect, not a useMemo. Calling the parent's setter while this
+  // component renders updates another component mid-render, which React is
+  // entitled to defer or drop -- and did: the map never received a cut map, so
+  // every road drew at the default colour and the network looked uniform in
+  // both the district and an ad-hoc area. An effect runs after commit, when
+  // setting parent state is legal.
+  useEffect(() => { onQuery(q); }, [q, onQuery]);
 
   if (!roads || !grids) {
     return (

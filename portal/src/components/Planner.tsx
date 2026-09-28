@@ -49,6 +49,7 @@ export function Planner() {
   const [custom, setCustom] = useState<number[]>([]);
   const [mode, setMode] = useState<"options" | "build">("options");
   const [roadQ, setRoadQ] = useState<RoadQuery | null>(null);
+  const [adHocRoads, setAdHocRoads] = useState<GeoJSON.FeatureCollection | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [tab, setTab] = useState<"district" | "anywhere">("district");
   const [placed, setPlaced] = useState<PlacedLevee[]>([]);
@@ -201,6 +202,8 @@ export function Planner() {
           <AnywherePanel
             section={section}
             onResult={setAnalysis}
+            onRoadQuery={setRoadQ}
+            onRoads={setAdHocRoads}
             onPreview={() => {}}
             levees={placed}
             onLevees={setPlaced}
@@ -400,12 +403,13 @@ export function Planner() {
           <PlannerMap
             manifest={manifest}
             frame={frame}
-            roads={tab === "district" ? roads : null}
+            roads={tab === "district" ? roads : adHocRoads}
             markers={markers}
             onMarker={onMarker}
             onPick={onPick}
             pin={point ? { lon: point.lon, lat: point.lat } : null}
-            cutFraction={tab === "district" ? (roadQ?.cutFraction ?? null) : null}
+            cutFraction={roadQ?.cutFraction ?? null}
+            cutSignature={roadQ ? `${roadQ.threshold}:${roadQ.cutKm.toFixed(2)}` : "none"}
             placed={tab === "anywhere" ? placed : []}
             observed={observed}
               analysis={analysis}

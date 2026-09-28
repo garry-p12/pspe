@@ -1,12 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatChange, MATERIAL_PCT, OptionList, type OptionRow } from "./OptionList";
 import { ForecastPanel } from "./ForecastPanel";
 import { ObservePanel } from "./ObservePanel";
+import { RoadQueryPanel } from "./RoadQueryPanel";
+import type { InspectGrids } from "@/lib/inspect";
+import type { RoadQuery } from "@/lib/roadquery";
 
 export interface AnalysisResult {
   name: string;
+  roads?: GeoJSON.FeatureCollection | null;
+  roads_note?: string | null;
+  inspect?: {
+    meta: { grid: [number, number]; depth_vmax_m: number;
+            elev_min_m: number; elev_max_m: number };
+    depth_u8: string;
+    elev_u16: string;
+  } | null;
   bounds: { west: number; south: number; east: number; north: number };
   grid: [number, number];
   dx_m: number;
@@ -66,11 +77,17 @@ export function AnywherePanel({
   placing,
   onPlacing,
   section,
+  onRoadQuery,
+  onRoads,
 }: {
   /** Which of the three panel sections is open. Everything below the place
    *  chrome belongs to exactly one of them; before this, all three rendered
    *  the same thing and switching tabs changed nothing. */
   section: "forecast" | "roads" | "plan";
+  /** Road cuts here, so the map can colour the network. */
+  onRoadQuery: (q: RoadQuery | null) => void;
+  /** Hand the fetched network up so the map can draw it. */
+  onRoads?: (r: GeoJSON.FeatureCollection | null) => void;
   onResult: (r: AnalysisResult | null) => void;
   onPreview: (c: { lat: number; lon: number } | null) => void;
   levees: PlacedLevee[];
@@ -114,6 +131,60 @@ export function AnywherePanel({
     return { west: p.lon - dLon, east: p.lon + dLon,
              south: p.lat - dLat, north: p.lat + dLat };
   };
+
+  // Memoised, and that is load-bearing rather than an optimisation.
+  // RoadQueryPanel reports its query upward from a useMemo, so a bounds object
+  // with a fresh identity on every render makes the query recompute, which
+  // sets state in the parent, which renders again -- React #185, an infinite
+  // loop. The district never hit it because its bounds come from a manifest
+  // that is fetched once and never rebuilt.
+  const box = useMemo(() => (chosen ? boundsFor(chosen) : null), [chosen]);
+
+  /** The service sends depth and ground as the same quantised grids the
+   *  district ships as files, so the point query and the road scoring are one
+   *  piece of code rather than two that drift. */
+  const grids = useMemo<InspectGrids | null>(() => {
+    const ins = res?.inspect;
+    if (!ins) return null;
+    const bytes = (b64: string) =>
+      Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const e = bytes(ins.elev_u16);
+    return {
+      meta: ins.meta,
+      depth: bytes(ins.depth_u8),
+      elev: new Uint16Array(e.buffer, e.byteOffset, e.byteLength / 2),
+    };
+  }, [res]);
+
+  /** Roads are fetched when the roads view is opened, not with the solve:
+   *  Overpass is slow and unreliable, and it has no business delaying a flood
+   *  answer or failing one. */
+  const [roads, setRoads] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [roadsNote, setRoadsNote] = useState<string | null>(null);
+  const [roadsBusy, setRoadsBusy] = useState(false);
+  const roadsFor = useRef<string>("");
+
+  useEffect(() => {
+    if (section !== "roads" || !box) return;
+    const b = box;
+    const key = `${b.west.toFixed(4)},${b.south.toFixed(4)}`;
+    if (roadsFor.current === key) return;
+    roadsFor.current = key;
+    setRoads(null); setRoadsNote(null); setRoadsBusy(true);
+    fetch("/api/roads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(b),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        setRoads(d.roads ?? null);
+        setRoadsNote(d.ok ? null : (d.reason ?? "road data unavailable"));
+        onRoads?.(d.roads ?? null);
+      })
+      .catch((e) => setRoadsNote(String(e.message ?? e)))
+      .finally(() => setRoadsBusy(false));
+  }, [section, box, onRoads]);
 
   const planHere = useCallback(async (p: Place, lv: PlacedLevee[]) => {
     setPlanning(true); setPlanErr(null); setPlan(null);
@@ -265,25 +336,39 @@ export function AnywherePanel({
       {section === "forecast" && chosen && (
         <div className="-mx-5 mt-4 border-t border-line">
           <ForecastPanel lat={chosen.lat} lon={chosen.lon} place={chosen.short} />
-          <ObservePanel bounds={boundsFor(chosen)} />
+          <ObservePanel bounds={box} />
         </div>
       )}
 
-      {/* ---- ROADS: honestly, nothing yet ------------------------------- */}
-      {section === "roads" && chosen && (
+      {/* ---- ROADS: the real network, scored against the real depths ---- */}
+      {section === "roads" && chosen && res && !busy && roadsBusy && (
         <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
-          <h3 className="eyebrow">Road impact is not available here</h3>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
-            The district&apos;s road analysis runs against a mapped network that
-            was prepared for it in advance. Nothing equivalent has been built
-            for {chosen.short}, so the tool would have to invent the road
-            geometry to answer, and it will not.
-          </p>
-          <p className="anno mt-2.5 leading-relaxed">
-            Flood depth and mitigation options are available for this location
-            under Plan.
+          <p className="text-[13px] text-ink">Fetching the road network…</p>
+          <p className="anno mt-1.5 leading-relaxed">
+            OpenStreetMap, over this box. Usually under a minute.
           </p>
         </div>
+      )}
+
+      {section === "roads" && chosen && res && !busy && !roadsBusy && (
+        grids && roads?.features?.length ? (
+          <div className="-mx-5 mt-4 border-t border-line">
+            <RoadQueryPanel
+              roads={roads}
+              grids={grids}
+              bounds={box}
+              onQuery={onRoadQuery}
+            />
+          </div>
+        ) : (
+          <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
+            <h3 className="eyebrow">Roads unavailable here</h3>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
+              {roadsNote ??
+                "OpenStreetMap returned no roads for this box."}
+            </p>
+          </div>
+        )
       )}
 
       {/* ---- what doing nothing costs here ---------------------------- */}
