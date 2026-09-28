@@ -18,7 +18,7 @@ import io
 import math
 import time
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import torch
@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pspe.observe import sar  # noqa: E402
+from pspe.plan import surrogate  # noqa: E402
 from pspe.simulate.flood import FloodConfig, FloodSolver  # noqa: E402
 from pspe.simulate.real.anywhere import (  # noqa: E402
     build_domain, forcing_for,
@@ -56,6 +57,28 @@ class ObserveRequest(BaseModel):
     name: str = "Selected area"
     days_back: int = Field(45, ge=12, le=365)
     size: int = Field(512, ge=128, le=1024)
+
+
+class PlanRequest(BaseModel):
+    """Plan an arbitrary place under a budget, with a calibrated guarantee."""
+    west: float
+    south: float
+    east: float
+    north: float
+    name: str = "Selected area"
+    dx: float = Field(90.0, ge=30.0, le=240.0)
+    rain_mm_h: float = Field(50.0, ge=0.0, le=300.0)
+    storm_hours: float = Field(6.0, ge=0.5, le=48.0)
+    run_hours: float = Field(12.0, ge=1.0, le=72.0)
+    # Candidate levee locations. Four or more are needed before a 90% margin is
+    # attainable, and the response says so rather than quietly dropping to a
+    # point estimate.
+    sites: list[dict] = []
+    max_height_m: float = Field(3.0, ge=0.5, le=10.0)
+    budget_aud: float = Field(20e6, ge=0.0)
+    cost_per_m_per_m: float = 2600.0
+    delta: float = Field(0.1, ge=0.01, le=0.5)
+    protect: Optional[dict] = None   # {"lat":..,"lon":..,"radius_m":..}
 
 
 class AnalyseRequest(BaseModel):
@@ -227,6 +250,187 @@ def observe(req: ObserveRequest) -> dict:
         "note": ("Sentinel-1 repeats every 12 days and cannot see standing "
                  "water under canopy or among buildings, so an empty result "
                  "is a statement about the overpass, not about the ground."),
+    }
+    CACHE[key] = out
+    return {**out, "cached": False}
+
+
+def site_masks(dom, sites: list[dict]) -> "torch.Tensor":
+    """One Gaussian ridge per candidate site, in METRES (defect 20)."""
+    h_, w_ = dom.z.shape
+    yy, xx = torch.meshgrid(torch.arange(h_), torch.arange(w_), indexing="ij")
+    out = []
+    for s in sites:
+        r = (dom.bounds["north"] - s["lat"]) / (
+            dom.bounds["north"] - dom.bounds["south"]) * h_
+        c = (s["lon"] - dom.bounds["west"]) / (
+            dom.bounds["east"] - dom.bounds["west"]) * w_
+        sigma = max(1.0, float(s.get("width_m", 600.0)) / dom.dx)
+        out.append(torch.exp(-(((yy - r) ** 2 + (xx - c) ** 2) / sigma ** 2)))
+    return torch.stack(out) if out else torch.zeros(0, h_, w_)
+
+
+@app.post("/plan")
+def plan_anywhere(req: PlanRequest) -> dict:
+    """The whole framework, on terrain that is nowhere in the repository.
+
+    The district planner reads a scenario library someone solved offline. That
+    is why it only worked in one valley. Here the library is BUILT ON DEMAND:
+    every candidate plan shares one batched solve, because the timestep loop is
+    the expensive part and the bed is the only thing that differs between
+    scenarios, so twenty plans cost roughly what one does.
+
+    Then the same code the district uses fits the surrogate and takes the
+    conformal margin -- `pspe.plan.surrogate`, not a copy of it, because a
+    guarantee that means one thing in Richmond and another here would be worse
+    than no guarantee (rule 13).
+    """
+    key = "plan:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
+    if key in CACHE:
+        return {**CACHE[key], "cached": True}
+    if len(req.sites) < 2:
+        return {"ok": False, "reason":
+                "Place at least two candidate levee sites. Four or more are "
+                "needed before a 90% margin can be calibrated."}
+
+    t0 = time.time()
+    dom = build_domain(req.west, req.south, req.east, req.north,
+                       dx=req.dx, name=req.name)
+    z0 = torch.as_tensor(dom.z, dtype=torch.float32)
+    masks = site_masks(dom, req.sites)
+    k = len(req.sites)
+
+    plans = surrogate.enumerate_plans(k, req.max_height_m)
+    P = torch.tensor(plans, dtype=torch.float32)
+    # One bed per plan; one timestep loop for all of them.
+    z = z0[None] + (P[:, :, None, None] * masks[None]).sum(1)
+
+    rows = z.mean(dim=2).mean(dim=1)
+    slope = max(abs(float((rows[0] - rows[-1]) / (z.shape[1] * dom.dx))), 1e-5)
+    cfg = FloodConfig(dx=dom.dx, open_edges=("south", "north", "east", "west"),
+                      manning=0.035, bed_slope=slope, dt_max=300.0)
+    solver = FloodSolver(z, cfg)
+    b = z.shape[0]
+    h = torch.zeros(b, z.shape[1], z.shape[2])
+    qx, qy = solver.zeros_flux(b)
+    peak = h.clone()
+    rain = req.rain_mm_h / 3.6e6
+    tt, dur, steps = 0.0, req.run_hours * 3600.0, 0
+    while tt < dur:
+        dt = min(solver.adaptive_dt(h), dur - tt)
+        if dt <= 0:
+            break
+        r = rain if tt < req.storm_hours * 3600.0 else 0.0
+        h, qx, qy = solver.step(h, qx, qy, dt, rain=r, z=z)
+        peak = torch.maximum(peak, h)
+        tt += dt; steps += 1
+
+    # What the plan is bought to change: depth over the protected area, or the
+    # whole domain when nothing is named.
+    if req.protect:
+        h_, w_ = dom.z.shape
+        yy, xx = torch.meshgrid(torch.arange(h_), torch.arange(w_), indexing="ij")
+        r = (dom.bounds["north"] - req.protect["lat"]) / (
+            dom.bounds["north"] - dom.bounds["south"]) * h_
+        c = (req.protect["lon"] - dom.bounds["west"]) / (
+            dom.bounds["east"] - dom.bounds["west"]) * w_
+        rad = float(req.protect.get("radius_m", 2000.0)) / dom.dx
+        sel = (((yy - r) ** 2 + (xx - c) ** 2) <= rad ** 2)
+    else:
+        sel = torch.ones(dom.z.shape, dtype=torch.bool)
+    if not bool(sel.any()):
+        sel = torch.ones(dom.z.shape, dtype=torch.bool)
+
+    core = (peak * sel[None]).sum(dim=(1, 2)) / float(sel.sum())
+    base = float(core[0])
+    # Positive = flooding reduced where it matters.
+    reduction = [(base - float(c)) / base * 100.0 if base > 1e-9 else 0.0
+                 for c in core]
+
+    alpha = [0.0] * k
+    for i, pl in enumerate(plans):
+        act = [j for j, hh in enumerate(pl) if hh > 0]
+        if len(act) == 1:
+            alpha[act[0]] = reduction[i]
+
+    f = surrogate.fit(alpha, plans, reduction, req.max_height_m, req.delta)
+    S = f["saturation_S"]
+    lengths = [float(s.get("width_m", 600.0)) * 2.0 for s in req.sites]
+    unit = req.cost_per_m_per_m
+
+    def cost(hv):
+        return sum(hv[i] * lengths[i] * unit for i in range(k))
+
+    # Greedy allocation, same rule the district planner uses.
+    hv, trace = [0.0] * k, []
+    step_m = 0.5
+    while True:
+        cur = surrogate.effect(alpha, hv, req.max_height_m, S)
+        spent_now = cost(hv)
+        best = (1e-9, -1, 0.0)
+        for i in range(k):
+            if hv[i] + step_m > req.max_height_m + 1e-9:
+                continue
+            trial = list(hv); trial[i] += step_m
+            spent = cost(trial)
+            if spent > req.budget_aud:
+                continue
+            e = surrogate.effect(alpha, trial, req.max_height_m, S)
+            per = (e - cur) / max(spent - spent_now, 1.0)
+            if e > cur and per > best[0]:
+                best = (per, i, e)
+        if best[1] < 0:
+            break
+        hv[best[1]] += step_m
+        trace.append({"site": best[1], "to_m": hv[best[1]], "effect": best[2]})
+
+    eff = surrogate.effect(alpha, hv, req.max_height_m, S)
+    active = sum(1 for x in hv if x > 0)
+    band = f["band"] if active > 1 else 0.0
+    attribution = []
+    for i, hh in enumerate(hv):
+        if hh <= 0:
+            continue
+        without = list(hv); without[i] = 0.0
+        marginal = eff - surrogate.effect(alpha, without, req.max_height_m, S)
+        attribution.append({
+            "site": i, "height_m": hh, "marginal_pct": marginal,
+            "alone_pct": alpha[i] * (hh / req.max_height_m),
+            "overlap_pct": alpha[i] * (hh / req.max_height_m) - marginal,
+            "cost_aud": hh * lengths[i] * unit,
+        })
+    attribution.sort(key=lambda a: -a["marginal_pct"])
+
+    out = {
+        "ok": True,
+        "name": req.name,
+        "heights": hv,
+        "cost_aud": cost(hv),
+        "budget_aud": req.budget_aud,
+        "reduction_pct": eff,
+        "guaranteed_pct": eff - band,
+        "band_pct": band,
+        "delta": req.delta,
+        "confidence_pct": round(100 * (1 - req.delta)),
+        "band_attainable": f["band_attainable"],
+        "band_note": f["band_note"],
+        "n_calibration_runs": f["n_calibration_runs"],
+        "fit_rmse": f["fit_rmse"],
+        "saturation_S": S,
+        "alone_pct": alpha,
+        "harmful": [{"site": i, "alone_pct": a} for i, a in enumerate(alpha) if a < 0],
+        "attribution": attribution,
+        "steps": trace,
+        "scenarios_solved": b,
+        "base_depth_m": base,
+        "bounds": {"west": req.west, "south": req.south,
+                   "east": req.east, "north": req.north},
+        "depth_png": depth_png(peak[0].numpy(), DEPTH_VMAX),
+        "terrain_png": terrain_png(dom.z),
+        "timing": {"seconds": round(time.time() - t0, 1), "steps": steps},
+        "verify": ("Every number here is a solver run on this terrain: the "
+                   "single-measure effects exactly, the combinations through a "
+                   "surrogate fitted to them and bounded by a conformal margin."),
     }
     CACHE[key] = out
     return {**out, "cached": False}

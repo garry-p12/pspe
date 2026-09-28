@@ -2856,6 +2856,66 @@ depends on what else is in the plan, so it cannot be reused for a different
 plan, and it is checkable against a solver run. That is the property §4.4 says
 to require.
 
+### 5.11a The framework anywhere, not just where a library was precomputed (2026-09-27)
+
+**The limitation, stated plainly.** Everything in §5.11 keyed off a scenario
+library solved offline for one valley. Enter any other place and the tool fell
+back to what it had always done: one solve, and a levee you position by hand.
+Plan, margin and attribution were Richmond-only, which makes "works anywhere" a
+claim about the *solver* and not about the framework.
+
+**Why it was fixable.** The solver is batched over scenarios — one timestep
+loop, one bed per plan — so the library does not have to be precomputed. It can
+be **built on demand**, and twenty candidate plans cost roughly what one does.
+
+`POST /plan` builds the domain from public DEM tiles, enumerates do-nothing plus
+each candidate alone plus a calibration set of combinations at varied heights,
+solves them in **one batched run**, reads the single-measure effects off exactly,
+fits the interaction and takes a split-conformal margin, then allocates greedily
+under a budget and returns leave-one-out attribution.
+
+The fit and margin call `pspe/plan/surrogate.py` — the *same module* the district
+path now uses, extracted for that purpose. Rule 13 is the reason: two numbers
+produced by different code are not comparable, and a guarantee that means one
+thing in Richmond and another in Iowa is worse than no guarantee.
+
+**Measured on Cedar Rapids, where nothing is precomputed.** Five candidate sites,
+90 m grid, severe-storm forcing:
+
+| | |
+|---|---|
+| scenarios solved in one batch | **29**, in 137 s, 4,732 timesteps |
+| per-site effect alone | −3.7, **+3.5**, +0.7, +0.1, −0.1 % |
+| plan under A$20M | site 1 at 3.0 m, site 2 at 2.0 m (A$18.2M) |
+| reduction | 4.0%, **guaranteed 3.8% at 90%** |
+| margin | split-conformal over 23 held-out combinations, fit RMSE 0.07 |
+| rejected | site 0 at **−3.7%**, site 4 at −0.1% |
+
+**It found a harmful site on terrain it had never seen.** Site 0 deepens flooding
+at the protected area by 3.7%, and the planner rejected it because increments are
+chosen by measured effect rather than by assuming a levee helps. The backwater
+result of §5.6b was not a property of the Richmond valley; it reproduces wherever
+the geometry does.
+
+**Two things this measurement does not say.** The 4% is small because the five
+sites were placed by drawing a line on a map, not by any hydraulic reasoning —
+the framework correctly reports that arbitrary levees do little, which is the
+honest answer rather than a failure. And the number of candidate sites is a hard
+constraint on what can be promised: with three sites the combinations give seven
+calibration points where δ = 0.1 needs nine, so the service refuses to state a
+90% margin and says why. **Four sites is where a 90% guarantee becomes
+attainable**, and the interface says so before the user spends two minutes.
+
+**Defect 30 — a fitted parameter reported from the edge of its own search.** The
+saturation constant came back as 498 on a grid that stopped at 500, which does
+not mean "S = 498"; it means the search ran out of room and no saturation was
+needed, because effects this small do not overlap. Reported as a fitted value it
+would look like a measurement. The grid now extends to 20,000 and the fit returns
+a `saturating` flag, so "no interaction correction was required" is stated rather
+than disguised as a number. **Rule 33: a fitted parameter that lands on the
+boundary of its search is not a fit, and must be reported as the boundary it
+is.**
+
 **What is still not demonstrated.** The planner is greedy over six sites in
 half-metre increments, not the paper's gradient planner; over that space greedy
 with full re-evaluation is near-exhaustive and auditable, which is the right
@@ -3015,7 +3075,7 @@ of argument.
     batch all change whether a boundary case is reached, and a diagnosis that
     is right about the mechanism can still be wrong about the consequence.
 
-### Defects 19–28, from the flood and wildfire datasets and the portal
+### Defects 19–30, from the flood and wildfire datasets and the portal
 
 The first eighteen are failures of *measurement protocol*. These eight are
 mostly failures of *belief about data* — what a number in a file means — and
@@ -3033,12 +3093,14 @@ they are harder, because the code is correct and the output looks right.
 | 26 | Year fold keyed on the first date | a one-fire "2017" fold from a fire starting 30 December | the fold listing printing a fold of size 1 | 5.2b |
 | 27 | A displayed band that could not carry its stated level | the portal claimed 90% from 6 calibration runs, understating the honest margin ~2x | calling the conformal function, which refuses below n = 1/delta - 1 | 5.11 |
 | 28 | Surrogate discontinuous between one measure and two | adding a levee that helps LOWERED the prediction; the planner refused to spend half of every budget | building a planner that asks "what if I add one more?" | 5.11 |
+| 29 | Plan, margin and attribution keyed to a precomputed library | the framework worked in one valley; everywhere else was a bare solve | entering another location and finding only a levee slider | 5.11a |
+| 30 | Fitted parameter reported from the edge of its search grid | S = 498 on a grid ending at 500 read as a measurement, not as "no saturation needed" | the value sitting exactly at the boundary | 5.11a |
 
 **Defect 25 is the one to remember.** It degrades data continuously rather than
 breaking it, affects only some fires, and leaves every downstream number
 plausible. Nothing short of a conservation check finds it.
 
-### Rules 16–32
+### Rules 16–33
 
 16. A scheme that cannot violate the constrained quantity cannot be used to
     study violating it; verify conservation before trusting a solver.
@@ -3068,6 +3130,8 @@ plausible. Nothing short of a conservation check finds it.
 32. A model that a search will optimise over must be continuous across the whole
     search space. A fixed menu of options never walks the seams a planner does,
     so the defect stays latent until something searches.
+33. A fitted parameter that lands on the boundary of its own search grid is not
+    a fit. Report it as the boundary it is, or widen the grid until it is not.
 
 ---
 

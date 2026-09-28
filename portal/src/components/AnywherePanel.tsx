@@ -34,6 +34,21 @@ const STORMS = [
 
 export interface PlacedLevee { lat: number; lon: number; height_m: number; width_m: number }
 
+/** A plan built for a place that has no precomputed anything. */
+export interface AnywherePlan {
+  ok: boolean;
+  reason?: string;
+  heights: number[];
+  reduction_pct: number;
+  guaranteed_pct: number;
+  confidence_pct: number;
+  band_note: string;
+  scenarios_solved: number;
+  timing: { seconds: number };
+  attribution: { site: number; height_m: number; marginal_pct: number; alone_pct: number }[];
+  harmful: { site: number; alone_pct: number }[];
+}
+
 export function AnywherePanel({
   onResult,
   onPreview,
@@ -53,6 +68,9 @@ export function AnywherePanel({
   const [places, setPlaces] = useState<Place[]>([]);
   const [chosen, setChosen] = useState<Place | null>(null);
   const [storm, setStorm] = useState(1);
+  const [plan, setPlan] = useState<AnywherePlan | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [planErr, setPlanErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [res, setRes] = useState<AnalysisResult | null>(null);
@@ -72,6 +90,37 @@ export function AnywherePanel({
   }, [q]);
 
   const [baseline, setBaseline] = useState<AnalysisResult | null>(null);
+
+  const planHere = useCallback(async (p: Place, lv: PlacedLevee[]) => {
+    setPlanning(true); setPlanErr(null); setPlan(null);
+    try {
+      // Same box as the single solve, coarser: every candidate option is solved
+      // in one batch, so the grid buys the option count back.
+      const dLat = 0.055;
+      const dLon = 0.055 / Math.cos((p.lat * Math.PI) / 180);
+      const s = STORMS[storm];
+      const r = await fetch("/api/plan-anywhere", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          west: p.lon - dLon, east: p.lon + dLon,
+          south: p.lat - dLat, north: p.lat + dLat,
+          name: p.short, dx: 90,
+          rain_mm_h: s.mm_h, storm_hours: s.hours, run_hours: 10,
+          sites: lv.map((l) => ({ lat: l.lat, lon: l.lon, width_m: l.width_m })),
+          max_height_m: 3.0, budget_aud: 20e6, delta: 0.1,
+          protect: { lat: p.lat, lon: p.lon, radius_m: 2500 },
+        }),
+      });
+      const out: AnywherePlan = await r.json();
+      if (!r.ok || !out.ok) throw new Error(out.reason ?? `service returned ${r.status}`);
+      setPlan(out);
+    } catch (e) {
+      setPlanErr(e instanceof Error ? e.message : "could not plan here");
+    } finally {
+      setPlanning(false);
+    }
+  }, [storm]);
 
   const run = useCallback(async (p: Place, lv: PlacedLevee[] = []) => {
     setBusy(true); setErr(null); setElapsed(0);
@@ -220,6 +269,71 @@ export function AnywherePanel({
               >
                 Model with these levees
               </button>
+
+              {/* The framework, not just a solve. Treats the placed markers as
+                  CANDIDATE sites, builds a scenario library for them on the
+                  spot, and returns a plan with a calibrated margin. Four sites
+                  is where a 90% margin becomes attainable; below that the
+                  service refuses to state one and says so. */}
+              <button
+                onClick={() => planHere(chosen, levees)}
+                disabled={planning || levees.length < 2}
+                className="mt-2 w-full rounded-md border border-line px-2 py-1.5
+                           text-[11.5px] text-ink transition-colors
+                           hover:border-accent/50 disabled:opacity-50"
+              >
+                {planning
+                  ? "Solving every option…"
+                  : `Plan the best use of a budget (${levees.length} site${levees.length > 1 ? "s" : ""})`}
+              </button>
+              {levees.length < 4 && (
+                <p className="mt-1 text-[10px] leading-snug text-ink-faint">
+                  Four or more candidate sites are needed before a 90% margin can
+                  be calibrated.
+                </p>
+              )}
+              {planErr && (
+                <p className="mt-1 text-[10.5px] leading-snug text-ink-mute">{planErr}</p>
+              )}
+              {plan?.ok && (
+                <div className="mt-2 border-t border-line-soft pt-2">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[10.5px] text-ink-faint">Estimated</span>
+                    <span className="tnum text-[13px] font-semibold text-ink">
+                      {plan.reduction_pct.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[10.5px] text-ink-faint">
+                      At least, {plan.confidence_pct}% of the time
+                    </span>
+                    <span className="tnum text-[13px] font-semibold text-accent">
+                      {plan.guaranteed_pct.toFixed(1)}%
+                    </span>
+                  </div>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {plan.attribution.map((a) => (
+                      <li key={a.site} className="flex justify-between text-[10.5px]">
+                        <span className="text-ink-mute">
+                          Site {a.site} at {a.height_m.toFixed(1)} m
+                        </span>
+                        <span className="tnum text-ink-mute">+{a.marginal_pct.toFixed(1)}%</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {plan.harmful.length > 0 && (
+                    <p className="mt-1 text-[10px] leading-snug text-ink-faint">
+                      Rejected:{" "}
+                      {plan.harmful.map((h) => `site ${h.site} (${h.alone_pct.toFixed(1)}%)`).join(", ")}
+                      {" "}— measured as deepening flooding here.
+                    </p>
+                  )}
+                  <p className="mt-1 text-[10px] leading-snug text-ink-faint">
+                    {plan.scenarios_solved} options solved on this terrain in{" "}
+                    {plan.timing.seconds}s. {plan.band_note}
+                  </p>
+                </div>
+              )}
               {baseline && res && res.levees && res.levees.length > 0 && (
                 <div className="mt-2 border-t border-line-soft pt-2">
                   <p className="text-[11.5px] leading-relaxed">
