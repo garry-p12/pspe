@@ -35,12 +35,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 
-from pspe.plan.margins import MODES, margin
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from eval.metrics import markdown_table  # noqa: E402
+from pspe.plan.margins import MODES, margin  # noqa: E402
 from pspe.simulate.flood import (
     FloodConfig,
     FloodSolver,
@@ -179,30 +183,51 @@ def train_surrogate(plans, inflows, depths, args, device) -> tuple[Surrogate, fl
 # --------------------------------------------------------------------------- #
 # Planning: minimise construction spend subject to the (margined) limit
 # --------------------------------------------------------------------------- #
-def plan_under_margin(model, reality, args, q_margin, gen) -> torch.Tensor:
-    """Projected gradient on the differentiable surrogate.
+def plan_under_margin(model, reality, args, q_margin, gen, starts=None) -> torch.Tensor:
+    """Projected gradient on the differentiable surrogate, from several starts.
 
     The planner controls E_Q[g(a, Q)] -- an expectation over hydrographs -- and
     must keep it below `limit - q_margin`, while spending as little as possible.
+
+    MULTI-START, and the reason matters. A single run from the even spread
+    converged to a full-budget allocation whose true depth was 0.159 m while the
+    span scan found 0.005 m achievable on the same budget -- a factor of 30, with
+    the surrogate ACCURATE at the chosen plan (predicted 0.162, realised 0.159,
+    bias -0.002). So this was not surrogate exploitation but a planner stuck in a
+    poor basin, and it made every arm violate on every episode, which leaves the
+    margin recipes indistinguishable and the experiment void.
+
+    The best start is chosen by the SURROGATE's own objective, never by the
+    solver -- choosing by the solver would leak reality into the planner.
     """
     k = reality.k
-    a = torch.full((1, k), args.budget / (2 * k), device=reality.device, requires_grad=True)
+    if starts is None:
+        starts = [torch.full((1, k), args.budget / (2 * k), device=reality.device)]
     qs = sample_inflow(args.plan_samples, args, gen, reality.device)
-    opt = torch.optim.Adam([a], lr=args.plan_lr)
     target = args.limit - q_margin
-    for _ in range(args.plan_steps):
-        rep = a.expand(args.plan_samples, k)
-        pred = model(rep, qs).mean()
-        spend = a.clamp(min=0).sum()
-        # Penalty form: heavy on violating the margined limit, light on spend.
-        loss = args.w_violate * torch.relu(pred - target) + args.w_spend * spend
-        opt.zero_grad(); loss.backward(); opt.step()
+    best_a, best_loss = None, float("inf")
+    for a0 in starts:
+        a = a0.clone().to(reality.device).requires_grad_(True)
+        opt = torch.optim.Adam([a], lr=args.plan_lr)
+        for _ in range(args.plan_steps):
+            rep = a.expand(args.plan_samples, k)
+            pred = model(rep, qs).mean()
+            spend = a.clamp(min=0).sum()
+            # Penalty form: heavy on violating the margined limit, light on spend.
+            loss = args.w_violate * torch.relu(pred - target) + args.w_spend * spend
+            opt.zero_grad(); loss.backward(); opt.step()
+            with torch.no_grad():
+                a.clamp_(0.0, args.max_height)
+                total = a.sum()
+                if float(total) > args.budget:      # project onto the budget simplex
+                    a.mul_(args.budget / total)
         with torch.no_grad():
-            a.clamp_(0.0, args.max_height)
-            total = a.sum()
-            if float(total) > args.budget:      # project onto the budget simplex
-                a.mul_(args.budget / total)
-    return a.detach()
+            rep = a.expand(args.plan_samples, k)
+            final = float(args.w_violate * torch.relu(model(rep, qs).mean() - target)
+                          + args.w_spend * a.clamp(min=0).sum())
+        if final < best_loss:
+            best_loss, best_a = final, a.detach().clone()
+    return best_a
 
 
 def main() -> None:
@@ -220,6 +245,14 @@ def main() -> None:
     ap.add_argument("--limit", type=float, default=0.06,
                     help="exposure-weighted peak depth limit, m")
     ap.add_argument("--delta", type=float, default=0.1)
+    ap.add_argument("--deltas", type=float, nargs="+", default=None,
+                    help="sweep these requested failure rates, sharing one "
+                         "surrogate and calibration set")
+    ap.add_argument("--limits", type=float, nargs="+", default=None,
+                    help="scan these limits. The limit must sit near the "
+                         "ACHIEVABLE FRONTIER or the comparison is vacuous: too "
+                         "tight and every arm violates every episode, too loose "
+                         "and none does. Neither distinguishes margin recipes.")
     ap.add_argument("--f-fraction", type=float, default=0.3,
                     help="fraction f of the achievable span s that may be spent "
                          "on safety; the precondition is b + z*sigma < f*s")
@@ -293,6 +326,12 @@ def main() -> None:
     # candidate. Measured on Vista: with six arms sharing a node, a sequential
     # scan of eight candidates overruns a 50-minute job, while the span only
     # needs enough hydrographs to average out -- far fewer than calibration does.
+    # Reused as planner restarts: exactly the concentrated allocations a single
+    # gradient run from the even spread failed to find. They already exist for
+    # the span scan, so this costs nothing.
+    plan_starts = [torch.full((1, reality.k), args.budget / (2 * reality.k),
+                              device=device)] + [c.clone() for c in candidates]
+
     n_span = min(args.n_span, args.n_cal)
     q_span = sample_inflow(n_span, args, gen, device)
     all_plans = [zero] + candidates
@@ -341,7 +380,7 @@ def main() -> None:
         return
 
     print("\n=== calibration set at the margin-free plan ===", flush=True)
-    a0 = plan_under_margin(model, reality, args, 0.0, gen)
+    a0 = plan_under_margin(model, reality, args, 0.0, gen, starts=plan_starts)
     q_cal = sample_inflow(args.n_cal, args, gen, device)
     d_cal = []
     for i in range(0, args.n_cal, args.batch):
@@ -354,50 +393,72 @@ def main() -> None:
     print(f"  margin-free plan {[round(float(x),3) for x in a0[0]]}", flush=True)
     print(f"  realised depth mean {float(d_cal.mean()):.5f}  controlled ghat {g_hat:.5f}", flush=True)
 
+    limits = args.limits if args.limits else [args.limit]
+    deltas = args.deltas if args.deltas else [args.delta]
+    _one = len(limits) == 1 and len(deltas) == 1
+    _key = lambda a, d, l: a if _one else f"{a}@d{d}@l{l}"
     results = {}
-    for arm in args.arms:
-        if arm == "none":
-            q_m = 0.0
-        elif arm not in MODES:
-            raise SystemExit(f"unknown arm {arm}")
-        else:
-            q_m = margin(
-                arm, args.delta,
-                model_err=[float(x) for x in (d_cal - g_cal)],
-                deviations=[float(x) for x in (d_cal - d_cal.mean())],
-                residuals=[float(x) for x in (d_cal - g_hat)],
-                bias=float((d_cal - g_cal).mean()),
-            )
-        # When the margin exceeds the limit the tightened target is negative and
-        # no plan can meet it: the planner spends its whole budget and the
-        # "coverage" it achieves is an artefact of infeasibility, not of the
-        # recipe. The repo has seen this before as margin collapse (§3.5, 48x),
-        # so detect and label it rather than reporting a misleading pass.
-        infeasible = q_m >= args.limit
-        if infeasible:
-            print(f"  [{arm:12s}] q={q_m:.5f} >= limit {args.limit}: target is "
-                  f"negative, plan is degenerate -- coverage is not attributable "
-                  f"to the recipe", flush=True)
-        a1 = plan_under_margin(model, reality, args, q_m, gen)
-        q_ev = sample_inflow(args.n_eval, args, gen, device)
-        d_ev = []
-        for i in range(0, args.n_eval, args.batch):
-            qq = q_ev[i : i + args.batch]
-            d_ev.append(reality.depth(a1.expand(qq.shape[0], reality.k), qq))
-        d_ev = torch.cat(d_ev)
-        viol = float((d_ev > args.limit).float().mean())
-        results[arm] = {
-            "margin": q_m, "plan": [float(x) for x in a1[0]],
-            "spend": float(a1.sum()), "violation_rate": viol,
-            "mean_depth": float(d_ev.mean()), "worst_depth": float(d_ev.max()),
-            "covers": viol <= args.delta,
-            "margin_exceeds_limit": bool(infeasible),
-        }
-        flag = "COVERS" if viol <= args.delta else "UNDER-COVERS"
-        if infeasible:
-            flag += " [DEGENERATE]"
-        print(f"  [{arm:12s}] q={q_m:.5f}  spend={float(a1.sum()):.3f}  "
-              f"violation={viol:.3f} (delta={args.delta})  {flag}", flush=True)
+    sweep_rows = []
+    for lim in limits:
+        args.limit = lim
+        if len(limits) > 1:
+            print(f"\n#### limit = {lim} ####", flush=True)
+        for delta in deltas:
+            if len(deltas) > 1:
+                print(f"\n--- requested delta = {delta} ---", flush=True)
+            for arm in args.arms:
+                if arm == "none":
+                    q_m = 0.0
+                elif arm not in MODES:
+                    raise SystemExit(f"unknown arm {arm}")
+                else:
+                    q_m = margin(
+                        arm, delta,
+                        model_err=[float(x) for x in (d_cal - g_cal)],
+                        deviations=[float(x) for x in (d_cal - d_cal.mean())],
+                        residuals=[float(x) for x in (d_cal - g_hat)],
+                        bias=float((d_cal - g_cal).mean()),
+                    )
+                # When the margin exceeds the limit the tightened target is negative and
+                # no plan can meet it: the planner spends its whole budget and the
+                # "coverage" it achieves is an artefact of infeasibility, not of the
+                # recipe. The repo has seen this before as margin collapse (§3.5, 48x),
+                # so detect and label it rather than reporting a misleading pass.
+                infeasible = q_m >= lim
+                if infeasible:
+                    print(f"  [{arm:12s}] q={q_m:.5f} >= limit {lim}: target is "
+                          f"negative, plan is degenerate -- coverage is not attributable "
+                          f"to the recipe", flush=True)
+                a1 = plan_under_margin(model, reality, args, q_m, gen, starts=plan_starts)
+                q_ev = sample_inflow(args.n_eval, args, gen, device)
+                d_ev = []
+                for i in range(0, args.n_eval, args.batch):
+                    qq = q_ev[i : i + args.batch]
+                    d_ev.append(reality.depth(a1.expand(qq.shape[0], reality.k), qq))
+                d_ev = torch.cat(d_ev)
+                viol = float((d_ev > lim).float().mean())
+                results[_key(arm, delta, lim)] = {
+                    "margin": q_m, "plan": [float(x) for x in a1[0]],
+                    "spend": float(a1.sum()), "violation_rate": viol,
+                    "mean_depth": float(d_ev.mean()), "worst_depth": float(d_ev.max()),
+                    "covers": viol <= delta,
+                    "margin_exceeds_limit": bool(infeasible),
+                }
+                sweep_rows.append({"limit": lim, "delta": delta, "arm": arm,
+                                   "margin": round(q_m, 5), "violation": round(viol, 4),
+                                   "covers": "yes" if viol <= delta else "**NO**",
+                                   "degenerate": "yes" if infeasible else ""})
+                flag = "COVERS" if viol <= delta else "UNDER-COVERS"
+                if infeasible:
+                    flag += " [DEGENERATE]"
+                print(f"  [{arm:12s}] q={q_m:.5f}  spend={float(a1.sum()):.3f}  "
+                      f"violation={viol:.3f} (delta={delta})  {flag}", flush=True)
+
+    if len(sweep_rows) > 1:
+        print("\n=== requested vs realised ===", flush=True)
+        print(markdown_table(sweep_rows), flush=True)
+        summary["sweep"] = sweep_rows
+        (out / "sweep.md").write_text(markdown_table(sweep_rows) + "\n")
 
     summary["arms"] = results
     summary["note"] = (

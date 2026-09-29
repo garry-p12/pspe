@@ -115,6 +115,153 @@ def step(model, fire, burned):
     return torch.sigmoid(model(x))[0, 0]
 
 
+@torch.no_grad()
+def forecast_error(model, seqs, device) -> float:
+    """RMS one-step error of the spread model, measured on TRAINING fires.
+
+    The ensemble has to be dispersed like the forecast actually is. Set by
+    hand at 0.05 the filter had sigma_f^2 = 0.0025 against sigma_o^2 = 0.0225,
+    so K came out near 0.1 -- and at sigma_o = 0.5, near 0.01. The analysis
+    then ignores the observation and the run degenerates to the open loop,
+    which is exactly what the first smoke test showed: 0.003 where state sync
+    scored 0.12 to 0.38. That is filter divergence from under-dispersion, and
+    reporting it as "the EnKF loses" would be scoring a strawman.
+
+    Measured here rather than tuned, and measured on the fires the model was
+    fitted to, so nothing about the held-out fire sets its own error bar.
+    """
+    # Over the ACTIVE region, not the whole field.
+    #
+    # Averaged over every cell this returned 0.033 -- smaller than the 0.05
+    # picked by hand -- because 97% of the grid is unburnt and the model gets
+    # those right for free. That is the model's skill at predicting nothing,
+    # and dispersing an ensemble by it leaves the filter as deaf as before.
+    # The uncertainty that matters is where the front is, so the error is
+    # measured where either the forecast or the truth says something is
+    # burning.
+    errs = []
+    for s in seqs:
+        fire = torch.as_tensor(s.fire).to(device)
+        for t in range(len(s.dates) - 1):
+            if not (s.observed[t] and s.observed[t + 1]):
+                continue
+            pred = step(model, fire[t], fire[t])
+            truth = fire[t + 1]
+            active = (truth > 0.05) | (pred > 0.05)
+            if active.sum() < 4:
+                continue
+            errs.append(float(((pred - truth) ** 2)[active].mean()))
+    return float(np.sqrt(np.mean(errs))) if errs else 0.3
+
+
+@torch.no_grad()
+def step_ens(model, fire: torch.Tensor, burned: torch.Tensor) -> torch.Tensor:
+    """The spread model over a whole ensemble at once. (N,H,W) -> (N,H,W)."""
+    x = torch.stack([fire, burned], dim=1)
+    return torch.sigmoid(model(x))[:, 0]
+
+
+def run_fire_enkf(model, seq, device, horizon: int, n_ens: int,
+                  obs_sd: float, model_sd: float, seed: int,
+                  inflation: float = 1.0):
+    """The twin loop with an ensemble analysis instead of a gain-1 nudge.
+
+    Section 5.2a reports state sync against an open loop and calls it a
+    control, because replacing the belief with the observation IS assimilation
+    with the gain set to one -- no observation error, no forecast spread,
+    nothing estimated. Section 9.8 concedes the point. This is the smallest
+    method that does not concede it.
+
+    Forecast spread comes from perturbing each member every step, which is the
+    model error the deterministic run pretends away. On a day the satellite
+    looked, each member is pulled toward a perturbed observation by a per-cell
+    gain from the ensemble's own variance against the stated observation
+    error:
+
+        K = sigma_f^2 / (sigma_f^2 + sigma_o^2)
+
+    That is the Kalman analysis with a diagonal covariance -- the ensemble
+    supplies sigma_f, the instrument supplies sigma_o. Gain-1 nudging is the
+    sigma_o -> 0 corner of it, so the comparison is not against a different
+    family of method but against the same one with its error model restored.
+
+    `obs_sd` is swept rather than fitted. VIIRS active-fire detection is not
+    accompanied by a per-cell error variance, and choosing one to make the
+    result come out is the failure this project keeps cataloguing.
+    """
+    fire = torch.as_tensor(seq.fire).to(device)
+    T = len(seq.dates)
+    g = torch.Generator(device="cpu").manual_seed(seed)
+
+    def noise(shape, sd):
+        return (sd * torch.randn(shape, generator=g)).to(device)
+
+    def perturb(x: torch.Tensor, sd: float) -> torch.Tensor:
+        """Ensemble spread, applied ONLY near the front.
+
+        White noise over the whole grid was the third and worst version of this
+        mistake. The field is 97% unburnt, so N(0, 0.19) on every cell invents
+        fire across the entire domain, and average precision -- which is what
+        this is scored by -- is unforgiving about false positives in empty
+        space. The EnKF read 0.008 against state sync's 0.203 while its gain
+        was a perfectly healthy 0.78: the analysis was fine and the ensemble
+        was nonsense.
+
+        What is uncertain is where the front goes next, not whether fire
+        appears thirty kilometres away. The perturbation is therefore confined
+        to a dilation of the currently active cells, which is the band the
+        front can actually reach in a day.
+        """
+        near = F.max_pool2d(x[:, None], kernel_size=5, stride=1, padding=2)[:, 0]
+        band = (near > 0.02).float()
+        # In LOGIT space, because the state is a bounded fraction. Adding noise
+        # and clamping at zero truncates every negative draw and keeps every
+        # positive one, which biases the band upward -- with eight members that
+        # does not average out, and average precision charges for each invented
+        # cell. A logit perturbation is symmetric and cannot leave (0, 1).
+        e = 1e-4
+        z = torch.log(x.clamp(e, 1 - e) / (1 - x.clamp(e, 1 - e)))
+        return torch.sigmoid(z + band * noise(x.shape, sd * 6.0))
+
+    ens = perturb(fire[0][None].repeat(n_ens, 1, 1), model_sd)
+    burned = ens.clone()
+    scores = {h: [] for h in range(1, horizon + 1)}
+
+    for t in range(T - 1):
+        # Forecast the ensemble forward; the prediction is its mean.
+        f, b = ens.clone(), burned.clone()
+        for h in range(1, horizon + 1):
+            if t + h >= T:
+                break
+            f = perturb(step_ens(model, f, b), model_sd)
+            b = torch.maximum(b, f)
+            if seq.observed[t + h]:
+                truth = (fire[t + h] > 0).float().flatten().cpu().numpy()
+                if truth.sum() > 0:
+                    scores[h].append(average_precision(
+                        f.mean(0).flatten().cpu().numpy(), truth))
+
+        nxt = perturb(step_ens(model, ens, burned), model_sd)
+        if inflation != 1.0:
+            # Multiplicative inflation about the ensemble mean, the standard
+            # remedy for a filter that is too sure of itself.
+            m = nxt.mean(0, keepdim=True)
+            nxt = (m + inflation * (nxt - m)).clamp(0.0, 1.0)
+        if seq.observed[t + 1]:
+            y = fire[t + 1]
+            var_f = nxt.var(dim=0, unbiased=False)
+            K = var_f / (var_f + obs_sd ** 2 + 1e-9)          # per cell
+            # Perturbed observations, so the analysis ensemble keeps the spread
+            # the update is entitled to rather than collapsing onto one state.
+            y_pert = perturb(y[None].repeat(n_ens, 1, 1), obs_sd)
+            ens = (nxt + K[None] * (y_pert - nxt)).clamp(0.0, 1.0)
+        else:
+            ens = nxt
+        burned = torch.maximum(burned, ens)
+
+    return {h: float(np.mean(v)) if v else float("nan") for h, v in scores.items()}
+
+
 def run_fire(model, seq, device, mode: str, adapt_lr: float, horizon: int):
     """Carry the state across the sequence; score each forecast against what was seen."""
     fire = torch.as_tensor(seq.fire).to(device)
@@ -204,6 +351,16 @@ def main() -> int:
                     help="cap the number of sequences, for smoke tests")
     ap.add_argument("--min-observed", type=int, default=4,
                     help="drop sequences the satellite barely saw")
+    ap.add_argument("--n-ens", type=int, default=32,
+                    help="ensemble members for the EnKF arm")
+    ap.add_argument("--obs-sd", type=float, nargs="+", default=[0.15, 0.3, 0.5],
+                    help="observation error SD to sweep; gain-1 nudging is the "
+                         "0 corner of this axis")
+    ap.add_argument("--model-sd", type=float, default=None,
+                    help="per-step perturbation; default is the model's own "
+                         "measured one-step RMS error on the training fires")
+    ap.add_argument("--inflation", type=float, default=1.0,
+                    help="multiplicative covariance inflation")
     args = ap.parse_args()
     if args.cv is None:
         args.cv = "fire" if args.source == "firms" else "year"
@@ -225,7 +382,8 @@ def main() -> int:
         print("  " + ", ".join(f"{s.name}({int(s.observed.sum())}/{len(s.dates)}d)"
                                for s in seqs), flush=True)
 
-    MODES = ["open", "state sync", "state+model"]
+    MODES = ["open", "state sync", "state+model"] + [
+        f"enkf s{sd:g}" for sd in args.obs_sd]
     acc = {m: {h: [] for h in range(1, args.horizon + 1)} for m in MODES}
     per_fire = []
 
@@ -239,18 +397,28 @@ def main() -> int:
             if not train:
                 continue
             model = fit(train, device, args.epochs, seed, args.width)
+            # Disperse the ensemble like the forecast actually is, measured on
+            # the fires this model was fitted to.
+            sd = (args.model_sd if args.model_sd is not None
+                  else forecast_error(model, train[:24], device))
             for held in held_group:
                 row = {"seed": seed, "fold": fold_name, "fire": held.name,
                        "observed days": int(held.observed.sum())}
                 for m in MODES:
-                    sc = run_fire(model, held, device, m, args.adapt_lr, args.horizon)
+                    if m.startswith("enkf"):
+                        sc = run_fire_enkf(model, held, device, args.horizon,
+                                           args.n_ens, float(m.split("s")[-1]),
+                                           sd, seed, args.inflation)
+                    else:
+                        sc = run_fire(model, held, device, m, args.adapt_lr,
+                                      args.horizon)
                     for h, v in sc.items():
                         if v == v:
                             acc[m][h].append(v)
                         row[f"{m} h{h}"] = round(v, 4) if v == v else None
                 per_fire.append(row)
             print(f"[seed {seed}] fold {fold_name}: {len(held_group)} fires scored, "
-                  f"{len(train)} in train", flush=True)
+                  f"{len(train)} in train, ensemble sd {sd:.3f}", flush=True)
 
     # Paired across fires: the fires differ enormously in size and behaviour, so
     # the spread across them says nothing about whether the loop helps. What
@@ -287,6 +455,20 @@ def main() -> int:
                            "mean gain": round(float(d.mean()), 4),
                            "fires improved": f"{int((d > 0).sum())}/{len(d)}",
                            "paired t": round(float(t), 2)})
+
+        # The comparison this experiment exists for: a real analysis step
+        # against the gain-1 nudge that section 5.2a can only call a control.
+        for m in [x for x in MODES if x.startswith("enkf")]:
+            cur = mean_per_fire(m)
+            fires = sorted(set(cur) & set(alt))
+            if len(fires) < 2:
+                continue
+            d = np.array([cur[f] - alt[f] for f in fires])
+            tt = d.mean() / (d.std(ddof=1) / np.sqrt(len(d)) + 1e-12)
+            paired.append({"horizon": f"day +{h}", "comparison": f"{m} vs state sync",
+                           "mean gain": round(float(d.mean()), 4),
+                           "fires improved": f"{int((d > 0).sum())}/{len(d)}",
+                           "paired t": round(float(tt), 2)})
 
     rows = []
     for m in MODES:

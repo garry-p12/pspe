@@ -408,6 +408,13 @@ The bound holds on both families. Against the hand-tuned `kσ` margin it
 replaces (5.5% at return −7.49 on rdf): slightly more violations, a **stated
 failure rate** instead of a tuned constant, and 0.14 better return.
 
+> **Superseded by §3.2b (2026-09-28).** This table is five seeds and a point
+> estimate. At **20 seeds** the same configuration gives **14.1% → 5.0%**, a
+> seed-paired **−9.1 points, 95% CI [−11.8, −5.5]**, p = 0.0002, 15/20 seeds
+> improved — and **no return penalty** (IQM −6.884 against −6.917). Cite the
+> 20-seed numbers; the five-seed table could not separate its own effect from
+> zero (§3.2a).
+
 ![The probe, the conformal margin, and the measured violation rates](figures/pspe_safety.svg)
 
 *Figure 3. Left: why a satisfied dual still violates, and the margin that fixes
@@ -453,6 +460,192 @@ rate it states.*
 what violates the limit is the policy's own episode-to-episode spread, which a
 quantile over model error never sees. **A margin is only as good as the
 distribution it bounds.**
+
+### 3.2a What the margin claim survives under a bootstrap (2026-09-28)
+
+§9.11 cites [Agarwal et al., 2021] against reporting a point estimate over a
+handful of seeds, and then §3.2 does exactly that. §8.4 item 9 was to fix it.
+`eval/metrics.py` already had `iqm`, `bootstrap_ci` and `seed_report`; what was
+missing was applying them. `eval/run_bootstrap_report.py` now does, resampling
+over **seeds**, because that is the unit of independence — two episodes from one
+training run share a policy.
+
+The first thing the script found was a **provenance ambiguity in the table
+above**. Two different violation numbers live in every summary: the fraction of
+periodic evaluations during the run whose episode cost exceeded the limit
+(`eval/violating_eval_fraction`), and the final evaluation's rate
+(`violation_rate`). On rdf they disagree — 14.5% against 17.5% for baseline —
+and only the first reproduces §3.2, so **the published numbers are the during-run
+evaluation fraction.** That is now stated in the script rather than left for a
+reader to infer.
+
+`runs/bootstrap_report/`, 5 seeds, δ = 0.1, IQM with a 95% percentile bootstrap:
+
+| testbed | arm | violating % (mean) | IQM | 95% CI | final-eval % |
+|---|---|---|---|---|---|
+| dar | baseline | 0 | 0 | [0.0, 0.0] | 0 |
+| dar | probe + conformal | 0 | 0 | [0.0, 0.0] | 0 |
+| rdf | baseline | 14.5 | 15.2 | [6.1, 24.2] | 17.5 |
+| rdf | margin only | 14.5 | 15.2 | [6.1, 24.2] | 20.0 |
+| rdf | probe only | 14.5 | 15.2 | [9.1, 18.2] | 25.0 |
+| rdf | **probe + conformal** | **7.3** | **6.1** | **[0.0, 15.2]** | **0** |
+
+And the comparison that matters, differenced **within** each seed (seed 5 is hard
+for every arm, so the unpaired interval is mostly across-seed spread that cancels
+inside a seed):
+
+| comparison | Δ violating pts (IQM) | 95% CI | improved | worse |
+|---|---|---|---|---|
+| rdf, margin − baseline | 0.0 | [0.0, 0.0] | 0/5 | 0/5 |
+| rdf, probe − baseline | 0.0 | [−12.1, +12.1] | 1/5 | 1/5 |
+| rdf, **probe + conformal − baseline** | **−6.1** | **[−21.2, +6.1]** | **3/5** | **1/5** |
+
+**At five seeds the headline safety improvement does not separate from zero.**
+The direction is right and the effect is the largest of the three arms, but the
+interval spans +6.1 points, three seeds improve, one gets worse and one ties.
+§3.2's "14.5% → 7.3%" is a point estimate whose uncertainty is roughly the size
+of the effect.
+
+> **Resolved at twenty seeds — see §3.2b. The effect is real and larger than
+> published: −9.1 points, 95% CI [−11.8, −5.5], 15/20 seeds improved, paired
+> t = −4.59, p = 0.0002.** Five seeds could not see it. The analysis below was
+> correct about the evidence available and wrong to be read as evidence against
+> the claim; it was evidence of insufficient power, which is a different thing.
+
+Two things do survive, and they are worth separating from the thing that does
+not:
+
+1. **The coverage claim is not the comparative claim.** What §1.2 derives is
+   `ℙ[c > d] ≤ δ` — a statement about the margin's *validity*, not about beating
+   an unmargined baseline. 7.3% mean and 6.1% IQM sit under δ = 10%, so the
+   bound is satisfied as stated. The honest caveat is the upper interval: 15.2%
+   exceeds δ, so five seeds cannot confirm coverage either, only fail to refute
+   it.
+2. **It is never worse on the final policy.** On `violation_rate` the baseline
+   is [0, 0, 0, 0, 0.875] and probe+conformal is [0, 0, 0, 0, 0] — one seed
+   fixed, four ties, none broken. That is a weaker statistical claim than the
+   paper made and a cleaner qualitative one.
+
+The cost is return: IQM −7.435 against −7.304, intervals overlapping heavily.
+
+**What this changes in the write-up.** The abstract cannot say the margin
+*reduces* violations on rdf; it can say the margin *holds its stated rate* on
+both families, and that where the unmargined planner violated on one seed in
+five the margined one did not. The 12-point and +14.3-point claims flagged in
+§8.4 item 9 need the same treatment before submission — see §8.4.
+
+> Why this is a finding and not just a caveat: the retired `swe` testbed (§3.4)
+> was carried for a whole project because nobody measured whether its return
+> separated. This is the same class of error one level up — a comparative claim
+> carried because nobody measured whether the *difference* separated. The
+> machinery to catch it had been sitting in `eval/metrics.py` unused.
+
+### 3.2b Twenty seeds: the margin claim holds, and is stronger than published (2026-09-28)
+
+§3.2a found the five-seed margin comparison could not separate from zero, so the
+comparison was re-run at **20 seeds** — same configuration as the published
+`cfixconf` arm, all twenty in one fresh tree, Vista job 1032033, 51 minutes.
+`runs/constraint_fix_conf_rdf_20/`, `runs/bootstrap_report_20/`.
+
+| arm | violating % (mean) | IQM | 95% CI | final-eval % | return (IQM) |
+|---|---|---|---|---|---|
+| baseline | 14.1 | 12.7 | [9.1, 17.3] | 15.0 | −6.917 |
+| margin only | 14.1 | 12.7 | [9.1, 17.3] | 15.6 | −6.917 |
+| probe only | 10.9 | 11.8 | [6.4, 15.5] | 12.5 | −6.850 |
+| **probe + conformal** | **5.0** | **4.5** | **[0.9, 8.2]** | **1.2** | −6.884 |
+
+Seed-paired against baseline, resampling the paired differences over seeds:
+
+| comparison | Δ pts (IQM) | 95% CI | improved | worse | excludes 0 |
+|---|---|---|---|---|---|
+| margin − baseline | 0.0 | [0.0, 0.0] | 0/20 | 0/20 | no |
+| probe − baseline | −4.5 | [−8.2, 0.0] | 10/20 | 3/20 | no |
+| **probe + conformal − baseline** | **−9.1** | **[−11.8, −5.5]** | **15/20** | **1/20** | **yes** |
+
+Paired t = **−4.59**, p = **0.0002**; Wilcoxon signed-rank p = **0.0008**.
+
+**The claim holds, and the published numbers understated it.** 14.1% → 5.0% at 20
+seeds against the published 14.5% → 7.3% at five, and the paired effect is −9.1
+points where five seeds put it at −6.1. The baseline reproduces (14.1 against
+14.5), so the difference is in the treated arm: five seeds happened to sample its
+worse tail.
+
+**And it now costs nothing in return.** IQM −6.884 against the baseline's −6.917 —
+marginally *better*, well inside overlapping intervals. The five-seed run
+suggested a price (−7.435 against −7.304); at 20 seeds there is none. The
+"slightly more violations for a stated failure rate and 0.14 better return"
+trade-off in §3.2 can be restated as **fewer violations at no cost in return**.
+
+**The decomposition is the part worth keeping.** The three rows separate cleanly
+and each says something:
+
+* **margin alone does literally nothing** — 0.0 points, 0/20 seeds changed. The
+  conformal quantile needs probe data to calibrate against; without it the margin
+  is identically zero, not merely small.
+* **probe alone is not enough** — −4.5 points but the interval touches zero and
+  3/20 seeds get worse. Real-environment data by itself does not fix the dual.
+* **the two together are significant** — and the effect exceeds the sum of the
+  parts, which is the interaction §3.2 argues for.
+
+That decomposition was invisible at five seeds, where all three arms straddled
+zero and could not be told apart.
+
+**What this costs and what it buys.** The paper cannot cite the five-seed table
+any more; §3.2's headline moves to 14.1% → 5.0% over 20 seeds with an interval.
+In exchange the central safety claim goes from *unsupported* to *supported at
+p = 0.0002 with no return penalty*, and the mechanism decomposes. Every other
+five-seed comparison in this document is now suspect for the same reason and
+should be re-run at 20 before submission — §8.4 item 9.
+
+> The lesson is not "the margin works after all." It is that **§3.2a and §3.2b are
+> the same measurement at different n, and only one of them could have been
+> published honestly.** Five seeds produced a point estimate that overstated
+> nothing and supported nothing; twenty produced a claim. The cost of finding out
+> was 51 minutes of one GPU.
+
+### 3.2c Which other claims have the same power problem (2026-09-28)
+
+§3.2b showed a real effect that five seeds could not see. The obvious question is
+which *other* five-seed comparisons in this document are in the same position, and
+it is answerable for free wherever per-seed arm summaries survive. Seed-paired,
+bootstrapped over seeds, on `eval/violating_eval_fraction`:
+
+| claim | section | ref % → arm % | Δ pts | 95% CI | crosses 0 |
+|---|---|---|---|---|---|
+| `constraint_fix_sat_rdf` probe+margin | §3.3 | 43.6 → 32.7 | −12.1 | [−30.3, **+12.1**] | **yes** |
+| `alpha_rule` Eq. 8 vs fixed α | §4.2 | 3.6 → 0.0 | 0.0 | [−12.1, 0.0] | yes |
+| `alpha_rule` variance rule vs fixed | §4.2 | 3.6 → 1.8 | 0.0 | [−12.1, **+6.1**] | **yes** |
+| `constraint_fix` dar probe+margin | §3.2 | 1.8 → 0.0 | 0.0 | [−6.1, 0.0] | yes |
+
+**Two different things are on that list and they need different treatment.**
+
+*Comparative* claims — "our arm beats the baseline by Δ" — are the ones with a
+real problem. **`constraint_fix_sat_rdf` is the serious case**: §3.3's planner-fix
+story rests on 43.6% → 32.7%, an 11-point improvement whose interval spans
++12.1. That is §3.2a's situation exactly, and §3.2b says the honest response is
+20 seeds rather than a re-analysis. Same for the `alpha_rule` variance row, which
+§4.2 uses to argue Eq. 8 beats the variance rule.
+
+*Descriptive* claims — "our arm reached 0% violations across five seeds" — are
+**not** invalidated by a crossing interval, and reporting them as such would be
+its own error. The dar rows and `alpha_rule`'s Eq. 8 row are floor effects: the
+reference rate is 1.8–3.6%, so at n = 5 no comparative test can exclude zero no
+matter how good the arm is. "0 violations in 55 evaluations" remains true and is
+what those sections mostly assert. What must *not* be claimed from them is that
+the arm is *significantly better* than the reference.
+
+So the audit produces a short, prioritised list rather than a blanket re-run:
+
+1. **`constraint_fix_sat_rdf` at 20 seeds** — §3.3's planner-defect result, an
+   11-point comparative claim with an interval spanning zero. Highest value.
+2. **`alpha_rule` at 20 seeds** — §4.2's mixing-rule comparison, same shape.
+3. Everything else on the list is descriptive at a floor and needs a wording fix,
+   not a rerun: state the rate and its sample size, drop any implied comparison.
+
+**Rule 40: distinguish a claim that an arm *achieved* a rate from a claim that it
+*beat* another arm.** The first survives a small sample and a wide interval; the
+second does not. Most of this document's five-seed rows are the first kind, and
+§3.2's headline was the second kind wearing the first kind's clothes.
 
 ### 3.3 Three planner defects, found on a second family
 
@@ -521,6 +714,189 @@ not a louder actuator.
 **Correction to earlier drafts:** they said the swe policy "never leaves its
 initial behaviour." It does, and it improves. The band is too narrow to rank
 methods within — a different and more precise statement.
+
+### 3.4a A positive control overturns the diagnosis above (2026-09-28)
+
+§8.4 item 12 is to build a third PDE family, and the sensible starting point was
+to revive `swe` with an objective that separates. `eval/run_testbed_calibrate.py`
+measures that. Running it against **`rdf` as a positive control** — the family
+the whole §3.2 safety story runs on, which demonstrably ranks planners — was
+what made this section wrong.
+
+Same probe, 60 random constant action vectors, batch 24, identical initial
+conditions across every vector:
+
+| testbed | target | do-nothing | best random | span | directions that improve | cost at best | limit |
+|---|---|---|---|---|---|---|---|
+| **rdf** (works) | −1.0 | −7.638 | −7.098 | 7.1% | **23/60** | 3.385 | 3.26 |
+| **swe** (retired) | 0.0 | −0.1867 | −0.2122 | **−13.7%** | **0/60** | 2.467 | 0.192 |
+| swe | 0.1 | −0.6758 | −0.6673 | 1.3% | 3/60 | 5.438 | 0.192 |
+| swe | 0.2 | −2.125 | −1.988 | 6.4% | 11/60 | 7.564 | 0.192 |
+| swe | 0.3 | −4.534 | −4.265 | 5.9% | 14/60 | 7.564 | 0.192 |
+
+The `swe` row at target 0 reproduces §3.4 exactly — not one of 60 vectors beats
+doing nothing, where §3.4 found the same over 400. But **`rdf` scores 7.1%,
+which is the same ≈7% band that got `swe` retired.** And on the *trained*
+planners already in `runs/`, the retired testbed is the wider of the two:
+
+| testbed | do-nothing | trained baseline | return span | worst cost | limit | **cost / limit** |
+|---|---|---|---|---|---|---|
+| swe (retired) | −0.1867 | −0.1733 | **7.2%** | 0.1186 | 0.192 | **62%** |
+| rdf (works) | −7.638 | −7.304 | **4.4%** | 4.515 | 3.26 | **138%** |
+
+**The retired testbed has the larger return span.** So "return does not separate"
+cannot be why `swe` could not rank planners, and §3.4's stated diagnosis needs
+correcting. Two statistics do separate the families, and both are in the tables
+above:
+
+1. **Whether any improving direction exists at all.** rdf 23/60, swe 0/60. Not
+   the *size* of the achievable band but whether actuation helps or hurts. On
+   `swe` at target 0 random actuation is *strictly worse* than idling, because
+   the field damps to the target on its own and any control pushes it away.
+2. **Whether chasing return drives cost to the limit.** rdf's reward optimum
+   lands at 3.385 against a 3.26 limit — 104%, right on it. `swe`'s trained
+   planner reaches 62% of its limit and never activates the constraint.
+
+And (1) causes (2), which is the actual mechanism: **no improving direction →
+the planner learns to idle → cost stays at the do-nothing level → the constraint
+never binds → every arm is the same run.** That is why all four `swe` arms return
+−0.1733 and 0% violations to four decimals. It was never the narrowness of the
+band; it was that the band pointed the wrong way.
+
+**Rule 36: admit a testbed on two measurements, not one — that some fraction of
+random actuation *improves* return, and that the reward optimum puts cost near
+the limit.** Span magnitude is not the criterion; `rdf` ranks planners on 4.4%.
+Any threshold on span alone, applied honestly, rejects the family this project's
+headline safety result is built on.
+
+**Where this leaves item 12.** A non-zero target does fix problem (1) — improving
+directions go 0/60 → 14/60 at target 0.3, against rdf's 23/60 — so the mechanism
+was identified correctly even though my reason for expecting it was wrong (I
+predicted the *span* would widen; it did not, staying at 5.9%). What it does not
+fix is (2): cost at the reward optimum is 7.564 against a limit of 0.192, forty
+times over, because `u_max = 0.04` was calibrated for a target of 0 and a field
+held at 0.3 is above the cap everywhere and always. **The remaining work is
+recalibrating `u_max`, `budget` and `cost_limit` for the new target** — the same
+retuning the `TASK_SPECS` comment records for the original `swe` — so the
+constraint binds instead of being violated trivially. Only then is the margin
+comparison worth running.
+
+**The cost recalibration failed, and said why.** Sweeping `u_max` over
+target + {0.02 … 0.20} with the field traces recorded once, the exposure term
+came out **identically zero at every cap**, and the whole cost was actuation
+overspend — a constraint decoupled from the PDE state, which is worse than the
+one being replaced. The reason is in the field statistics: at target 0.3 the
+tracked channel's peak is **0.172** under the reward optimum and 0.150 under
+idling. The target is not merely hard, it is *unreachable*, so the residual error
+swamps whatever the control achieves and the band stays narrow whatever the cap.
+
+So the binding limit is **actuator authority**, and it is worth measuring rather
+than inferring. Highest sustained *mean* level any constant action holds at the
+final step (40 random vectors, identical initial conditions):
+
+| horizon | idle mean level | best reachable mean | best peak |
+|---|---|---|---|
+| 12 | −0.0023 | +0.0130 | +0.1401 |
+| 24 | −0.0023 | +0.0281 | +0.1835 |
+| 48 | −0.0023 | +0.0584 | +0.2523 |
+| 96 | −0.0022 | +0.1185 | +0.2813 |
+
+**Reachable level is linear in horizon** — each doubling roughly doubles it
+(×2.16, ×2.08, ×2.03), so `h_damp = 0.02` is far too weak to saturate the
+control over these episode lengths. At the horizon 12 that every `swe` result in
+this document used, the control can hold a mean level of **0.013**. A target of
+0.3 is 23× outside that, and even 0.1 is 7.7× outside it.
+
+That reframes §3.4's conclusion once more. "A different objective, not a louder
+actuator" is right that amplitude does not help a stochastic policy, but the
+quantity that was missing is neither: it is **horizon**. The objective and the
+authority have to be matched, and at horizon 12 no target is both reachable and
+large enough to make idling costly.
+
+> Three prediction failures in one experiment, all worth recording. I expected a
+> non-zero target to widen the return span: it does not. I expected the probe to
+> confirm §3.4: it did, and then the positive control showed §3.4's reasoning
+> does not survive contact with the family next door. And I expected the cost
+> caps to be the remaining obstacle: they were a symptom, and the obstacle was
+> that the target could not be reached at all.
+
+**Matching the objective to the authority revives the testbed.** With the target
+set inside what the control can reach and the horizon raised to give it time,
+40 random vectors, batch 16:
+
+| testbed | horizon | target | do-nothing | best random | span | improving directions |
+|---|---|---|---|---|---|---|
+| **rdf** (reference) | 12 | −1.0 | −7.638 | −7.098 | 7.1% | 23/60 = **38%** |
+| swe | 96 | 0.04 | −1.586 | −1.368 | 13.8% | 2/40 = 5% |
+| swe | 96 | 0.08 | −3.498 | −2.120 | **39.4%** | 12/40 = 30% |
+| **swe** | **96** | **0.12** | −6.640 | −3.462 | **47.9%** | 15/40 = **37.5%** |
+
+**`swe` at horizon 96 with a target of 0.12 matches rdf's improving-direction
+rate to within half a point and has close to seven times its span.** By both
+criteria in Rule 36 it is now the better of the two testbeds, and the thing that
+was missing all along was neither the objective nor the actuator amplitude but
+the **horizon**: at 96 steps the control has time to reach 0.12, and holding it
+there against `h_damp` is work that idling does not do. Target 0.04 stays dead
+(2/40) because it sits below what idling already achieves — the original failure,
+reproduced at the other end of the range, which is a useful bracket.
+
+**Placing the limit, and the convention nobody wrote down.** At horizon 96 the
+do-nothing episode cost is **0.5114** against the shipped limit of 0.192, so
+idling itself violates — the limit was defined on 12-step episodes and nothing
+about it survives an 8× longer horizon. Recalibrating it turned up something
+useful about the three limits already in `TASK_SPECS`:
+
+| testbed | do-nothing cost | reward-greedy cost | limit | where the limit sits |
+|---|---|---|---|---|
+| dar | 0.229 | 2.249 | 0.936 | **35.00%** |
+| swe (old) | 0.108 | 0.347 | 0.192 | **35.15%** |
+| rdf | 0.594 | 8.213 | 3.260 | **34.99%** |
+
+**Every shipped limit sits at 35% of the way from doing nothing to the reward
+optimum.** That is an exact convention and it was never stated, so a fourth
+family had no documented rule to follow. It is now in
+`eval/run_testbed_calibrate.py --calibrate-cost`, which traces the fields once
+and sweeps the caps in numpy — both cost terms enter only through a relu, so the
+solver need not be re-run per candidate.
+
+Sweeping for horizon 96, target 0.12 (`u_max` above the target, three budgets):
+
+| u_max | budget | idle cost | best-random cost | what carries the cost |
+|---|---|---|---|---|
+| 0.14 | 0.20 | 0.0017 | 20.0644 | actuation overspend |
+| 0.14 | 0.35 | 0.0017 | 5.6644 | actuation overspend |
+| **0.14** | **0.60** | **0.0017** | **0.2338** | **field exposure** |
+| 0.17 | 0.60 | 0.0001 | 0.0641 | field exposure |
+| 0.22 | 0.60 | 0.0000 | 0.0035 | cap too high to bind |
+
+The budget choice decides *what the constraint is about*. At 0.20 and 0.35 the
+optimum's mean |a| of 0.4066 exceeds the budget and the overspend term carries
+essentially all the cost, leaving exposure a rounding error — a constraint on
+actuation spend that has stopped coupling to the PDE state, which is the
+degenerate failure §3.4a already diagnosed at target 0.3. At 0.60 the budget term
+is slack and the cost is genuinely the field overshooting its cap, which is the
+constraint worth having: *hold the level without exceeding it*. So
+**`u_max = 0.14`, `budget = 0.60`**, and by the 35% rule `cost_limit ≈ 0.083`.
+
+**One honest gap before this family can be used.** That 0.083 is a **lower
+bound**, because the upper anchor here is the best of 40 random constant vectors
+while `TASK_SPECS` anchors on a *trained* reward-greedy planner, which reaches a
+higher cost — and §3.4's own table shows the trained planner beating the best
+random vector on `swe`. The limit has to be re-derived from a trained
+unconstrained run before the margin comparison goes on this family, and the
+script says so in its output rather than leaving the caveat to a reader. The
+objective is solved; the calibration is one GPU run from done.
+
+**Defect 33 — the first version of this probe drew fresh initial conditions per
+rollout.** `env.reset()` takes a generator; not passing one reseeds the random
+field every call, so scoring 120 action vectors scored them on 120 *different*
+episode batches. "Best of N" then selects lucky initial states as much as good
+actions. It reported a **29.4% span on `swe` at target 0, with random beating
+do-nothing** — flatly contradicting §3.4's 400-vector sweep. Fixing the
+generator reproduced §3.4 (0/60) and turned the span negative. **Rule 37: a
+best-of-N search over actions must score every candidate on identical initial
+conditions, and a probe that contradicts an established result is suspect before
+the result is.** The contradiction was the bug report.
 
 ---
 
@@ -708,6 +1084,82 @@ than inert; ensemble disagreement simply is not the quantity that breaches this
 limit, for the same structural reason model error is not. Ours improves
 significantly on both.
 
+> **Provenance audit of these three z-values (2026-09-28).** §3.2a found the
+> five-seed margin comparison could not separate from zero once differenced
+> within seed, so these z-values were checked for the same weakness. **There is
+> no two-proportion z-test anywhere in the repository** — no committed script
+> produces them, which is the same unrecorded-provenance situation that produced
+> the fabricated z-values corrected in §9.15. Reconstructing them from the
+> fractions in the table above:
+>
+> | contrast | published | pooled over evaluations | reproduces |
+> |---|---|---|---|
+> | ours vs CAP | +2.08 | **+2.08** | exactly |
+> | CAP vs no margin | −0.43 | ±0.43 | yes, sign convention only |
+> | **ours vs no margin** | **+3.68** | **+2.13** | **no** |
+>
+> Two things follow. First, **the unit is the evaluation, not the run**: each
+> arm's fraction is a whole number of violations over 41 evaluations per run
+> (32/410 for ours, 59/492 for CAP, 27/205 and 29/205 for the two five-seed
+> arms), and only n = 410 against 492 returns +2.08. Second, **`ours vs no
+> margin` cannot be reproduced from its own numbers** under the unit that
+> reproduces the other two, and +3.68 (p ≈ 0.0002) against +2.13 (p ≈ 0.03) is
+> the difference between decisive and marginal. Until it is re-derived it should
+> be reported as +2.13 or not at all.
+>
+> **The methodological problem is larger than the arithmetic one.** Pooling over
+> evaluations treats 41 evaluations inside one training run as 41 independent
+> Bernoulli trials. They are the same policy at nearby points on one trajectory,
+> so they are strongly dependent and the effective sample size is far closer to
+> the number of runs (10 and 12) than to the number of evaluations (410 and 492).
+> That inflates every z in this table, by up to √41 ≈ 6.4 in the limit of perfect
+> within-run correlation. The correct test differences per-run fractions and
+> resamples over runs, exactly as §3.2a does for the five-seed table — and when
+> that is done there, the effect vanishes into its own interval.
+>
+> The per-run fractions survive for CAP (12 values, mean 0.1199) but **not for
+> our residual arm**: only the aggregate 0.0780 was kept, in `runs/cap/` and on
+> Vista alike. So the run-level test cannot be done retrospectively on this
+> table. Vista job **1032033** re-runs the conformal comparison at **20 seeds**
+> with per-seed output preserved, which is what settles both this and §3.2a.
+>
+> **What stands meanwhile.** The *structural* argument — that corrections built
+> on model disagreement do not bound the quantity that breaches an expectation
+> constraint — does not rest on these z-values. It rests on CAP landing at 0.1199
+> against no-margin's 0.1317 (a 0.4σ nothing, on any unit) while its `k` was
+> demonstrably active, and it makes a prediction that §9.2a registered in advance
+> and job 1031901 is testing on SMBPO. A mechanism that predicts the next
+> method's result is worth more than a z-value that cannot be reproduced.
+
+**The run-level test, now possible (2026-09-28).** The obstacle was that our
+residual arm kept only its aggregate. §3.2b's 20-seed run supplies 20 per-run
+fractions, and CAP's 12 survive, so the comparison can be made at the correct
+unit of independence. The two arms are **matched on real samples — 8,320
+training and 1,920 probe transitions each** — so only the correction mechanism
+and the evaluation density differ:
+
+| test | unit | statistic | p |
+|---|---|---|---|
+| published | 410 vs 492 **evaluations** | z = +2.08 | ≈ 0.037 |
+| Mann-Whitney U | 20 vs 12 **runs** | U = 29.0 | **0.00015** |
+| Welch t | 20 vs 12 **runs** | t = −4.39 | **0.00013** |
+
+CAP − ours = **+6.99 points, 95% bootstrap CI [+3.96, +9.98]** over runs.
+
+**Correcting the unit makes the result stronger, not weaker.** That is worth
+stating plainly, because the audit above was written expecting the opposite: the
+inflation from pooling correlated evaluations was real, but it was more than
+offset by our arm improving from 0.0780 at ten runs to **0.0500** at twenty. The
+published +2.08 was both computed on the wrong unit *and* an understatement of
+the effect.
+
+*Caveat.* This is unpaired — different seeds, different runs — and the two arms
+evaluate at different densities (11 evaluations per run against CAP's 41). That
+changes the precision of each run's fraction, not its expectation, which Welch's
+t accommodates and the rank test sidesteps. A matched-density rerun of CAP at 20
+seeds would remove the caveat; the conclusion does not depend on it, since the
+gap is 7 points with a lower bound of 4.
+
 **The general form of the finding.** Two mechanistically different uncertainty
 corrections — a conformal quantile over model error, and an ensemble-variance
 penalty — both reduce to doing nothing on an expectation constraint, while
@@ -735,6 +1187,127 @@ explains the CBF literature.
 **Pending:** a rerun at `eval_every 5` giving ~41 evaluations per run and 615
 pooled per arm, enough to resolve a 3-point difference and settle whether the
 violation ordering is real; and the stage-2 wildfire arms (§5.5).
+
+### 3.6 A separation theorem, and the transition in closed form (2026-09-28)
+
+§8.5 lists T1.1 (a separation result) and T1.2 (closed-form coverage) as the two
+theory items that answer the reviewer's "Proposition 1 is essentially standard
+conformal coverage after redefining the residual". Both are derived here, and
+T1.2 reproduces §3.5's measured transition to within Monte-Carlo error.
+
+**Setup.** Write the realised episode cost as
+
+    c_i  =  μ + b + σ ξ_i ,     ξ_i ~ F,  E ξ = 0,  scale 1
+
+where `μ` is the quantity the dual holds, `b` the surrogate's bias, and `σ` the
+policy's episode-to-episode spread. The surrogate's per-instance estimate
+satisfies `c_i − g_i = b − e_i` with `e_i ~ G`, mean 0, scale `ε` (§3.5). A
+margin `q` lowers the effective limit to `d_eff = d − q`. Then
+
+    violation  ⟺  σ ξ_i > q − b ,
+
+so the **realised violation rate** of any margin `q` is
+
+    R(q; σ)  =  1 − F( (q − b) / σ )                                    (1)
+
+and coverage at level δ holds iff `q ≥ b + z_δ σ`, with `z_δ = F⁻¹(1 − δ)`.
+
+---
+
+**Proposition 3 (separation).** Let `Q` be any margin rule that is a measurable
+function of the *model-error* distribution alone — that is, `q = Q(b, G)`, with
+no dependence on `F` or `σ`. If `F` has full support then:
+
+1. `R(q; σ)` is strictly increasing in `σ`;
+2. `R(q; σ) → 1 − F(0) = ½` as `σ → ∞`, for symmetric `F`;
+3. coverage **fails** for every `σ > (Q(b, G) − b) / z_δ`.
+
+Consequently **no margin measurable with respect to model error alone attains
+level δ uniformly in σ.** Attaining δ requires the margin to depend on the
+realised-cost distribution.
+
+*Proof.* Immediate from (1): `(q − b)/σ` is decreasing in `σ` and `F` is
+increasing, so `R` increases; the limit is `1 − F(0)`; and `R > δ` exactly when
+`(q − b)/σ < z_δ`. ∎
+
+The result is not deep, and that is the point — it is the statement that was
+missing, not a harder proof of the one already there. It says the *choice of
+distribution* is not a modelling preference but a feasibility constraint.
+
+---
+
+**Corollary 3.1 (the default recipe, and where ρ = 1 comes from).** The
+matched-pair conformal margin takes `q = Q_{1−δ}(c − g) = b + z^G_δ ε`.
+Substituting into (3):
+
+    coverage fails  ⟺  σ  >  (z^G_δ / z^F_δ) · ε
+
+and when `F` and `G` share a shape this is exactly **ρ = σ/ε > 1**. §3.5's
+threshold, derived in §3.5 by matching quantiles, is the special case of
+Proposition 3 in which the offending margin happens to be a conformal one.
+
+**Corollary 3.2 (closed-form coverage — T1.2).** For Gaussian `F`, the default
+recipe's realised violation rate is
+
+    R(ρ)  =  1 − Φ( z_δ / ρ )                                          (2)
+
+Against `runs/margin_synthetic/`, δ = 0.1, 600 calibration draws per point:
+
+| ρ = σ/ε | measured | **predicted by (2)** | error |
+|---|---|---|---|
+| 0.10 | 0.000 | **0.000** | 0.0000 |
+| 0.50 | 0.004 | **0.005** | 0.0012 |
+| 0.80 | 0.054 | **0.055** | 0.0006 |
+| **1.00** | **0.099** | **0.100** | 0.0010 |
+| 1.25 | 0.153 | **0.153** | 0.0004 |
+| 2.00 | 0.258 | **0.261** | 0.0028 |
+| 10.0 | 0.449 | **0.449** | 0.0000 |
+
+**Maximum error 0.0028 across two orders of magnitude of ρ**, which is the
+Monte-Carlo noise of 600 draws. The transition §3.5 observed is not an empirical
+regularity to be plotted — it is (2), and the crossing at `ρ = 1` is
+`R(1) = 1 − Φ(z_δ) = δ` by construction.
+
+---
+
+**Corollary 3.3 (why CAP and SMBPO are indistinguishable).** CAP penalises by
+`mean + k·σ_ens` with `k` adapted from observed violations; SMBPO by the
+`max` over ensemble members with no adaptation. Both are functionals of the
+**ensemble-disagreement** distribution, which estimates `G` — how wrong the
+model is — and neither is a functional of `F`. Both therefore fall under
+Proposition 3 and fail once `ρ > 1`.
+
+Note what the Proposition does *and does not* say. It says any such functional
+fails; it does **not** rank them. Two different summaries of `G` should land in
+the same place, because the theorem is indifferent to which summary is used.
+
+> **This is the prediction §9.2a got wrong, and the theorem would have got
+> right.** §9.2a predicted SMBPO would lose to the margin *by more than CAP*,
+> reasoning that `max` is cruder than an adapted `mean + kσ`. Measured:
+> **11.99% against 12.20%, p = 0.83** — indistinguishable, exactly as
+> Proposition 3 implies. The pre-registered prediction contradicted a theorem
+> that had not yet been derived. Deriving it first would have produced the
+> better prediction, which is an argument for doing the theory before the
+> baseline rather than after.
+
+**Corollary 3.4 (what a valid margin must use).** By Proposition 3, any margin
+attaining δ uniformly must depend on `F` and `σ`. The recipe of §3.5,
+`s_i = c_i − ĝ` with `ĝ` the quantity the dual controls, is measurable with
+respect to the realised-cost distribution and is therefore admissible; §3.2b
+measures it holding 5.0% against a 14.1% baseline at δ = 0.1.
+
+**What this buys the paper.** The contribution is no longer "we chose a better
+conformal score". It is a **feasibility statement**: an entire family of
+corrections — every method that inflates by model uncertainty, however
+summarised — cannot attain a coverage level under an expectation constraint once
+policy spread exceeds model error, and `ρ` says exactly when. CAP and SMBPO are
+then not two baselines that happened to lose; they are two instances of a class
+the theorem excludes, and their near-identical results are the prediction.
+
+**Assumption, stated plainly.** (1) needs the episode deviation to be a scale
+family, `n_i = σ ξ_i` with `ξ` of fixed shape. That is mild, it is testable, and
+it is weaker than the Gaussianity used for the closed form (2) — Proposition 3
+needs only that `F` is increasing with full support.
 
 ## Part 4 — Per-module results
 
@@ -1081,6 +1654,33 @@ the moment the decision becomes sequential, and the heuristic **degrades**
 significant exactly where it predicts, is stronger evidence for the mechanism
 than any single large number.*
 
+**Bootstrapped (2026-09-28).** §8.4 item 9 asked for intervals instead of a
+paired *t* over five seeds. This is the claim §9.6 calls "novel as evidence", so
+it is the one that most needed them. `eval/run_bootstrap_report.py`, differencing
+**within** each seed (same seed, same fire, same budget) and resampling the
+paired differences:
+
+| horizon | greedy (IQM) | PSPE (IQM) | gap (IQM) | gap (mean) | 95% CI | PSPE wins |
+|---|---|---|---|---|---|---|
+| 1 day | 25.1 | 25.6 | 0.4 | +0.6 | **[−0.2, +1.7]** | 4/5 |
+| 2 days | 24.3 | 33.6 | 8.2 | +8.5 | **[+7.0, +10.4]** | 5/5 |
+| 3 days | 22.1 | 35.4 | 11.5 | +12.1 | **[+10.0, +14.8]** | 5/5 |
+| 5 days | 18.0 | 34.0 | 13.9 | +14.3 | **[+10.9, +18.2]** | 5/5 |
+
+**The mechanism claim survives intact, and the interval says it more precisely
+than the *t* did.** At one day the interval *contains zero* — the null the theory
+demands is a real null, not an underpowered one, and it is bounded: whatever the
+one-day advantage is, it is at most 1.7 points. From two days on the interval
+excludes zero with every seed agreeing in sign, and the lower bound alone
+(+7.0, +10.0, +10.9) exceeds the entire one-day interval. The IQM sits below the
+mean at every horizon, so the effect is not carried by one lucky seed.
+
+This is worth contrasting with §3.2a, run the same day with the same tool on the
+same number of seeds: **the safety-margin comparison did not separate from zero
+and this does.** Two claims reported identically in the old style turn out to
+have very different evidential weight, which is the entire argument for the
+change of reporting.
+
 ![Budget Pareto and horizon ablation on observed wildfire records](figures/pspe_wildfire.svg)
 
 *Figure 5. Left: the advantage is largest where crews are scarcest, reaching
@@ -1135,6 +1735,115 @@ optimisation is the right tool and a learned policy is not.
 
 *Sample efficiency does not apply here* — there is no separate true environment
 on NDWS, so every method draws from the same surrogate.
+
+### 5.1a Distilling the planner: two ways to get a meaningless number (2026-09-28)
+
+§9.7 is the most exposed claim in the paper: the literature says a model-based
+planner **can** be amortised into a compact policy via behaviour cloning on
+planner-generated data [Byravan et al., 2022], and we never tried it — we trained
+a CNN from scratch under a budget dual and reported the gap (planner 36.5%,
+amortised 10.4%). `eval/run_ndws_distill.py` runs the recipe we skipped. Same
+`GaussianFieldPolicy` class as the amortised arm, same width, demonstrations
+collected along the planner's own trajectory on training patches, scored on
+held-out patches by the same `score_policy`.
+
+Two attempts produced numbers that looked like results and were not. Both are
+recorded because the failure modes are opposite and a reader could hit either.
+
+**Attempt 1 — cloned raw actions, overspent the budget 7.6×.** The smoke run
+reported a 20.5% reduction while treating **22.8% per day against a 3% budget**.
+The intensity map `u = ((a+1)/2)²` is convex, so a small action error becomes a
+large overspend, and nothing in an MSE enforces the constraint the planner's
+projection enforces. Scoring that against a feasible planner is exactly the
+unmatched-constraint comparison §5.1 criticises in the constrained-RL baselines
+(three of four exceed the budget), so it cannot be done here either.
+
+**Attempt 2 — projected onto the budget, then collapsed to no treatment.**
+`runs/ndws_distill_actionmse_void/`, 3 seeds, kept for the record:
+
+| seed | planner % | distilled % | distilled treated %/day |
+|---|---|---|---|
+| 0 | 44.63 | **−0.00007** | 6.0e−05 |
+| 1 | 33.55 | **0.0** | 1.6e−06 |
+
+The behaviour-cloning loss converged cleanly, 0.358 → 0.064. It learned exactly
+the right constant for the wrong objective: with a 3% budget over 64 patches the
+planner leaves most patches at zero, so most target actions are
+`action_for(0) = −1`, the MSE-optimal constant is −1 everywhere, and
+`intensity(−1) = 0`. **The policy learned to treat nothing.** The budget
+projection from attempt 1 cannot catch this — it only scales spending *down*.
+
+**Why this one was dangerous.** A 0% distilled result *confirms* our paper's
+amortisation claim. §9.7 says the literature runs against that claim, so a null
+here is the result I should distrust most, and it arrived looking clean — a
+converged loss, a feasible policy, three consistent seeds. Had it gone into the
+document as "distillation recovers none of the gap", it would have strengthened
+the paper with an artefact of my loss function.
+
+**The fix, and what it preserves.** The planner's solution is an *allocation* of
+a fixed budget — it spends its whole 3% (measured: 2.996–3.000%/day) and the
+decision is *where*. Normalising the policy's intensities to the budget removes
+the degenerate solution: a constant output becomes a **uniform** allocation, which
+is the planner's own initialisation, not an empty one, and what the network can
+still express is where to concentrate. Training and evaluation then optimise the
+same quantity. The network, its width and the tanh → intensity map are unchanged,
+so the matched-capacity argument — the whole point of using the amortised arm's
+own class — is untouched.
+
+**Rule 38: when a null result would support your own claim, treat it as a bug
+report until you have shown the arm can express a non-null answer.** The check is
+one line: does the policy spend its budget? Attempt 2 spent 0.002% of it. The
+same check catches attempt 1 from the other side, and both now run in the script,
+with `over budget` and `treated %/day` reported for *both* arms in every summary
+row so the comparison cannot be read without them.
+
+**The result.** 3 seeds, 50 planning steps, 256 demonstration fires, Vista job
+1031950. `runs/ndws_distill/`:
+
+| arm | mean % | sd | per-seed |
+|---|---|---|---|
+| planner (decision-time) | **39.04** | 6.99 | 36.86, 33.41, 46.86 |
+| **distilled from planner** | **18.32** | 0.48 | 17.77, 18.49, 18.69 |
+| from-scratch amortised (§5.1) | 10.4 | — | — |
+
+**Distillation recovers 46.9% of the planner's advantage: +7.9 points over the
+from-scratch arm, and 20.7 points short of the planner.** Both arms spend their
+budget exactly (2.994% and 3.000% per day, neither over).
+
+This is the middle outcome of the three the script named in advance, and it is
+the one I predicted there — that distillation would recover *some* of the gap but
+not all of it, "because a single forward pass cannot reproduce 50 steps of
+per-instance projected gradient descent on a fire it has not seen." Recording the
+prediction before the run is what makes that worth anything.
+
+**What it costs the paper, and what it buys.** §9.7's warning was half right:
+the recipe we skipped does help, and our original framing — a bare planner-vs-
+amortised gap — overstated the case by attributing to amortisation what was
+partly our training recipe. That has to be conceded. But the literature's claim,
+that a model-based planner can be amortised "without performance loss"
+[Byravan et al., 2022], does **not** hold on this task: more than half the
+advantage survives the recommended recipe. **The defensible claim is now stronger
+than the one it replaces**, because it has survived the specific objection
+§9.7 raised: decision-time planning retains a large advantage on observed fire
+data *even after distillation from the planner's own solutions*.
+
+**A mechanistic difference worth following up.** The `reduction via fuel channel
+only` column separates the two arms sharply: the planner gets **15.95** through
+the learned model's fuel channel, the distilled policy **0.98**. So the planner is
+exploiting the surrogate's learned fire dynamics, while the distilled policy
+reproduces mostly the imposed spread block — it has learned *where* fires tend to
+go, not *how this fire's* fuel state responds. The seed spreads say the same
+thing from another angle: the planner varies a lot across seeds (sd 6.99) because
+it adapts to the fires it faces, and the distilled policy barely varies at all
+(sd 0.48) because it has converged on one generic allocation. That is a concrete
+account of what decision-time planning is buying, and it is more useful to the
+paper than the raw gap.
+
+**Still open.** One distillation recipe, not the family: no MPO step
+[Byravan et al., 2022 pair BC with it], no DAgger-style correction for the
+distribution shift a cloned policy induces, and 256 demonstration fires against
+1,024 training fires. A stronger recipe could close more of the gap, and §9.7
+should say so rather than claim the question is settled.
 
 ### 5.2 The twin loop, closed on real satellite sequences
 
@@ -1274,10 +1983,78 @@ underpowering and the "why your own dataset?" objection; it does not promote a
 wiring check to a result. The genuinely novel row remains **adaptation on top of
 state sync**, which is now measured properly and is smaller than advertised.
 §8.4 item 3 — a real DA baseline — is still what would make the first three rows
-mean something, and is still unrun.
+mean something, and **it is now run: §5.2c.**
 
 **And it still says nothing about intervention.** No fire in this archive had a
 firebreak cut on our instruction. The dataset switch does not touch §6.2.
+
+### 5.2c The EnKF baseline: gain 1 was the right answer (2026-09-28)
+
+§9.8's concession is blunt: "our state sync is nudging with gain 1 — no
+covariance, no observation-error model, no ensemble, no variational step", and
+comparing that to a free-running forecast is what assimilation *is*, not a
+finding. §8.4 item 3 was to add a real filter or demote the claim. This adds the
+filter: `eval/run_firms_twin.py --n-ens 32 --obs-sd ...`, 606 fires, year-wise
+CV, 3 seeds, Vista job 1031659, 1 h 29 m. Ensemble forecast spread, observation
+error stated rather than assumed away, analysis `K = σ_f²/(σ_f² + σ_o²)` with
+perturbed observations.
+
+**`σ_o` is swept, not fitted.** VIIRS ships no per-cell error variance, and
+choosing the one that makes the result come out is the failure this document
+catalogues. Gain-1 nudging is the `σ_o → 0` corner, which doubles as the
+correctness check.
+
+| mode | day +1 | day +2 | day +3 |
+|---|---|---|---|
+| open loop | 0.0193 ± 0.0313 | 0.0115 ± 0.0161 | 0.0094 ± 0.0119 |
+| **state sync (gain 1)** | **0.3785 ± 0.2413** | 0.1216 ± 0.1095 | 0.0257 ± 0.0343 |
+| state + model | 0.3805 ± 0.2426 | **0.1291 ± 0.1147** | **0.0273 ± 0.0362** |
+| EnKF σ_o = 0.05 | 0.3288 ± 0.2375 | 0.1120 ± 0.1101 | 0.0281 ± 0.0368 |
+| EnKF σ_o = 0.15 | 0.1267 ± 0.1365 | 0.0281 ± 0.0465 | 0.0143 ± 0.0244 |
+| EnKF σ_o = 0.30 | 0.0317 ± 0.0473 | 0.0119 ± 0.0181 | 0.0094 ± 0.0122 |
+
+Paired across 606 fires at day +1:
+
+| comparison | mean gain | fires improved | paired t |
+|---|---|---|---|
+| state sync vs open loop | +0.3592 | 594/606 | **38.19** |
+| model adaptation vs state sync | +0.0020 | 394/606 | **5.72** |
+| EnKF σ_o = 0.05 vs state sync | **−0.0497** | 78/606 | **−20.95** |
+| EnKF σ_o = 0.15 vs state sync | −0.2518 | 18/606 | −35.38 |
+| EnKF σ_o = 0.30 vs state sync | −0.3468 | 11/606 | −38.65 |
+
+**No setting of the filter beats gain-1 nudging, and skill falls monotonically as
+`σ_o` rises.** With a mean ensemble spread of 0.340, the swept `σ_o` correspond to
+Kalman gains of **0.979, 0.837 and 0.562** — and day-+1 skill tracks them in
+order (0.329, 0.127, 0.032). The best gain in the swept range is the largest one.
+
+**So the answer to §9.8 is that gain 1 is not a naive stand-in for a filter here;
+it is approximately the filter's own optimum.** The observations are far more
+reliable than the forecast on this system, which drives `K → 1`, and the classical
+machinery has nothing left to estimate. That reading is worth more to the paper
+than a win would have been: it explains *why* the simple thing was adequate
+instead of leaving it as an unexamined shortcut.
+
+**Two honest caveats.** First, the σ_o = 0.05 arm does **not** exactly recover
+state sync — it is reliably worse, by 0.0497 with t = −20.95, where the eight-fire
+smoke test earlier in this work put the same comparison at t = −0.96 and called it
+convergence. At 606 fires that reading does not hold. The gain there is 0.979, so
+the gap is not the gain; it is the **perturbed-observation** implementation, which
+injects sampling noise a deterministic nudge does not have. A deterministic
+(square-root) EnKF would remove that noise floor and is the right follow-up. This
+is the same lesson as §5.2a's, arriving again: *an eight-fire paired test agreed
+with the hypothesis, and at 75× the sample size the sign was real and the
+magnitude was not.*
+
+Second, the sweep bounds the conclusion rather than proving it. No σ_o in
+{0.05, 0.15, 0.30} beats gain 1; the claim is not that none could.
+
+**What changes in the write-up.** The first three rows of §5.2a stop being a
+wiring check: state sync can now be reported as *the σ_o → 0 corner of a filter
+that was actually run*, with the sweep showing the corner is where the skill is.
+Model adaptation on top of state sync remains the genuinely novel row (+0.0020 at
+day +1, t = 5.72; +0.0075 at day +2, t = 10.92) — small, and now measured against
+a real baseline rather than against nothing.
 
 ### 5.2b Four defects in the WildfireSpreadTS loader, all caught before a number (2026-09-27)
 
@@ -3114,7 +3891,7 @@ of argument.
 | 9 | dar's policy is state-independent | the Explain testbed had nothing to explain | action diversity across states |
 | 10 | Conformal margin bounded model error, not policy spread | violations rose to 18.2%, worse than no margin | running it where the surrogate is accurate but the policy is variable |
 | 11 | Baselines compared against their own initialisation | four methods "structurally failed" | solving for the action the parameterisation implies at init |
-| 12 | Testbed calibrated for a binding constraint, not a controllable objective | swe ranked methods inside a 7% band for the whole project | **return** separation |
+| 12 | Testbed calibrated for a binding constraint, not a controllable objective | swe ranked methods inside a 7% band for the whole project | **return** separation — *but see §3.4a: rdf's band is 4.4% and it ranks planners fine, so the band width was never the discriminator* |
 
 | 13 | Calibration scores collected per fire while violation was declared on a batch mean | Every margin inflated by √32; margins consumed 100% of the limit, `d_eff` → 0, all arms stuck at 40–80% | Printing the margin next to the limit |
 | 14 | A constraint whose limit left no room for a margin | Infeasible read as "the method fails"; cost four runs | Measuring span, bias and headroom before fitting anything (`--calibrate-only`) |
@@ -3191,6 +3968,9 @@ they are harder, because the code is correct and the output looks right.
 | 30 | Fitted parameter reported from the edge of its search grid | S = 498 on a grid ending at 500 read as a measurement, not as "no saturation needed" | the value sitting exactly at the boundary | 5.11a |
 | 31 | DEM nodata filled with sea level | a 247 m trench ringing every inland domain; 3.6% of cells at 0 m across 84-100% of each boundary, draining the catchment into it | terrain analysis reporting a coast 1,500 km inland | 5.12 |
 | 32 | River inflow poured in as a volume, not held as a stage | 112 m of water: the cells could not spread it as fast as it arrived | a depth with no physical meaning | 5.12 |
+| 33 | Best-of-N action search drew fresh initial conditions per rollout | 29.4% span on swe where the published sweep found none — selection on lucky initial states | a testbed admitted on a manufactured span | 3.4a |
+| 34 | Distillation cloned raw actions with an MSE, on a sparse target | the policy learned the MSE-optimal constant, −1 everywhere: treated 6e−05%/day for a 0.0% reduction | a null that would have *confirmed* our own amortisation claim | 5.1a |
+| 35 | SMBPO's truncated prefix cost rescaled linearly, on a cost that accrues non-linearly | −4.7% bias, 4× the pessimism term: the arm was net optimistic and violated more than baseline | a baseline failure that matched our predicted direction | 9.2a |
 
 **Defect 25 is the one to remember.** It degrades data continuously rather than
 breaking it, affects only some fires, and leaves every downstream number
@@ -3309,20 +4089,123 @@ knowledgeable reviewer and are cheap.
 | # | experiment | cost | what it buys |
 |---|---|---|---|
 | 1 | ~~Port the twin loop to **WildfireSpreadTS**~~ | **done** | 607 fires, year-wise CV, job 1029659. Corrected two §5.2 claims downward: adaptation +6.3% not +21% at day 2, and 62-76% of fires not 8/8 (§5.2a) |
-| 2 | ~~Add a **model-based** safe-RL baseline~~ | **done** | CAP transplanted onto our planner at a matched probe budget: 0.1199 violating against our 0.0780, ours vs CAP z = +2.08, CAP vs no margin z = −0.43 (§3.2). SMBPO and SafeDreamer remain unrun |
-| 3 | Add a **DA baseline** (EnKF or learned gain) to the twin loop, or demote §5.2 | days | stops us reporting gain-1 nudging against free-running as a finding (§9.8) |
+| 2 | ~~Add a **model-based** safe-RL baseline~~ | **done; second one written 2026-09-28** | CAP transplanted onto our planner at a matched probe budget: 0.1199 violating against our 0.0780, ours vs CAP z = +2.08, CAP vs no margin z = −0.43 (§3.2). `eval/run_smbpo_baseline.py` transplants SMBPO the same way. **Result: 12.20% against CAP's 11.99% (p = 0.83, indistinguishable) and ours at 5.00% (+7.20 pts, p = 0.00135).** The pre-registered prediction that it would lose by *more* than CAP failed, and the failure generalises the claim: how you summarise disagreement does not matter, computing on the wrong distribution does (§9.2a). SafeDreamer remains unrun |
+| 3 | ~~Add a **DA baseline** (EnKF or learned gain) to the twin loop~~ | **done (2026-09-28)** | 32-member EnKF, σ_o swept over {0.05, 0.15, 0.30}, 606 fires, job 1031659. **No setting beats gain-1 nudging**; skill tracks the implied Kalman gain (0.979/0.837/0.562 → 0.329/0.127/0.032), so gain 1 is approximately the filter's own optimum, not a naive stand-in (§5.2c) |
 | 4 | ~~Head-to-head on an inaccurate surrogate~~ | **done** | the diagnostic is derived and confirmed at ρ = 1.00 (§3.5); the PDE ladder is queued |
 | 5 | **Flood extent from Sentinel-1** — a dense field, sequential, free on GCS | 2–3 weeks | decides whether §5.3 is a sparse-field quirk or a property of budgeted intervention (§9.10). *Partly done*: `pspe/observe/sar.py` and one validated event (§5.7); the dense-field intervention study is not started |
 | 6 | Run the planner against **Cell2Fire** | ~1 week | one setting where the intervention counterfactual is evaluable (§9.6) |
-| 7 | Test **distillation** from planner solutions into the amortised policy | days | our amortisation claim is currently contradicted (§9.7) |
+| 7 | ~~Test **distillation** from planner solutions into the amortised policy~~ | **done (2026-09-28)** | 3 seeds, job 1031950. Distillation recovers **46.9%** of the planner: 18.32% against the planner's 39.04% and the from-scratch arm's 10.4%. So §9.7's warning was half right — the recipe helps by +7.9 points — but 20.7 points survive it, and the claim gets *stronger* for having been tested (§5.1a) |
 | 8 | ~~Test exchangeability of episode-cost deviations; consider adaptive CP~~ | **done** | Not violated: real-order coverage 0.0771 against a shuffled control's 0.0854, Fisher p = 0.723; drift, KS and serial-dependence tests all non-rejections (§5.10). Adaptive CP unnecessary |
-| 9 | Re-report all results with stratified bootstrap CIs and IQM | days | meets the evaluation standard we ourselves cite (§9.11). `eval/metrics.py` now provides `iqm`, `bootstrap_ci`, `seed_report`; the headline planning gap becomes IQM 11.50, 95% CI [9.97, 14.63] |
+| 9 | Re-report all results with stratified bootstrap CIs and IQM | **partly done (2026-09-28)** | meets the evaluation standard we ourselves cite (§9.11). `eval/metrics.py` provides `iqm`, `bootstrap_ci`, `seed_report`; `eval/run_bootstrap_report.py` applies them. Planning gap: IQM 11.50, 95% CI [9.97, 14.63]. Safety margin on rdf, 5 seeds: Δ −6.1 pts, CI [−21.2, +6.1], straddles zero (§3.2a) — **re-run at 20 seeds: Δ −9.1 pts, CI [−11.8, −5.5], p = 0.0002, and no return cost (§3.2b)**. Horizon mechanism survives at 5 seeds (§5.1). **Still to do:** every remaining 5-seed comparison in the document needs the same treatment |
 | 10 | **Live-incident loop** on current FIRMS plus meteorology | ~1 week | the one role FIRMS keeps that WSTS cannot fill (§9.9) |
 | 11 | **Explain redesign** — structured head over (patch, amplitude) | weeks | probably a separate paper (§9.12) |
-| 12 | **swe replacement objective** — a target profile requiring sustained forcing | ~1 week | recovers a third PDE testbed (§3.4) |
+| 12 | **swe revived by matching target to actuator authority** | **objective solved (2026-09-28)** | third PDE testbed recovered (§3.4a). At **horizon 96, target 0.12**: span **47.9%** and 15/40 improving directions against rdf's 7.1% and 23/60 — better than the reference family on both criteria. The missing quantity was horizon, not amplitude or objective. Caps placed: `u_max` 0.14, `budget` 0.60, `cost_limit` ≈ 0.083 by the 35% convention every shipped limit follows. Remaining: re-derive the limit against a *trained* reward-greedy anchor rather than best-of-40-random, which makes 0.083 a lower bound |
 | 13 | **Operator study** on real briefs | weeks | the Explain module's missing human evaluation |
 
 ---
+
+### 8.5 The ICML revision plan (2026-09-28, submission in ~3 months)
+
+An external read of the draft as an ICML main-track submission scored it
+**6.5–7/10, weak accept / borderline**, with novelty 7.5, experiments 7.5,
+theory 6.5, reproducibility 6.5. The assessment is well calibrated and the
+criticisms are worth recording verbatim, because two of them are already
+addressed and one is sharper than the reviewer made it.
+
+**What the review got right, and what has moved since.**
+
+| criticism | status |
+|---|---|
+| "exchangeability check is only on DAR — not RDF, despite RDF carrying much of the headline margin evidence" | **Confirmed.** `runs/exchangeability/` is dar only. Tier 0 below. |
+| "CAP is the only model-based safe-RL baseline … does not compare against SMBPO or SafeDreamer" | **Half closed.** SMBPO run 2026-09-28 (§9.2a): 12.20% against CAP's 11.99%, p = 0.83. SafeDreamer outstanding. |
+| quoted numbers 0.078 / 0.120 / 0.132 | **Superseded.** At 20 seeds: 5.00 / 11.99 / 14.09, run-level p = 0.0003, and **no objective-value cost** (§3.2b). |
+| "the real-world experiment does not validate the proposed safety method" | **Correct, and the sharpest point in the review.** See Tier 3. |
+| abstract says "the default is structurally wrong" while the body is more precise | **Correct.** Fix the abstract. |
+
+**The one to resist.** *"Proposition 1 is essentially standard conformal coverage
+after redefining the residual."* That is true, and the response is **not** to make
+Proposition 1 harder. It is to (a) show empirically that the residual choice is
+the load-bearing decision, which §9.2a now does — two opposite summaries of model
+disagreement land 0.2 points apart and neither beats doing nothing — and (b) add
+theory where the paper has an *unexplained* empirical phenomenon, which is the
+ρ transition, not the coverage statement.
+
+---
+
+#### Tier 0 — cheap, and a reviewer can check both in five minutes
+
+Submitted as Vista job **1033187**, `scripts/tacc/vista_tier0.slurm`.
+
+| # | experiment | why |
+|---|---|---|
+| T0.1 | **Exchangeability battery on rdf**, 3 seeds, same sizing as the dar run | the assumption is currently untested on the family that carries every margin number in §3.2 |
+| T0.2 | **20 seeds** for `constraint_fix_sat_rdf` (§3.3) and `alpha_rule` (§4.2) | §3.2c found both are comparative claims whose CIs span zero at five seeds; §3.2b showed what happens when that is fixed properly |
+
+#### Tier 1 — the theory that answers "Proposition 1 is trivial"
+
+| # | experiment | why |
+|---|---|---|
+| **T1.1** | **A separation result.** Prove that any margin measurable w.r.t. the model-error distribution alone has realised coverage independent of σ_ep, and so cannot hold δ once ρ = σ_ep/ε > 1 | **Highest-leverage item in the plan.** It converts §9.2a's empirical finding into a theorem: CAP and SMBPO land identically *because they are functions of the same insufficient statistic*. It also answers the "standard conformal" objection with new theory rather than with decoration. |
+| T1.2 | **Closed-form coverage as a function of ρ** for the model-error margin, overlaid on the measured transition | turns the reviewer's favourite figure from an observed transition into a predicted curve |
+
+Sequencing note: draft T1.1 **first**. If the separation result does not work, that
+must surface in week 3, not week 10.
+
+#### Tier 2 — the deepest objection, nonstationarity
+
+| # | experiment | why |
+|---|---|---|
+| T2.1 | **Beyond-exchangeability bound** [Barber et al., 2023] instantiated for policy drift, with the drift term **measured** on both families | converts "we assume exchangeability" into "here is the coverage penalty and here is its size" — a qualitatively different answer to a theory reviewer |
+| T2.2 | **Adaptive conformal as a first-class arm** on both families, not a diagnostic | `run_exchangeability.py` already computes adaptive coverage; promote it to a comparison arm |
+| T2.3 | Stratify calibration by **stage of learning** (early / mid / late windows) | shows where split conformal holds and where it degrades, rather than asserting either |
+
+#### Tier 3 — closes the structural hole
+
+| # | experiment | why |
+|---|---|---|
+| **T3.1** | **Flood as the margin's real-data validation**: the δ-sweep with a hydrodynamic solver as reality, plus an explicit Proposition 2 feasibility check | The wildfire CMDP is **infeasible** under Prop 2, so the strongest real-data experiment currently validates the *planner*, not the *margin*. Scoping found the apparatus already built (`eval/run_flood_margin.py`, solver as reality, Prop 2 working as an acceptance test) and the gap narrower than budgeted: `--delta` was a single value, so **the δ-sweep — the paper's most persuasive figure — had never been run on a real hazard.** Now a `--deltas` flag sharing one surrogate and calibration set. Job **1033263**. |
+
+**T3.1's pre-registered prediction (2026-09-28, before the result).** The run at
+`q-log-sigma 0.04` reports **σ = 0.03231 m, ε = 0.02270 m, ρ = 1.424** — measured
+from the solver, not chosen. §3.6's Corollary 3.2 then *predicts the whole sweep*
+for the `model_error` arm, with no free parameters:
+
+| requested δ | predicted realised `1 − Φ(z_δ/ρ)` | over-run |
+|---|---|---|
+| 0.02 | **0.075** | 3.7× |
+| 0.05 | **0.124** | 2.5× |
+| 0.10 | **0.184** | 1.8× |
+| 0.15 | **0.233** | 1.6× |
+| 0.20 | **0.277** | 1.4× |
+| 0.30 | **0.356** | 1.2× |
+
+with the `residual` arm tracking δ at every level. Two things ride on this. It
+would be the closed form validated **on a hydrodynamic solver rather than a
+synthetic testbed**, and it would show the characteristic signature — the
+default's error growing as δ *tightens*, from 1.2× at δ = 0.30 to 3.7× at
+δ = 0.02 — which is why requesting a stricter guarantee from the wrong
+distribution makes matters worse, not better. Recorded before the run because
+§9.2a's prediction was written after the mechanism and got it wrong.
+
+#### Tier 4 — optics and presentation
+
+| # | item | why |
+|---|---|---|
+| T4.1 | **SafeDreamer** transplant, with a pre-registered prediction that it lands near 12% | low scientific information after §9.2a, high review value; converts baseline-adding into hypothesis-testing |
+| T4.2 | **Narrow the narrative**: ICML = the structural result; wildfire becomes external validation | the draft reads as two papers joined. `docs/WORKSHOP_PAPER.md` and `docs/POSTER.md` now give the application material its own home |
+| T4.3 | **Fix the abstract's precision** — "appropriate for pointwise controllers, inappropriate under an expectation constraint" rather than "structurally wrong" | more accurate *and* more interesting; removes an easy overreach flag |
+
+#### Schedule
+
+| month | work |
+|---|---|
+| 1 | Tier 0; draft T1.1 early and kill it fast if it fails; T1.2 |
+| 2 | T2.1–T2.3; T3.1 (the long pole) |
+| 3 | T4.1; rewrite; **freeze experiments at week 10** |
+
+**The two items that move this from weak accept to accept are T1.1 and T3.1.**
+T1.1 answers the theory reviewer's actual objection; T3.1 removes "your real-data
+experiment does not test your method." Everything else is insurance.
 
 ## Part 9 — Related work, and an honest positioning
 
@@ -3340,8 +4223,8 @@ belongs with the results. Full entries are in the References below.
 | 9.11 | Measurement-defect catalogue | **Converging with an established line** | Henderson, Agarwal, and now WildfireSpreadBench argue the same thing |
 | 9.2 | Constrained planning fails silently | **Known** | Stated outright in model-based safe RL |
 | 9.4 | Joint training does not help | **Known, inverted data point** | Objective mismatch, 2020; our twist is the model improved 5–9× and the decision did not move |
-| 9.8 | State sync beats open loop | **Textbook** | This is what data assimilation is; ours is the crudest form of it |
-| 9.7 | Decision-time beats amortised policy | **Known, literature is against our reading** | Planner amortisation works when distilled; we did not try distillation |
+| 9.8 | State sync beats open loop | **Baseline run 2026-09-28; reading changed** | A 32-member EnKF loses to gain-1 nudging at every swept σ_o, and skill tracks the implied gain (0.979/0.837/0.562). Gain 1 is approximately the filter's optimum here, not the crudest form of it — the observations are far more reliable than the forecast, which drives K → 1 (§5.2c) |
+| 9.7 | Decision-time beats amortised policy | **Tested 2026-09-28; claim survives, narrowed** | Distillation recovers 46.9% of the planner (18.32% vs 39.04% vs 10.4% from scratch): the recipe helps by +7.9 pts, and 20.7 pts survive it (§5.1a) |
 | 9.12 | Permutation control for faithfulness | **Standard practice we omitted** | Credit for applying it, none for inventing it |
 | 9.5 | Wildfire next-day forecast skill | **Behind** | 0.3162 against 0.3673 single / 0.3790 ensemble |
 | 9.9 | Sequential wildfire data | **Closed** | Ported to WildfireSpreadTS, 607 fires, year-wise CV; the eight-fire estimate was ~3x too generous (§5.2a) |
@@ -3487,6 +4370,150 @@ about learned policies in general. The four constrained-RL baselines survive
 better, though three of the four exceed the budget (§5.1), so that comparison is
 not matched-constraint in the way the phrase implies.
 
+> **Tested 2026-09-28 (§5.1a).** Distillation was run: same policy class as the
+> amortised arm, demonstrations from the planner's own trajectories, matched
+> budget. It recovers **46.9%** of the planner's advantage — 18.32% against the
+> planner's 39.04% and the from-scratch arm's 10.4%. So this section's warning
+> was half right and the original framing overstated the case by crediting
+> amortisation with what was partly our recipe; that concession stands. But
+> "amortised without performance loss" does not hold here either: **20.7 points
+> survive the recommended recipe.** The claim to make is the one that survived
+> the objection — decision-time planning retains a large advantage on observed
+> fire data even after distillation. Remaining caveat: one recipe, not the
+> family (no MPO step, no DAgger correction, 256 of 1,024 fires as demonstrations).
+
+### 9.2a A second model-based baseline, and a prediction made before running it
+
+§9.2 reports CAP transplanted onto our planner — 11.99% violating against our
+7.80%, z = +2.08 — and then concedes "SMBPO and SafeDreamer unrun". §3.2 explains
+CAP's loss *structurally*: ensemble disagreement is not the distribution that
+breaches the limit, for the same reason model error is not. A structural
+explanation is worth more than a win only if it predicts the next method, so the
+prediction is recorded here **before** the run rather than after.
+
+The three mechanisms, on the one axis this paper is about:
+
+| method | what the correction is derived from | statistic | adapts? |
+|---|---|---|---|
+| **ours** | the realised cost distribution | conformal quantile | δ is stated, not tuned |
+| CAP | disagreement among surrogates | mean + k·σ | yes, from probe violations |
+| SMBPO | disagreement among surrogates | **max** over members, truncated horizon | **no** |
+
+**Prediction: SMBPO loses to the conformal margin, and by more than CAP does.**
+Two reasons, both structural rather than empirical. It draws on the same
+disagreement distribution §3.2 argues is the wrong one; and `max` is a cruder
+statistic than `mean + k·σ` with no adaptation to walk it back when disagreement
+turns out to be uninformative — CAP's adapted `k` can at least shrink toward the
+uncorrected estimate, and SMBPO's pessimism cannot.
+
+The transplant follows `run_cap_baseline.py` exactly: same ensemble
+construction, same member count, same planner, dual, testbed, limit, probe
+budget and evaluation protocol, with only `_dual_input` differing. SMBPO's
+truncated imagination horizon is implemented rather than assumed away
+(`--imagine-frac`, the prefix cost scaled back to a full episode), because
+trusting the model only over the near future is the mechanism, not a detail.
+
+If the prediction fails — if SMBPO beats the margin — then §3.2's structural
+argument is wrong and the paper's central safety claim rests on CAP being a weak
+comparison. That is the outcome worth knowing, which is why it is written down
+first.
+
+**The first attempt to test it was invalid, and the invalidity pointed our way.**
+`runs/smbpo_truncbias_void/`, job 1031901, killed at 3 of 5 seeds. It reported
+rdf violating 0.2439, 0.1707, 0.122 — mean 17.9% against a 14.1% no-margin
+baseline, so worse than applying no correction at all, which is the predicted
+direction and by a larger gap than CAP's. It was wrong.
+
+The tell was in a column beside the result: **`mean pessimism` was 0.020–0.031
+against a cost limit of 3.26**, under 1%. A correction that inert cannot make an
+arm violate 4 points more than baseline, so something else was moving the dual.
+
+| quantity | rdf | dar |
+|---|---|---|
+| per-step cost, first → last | 0.193 → 0.229 | 0.180 → 0.182 |
+| episode cost | 2.5322 | 2.1598 |
+| half-horizon prefix × 2 | 2.4142 | 2.1541 |
+| **bias from linear extrapolation** | **−0.118 (−4.7%)** | −0.006 (−0.3%) |
+
+The first implementation returned `max(prefix) / imagine_frac` as *the cost
+estimate*. rdf's cost accrues faster late in an episode, so that understates the
+episode cost by 4.7% — and **the −0.118 truncation bias is four times the +0.03
+pessimism gain.** Net, the arm handed the dual a cost *below* the baseline's own
+estimate: it was optimistic, not pessimistic, and it under-constrained. The
+violations were my arithmetic. dar's cost is nearly linear (−0.3%), which is why
+its 0% arm gave no hint.
+
+**The conceptual error, which is the part worth remembering.** I conflated
+*truncating the horizon* with *truncating the cost estimate*. SMBPO penalises
+states from which a violation is reachable inside a short horizon; it does not
+rescale the episode cost. The corrected arm keeps the full-horizon estimate the
+baseline uses and **adds** short-horizon disagreement:
+
+    c_SMBPO  =  c_surrogate(full horizon)  +  [max - mean](prefix) / imagine_frac
+
+Two properties follow, both absent before. The penalty is **≥ 0 by
+construction**, so this arm can only ever be more conservative than the
+baseline — the failure mode above is now unreachable. And scaling a *difference*
+to the full horizon is sound where scaling the *level* was not, because both
+ensemble members share the accrual profile and it cancels in the difference.
+
+**Rule 39: when an arm's headline number moves in the predicted direction,
+check that the mechanism you attributed it to is large enough to have caused
+it.** One column of the output falsified the result. The same check applies to
+any penalty-based arm: compare the penalty's magnitude against the effect being
+claimed for it, and if the penalty is a rounding error, the effect came from
+somewhere else.
+
+**The result (job 1032361, 5 seeds each on rdf and dar, 3 h 12 m).** Run-level
+comparison, resampling over runs:
+
+| arm | runs | violating % | vs ours | 95% CI | p |
+|---|---|---|---|---|---|
+| no margin | 20 | 14.09 | — | — | — |
+| CAP | 12 | 11.99 | +6.99 | [+3.96, +9.98] | **0.00029** |
+| **SMBPO** | 5 | **12.20** | **+7.20** | **[+4.01, +10.05]** | **0.00135** |
+| **ours** | 20 | **5.00** | — | — | — |
+
+dar: 0% for SMBPO on all five seeds, the regression check passing.
+
+**The prediction was half right, and the half that failed matters more than the
+half that held.**
+
+*Held:* SMBPO loses to the conformal margin, by 7.2 points with p = 0.00135.
+
+*Failed:* it was predicted to lose by **more** than CAP, on the reasoning that
+`max` is a cruder statistic than an adapted `mean + k·σ` and has no way to walk
+itself back. **CAP − SMBPO = −0.20 points, 95% CI [−2.84, +2.52], p = 0.83.**
+They are indistinguishable. That reasoning was wrong.
+
+**Why the failure strengthens the claim.** The two methods summarise model
+disagreement in about as different a way as one can: CAP takes a mean plus a
+multiple of the standard deviation and *adapts* the multiple from observed
+violations; SMBPO takes the hard maximum over the ensemble with no adaptation at
+all. They land 0.2 points apart. And **neither is distinguishable from applying
+no margin whatsoever** — SMBPO against no margin is −1.89 points, p = 0.75, which
+is the same verdict §3.2 reached for CAP at −0.43σ.
+
+So the finding is not "our margin beats these two baselines." It is:
+
+> **How you summarise model disagreement does not matter. Computing on the wrong
+> distribution does.** An adapted second moment and an unadapted maximum give the
+> same answer, because both describe *how wrong the model is*, and under an
+> expectation constraint that is not the quantity that carries a trajectory over
+> the limit. Conformalising the realised cost is a different distribution, and it
+> is worth 7 points against either of them.
+
+That is a stronger and more general claim than the one predicted, and it is
+falsifiable in the same way: a third disagreement-based correction should also
+land near 12%, and a method that bounds realised outcomes by some other route
+should land near 5%.
+
+**Rule 41: when a prediction fails, check whether the failure refutes the
+mechanism or generalises it.** This one generalised it — the mechanism said
+*disagreement is the wrong distribution*, and my prediction added an untested
+claim about which summary of disagreement would be worse. The mechanism survived;
+the embellishment did not, and dropping it makes the argument cleaner.
+
 ### 9.8 Data assimilation and digital twins
 
 4D-Var and the Ensemble Kalman Filter [Evensen, 2003; Houtekamer & Zhang, 2016]
@@ -3611,11 +4638,11 @@ the honest standing of our claim against that line, not a score.
 | 9.3 | Conformal safety in control | Lindemann 2023; CBF+ACP (2503.17678); conformal policy control (2603.02196) | conformalise the **error of the learned dynamics model**, then plan inside the inflated tube | conformalise **realised episode cost against the quantity the dual controls** | the default raises rdf violations to 14.15% against 13.17% for no margin; ours reaches 7.80% (§3.2) | **Novel and falsifying.** We do not merely propose an alternative; we show the field's default is worse than nothing in a regime it is used in |
 | 9.3 | Behavioural-change conformal | Prinster et al. 2026 | calibrate permissible deviation from a safe reference policy; no dynamics model | calibrate realised cost against a Lagrangian's controlled quantity | not run head-to-head; different constraint object (behavioural budget vs CMDP cost budget) | **Closest prior art.** Must be cited as such, not lumped with the model-error line |
 | 9.3 | Adaptive conformal under shift | Gibbs & Candès 2021 | update δ online because a learning policy shifts the score distribution | fixed split-conformal quantile over the run's residuals | exchangeability tested and **not violated**: real-order coverage 0.0771 vs shuffled 0.0854, Fisher p = 0.723; adaptive gives 0.1000 (§5.10) | **Not needed here, and now demonstrated rather than assumed** |
-| 9.2 | Model-based safe RL | CAP (Ma 2022); SMBPO; SafeDreamer | inflate the cost estimate by model uncertainty (ensemble disagreement) | inflate by a conformal quantile of realised-cost residuals | CAP 11.99% violating vs ours 7.80% at a matched probe budget, z = +2.08; CAP vs no margin z = −0.43 (§3.2) | **Ours wins, and the reason generalises**: disagreement is not the quantity that breaches the limit, for the same structural reason model error is not. SMBPO and SafeDreamer unrun |
+| 9.2 | Model-based safe RL | CAP (Ma 2022); SMBPO (Thomas 2021); SafeDreamer | inflate the cost estimate by model uncertainty (ensemble disagreement) | inflate by a conformal quantile of realised-cost residuals | At matched sample budget, run-level: **CAP 11.99%, SMBPO 12.20%, ours 5.00%**. Both lose by ~7 pts (p = 0.0003 / 0.0014); CAP vs SMBPO p = 0.83; neither separates from no margin at all (§9.2a) | **Ours wins, and the reason generalises further than expected**: an adapted mean+kσ and an unadapted max land 0.2 pts apart, so the *summary* of disagreement is irrelevant — the distribution is what is wrong. SafeDreamer unrun |
 | 9.2 | Model-free constrained RL | CPO; PPO-Lagrangian; Sauté; primal-dual NPG | constrain in the true environment, many samples | plan in a surrogate, probe the truth periodically | dar: better return (t = +3.84 to +17.95) at **12.5× fewer real transitions**, but 7.3% violating where they violate 0% (§3.1) | **Mixed and stated as such.** Part of the sample-efficiency advantage was bought with violations |
 | 9.4 | Objective mismatch / decision-focused learning | Lambert 2020; decision-focused learning | better model ≠ better control; train the model for the decision | tested joint Simulate+Plan training | model improved **5–9×**, decision did not move (§4.3) | **Known, inverted data point.** Our contribution is the magnitude: the improvement was large and the decision was flat |
 | 9.10 | Belief quality → decision quality | latent DA (Sci. Adv. 2026); deep latent particle filters | optimise analysis quality, assume better analysis ⇒ better outcome | score the belief on the decision | reconstruction AP 0.005 → 0.346 (70×) and burn reduction **falls** 34.5% → 27.3%; mechanism is 3.74× soft-mass inflation (§5.8) | **Novel direction, now with a mechanism.** The softness, not the content, does the damage |
-| 9.8 | Data assimilation | 4D-Var; EnKF (Evensen 2003) | optimal gain, covariance, observation error model | replace belief with observation, gain 1 | 607 fires, year-wise CV: sync vs open d = 1.55 at day +1 (§5.2a) | **Textbook, and labelled as a control.** No EnKF baseline run — §8.4 item 3 remains the honest gap |
+| 9.8 | Data assimilation | 4D-Var; EnKF (Evensen 2003) | optimal gain, covariance, observation error model | gain-1 nudging, now with a 32-member EnKF beside it | 606 fires, 3 seeds: EnKF loses to gain 1 at every σ_o (−0.0497 at σ_o = 0.05, t = −20.95); skill tracks the implied gain 0.979/0.837/0.562 → 0.329/0.127/0.032 (§5.2c) | **Gap closed, and the answer favours the simple method for a stated reason.** K → 1 because the observations beat the forecast. Caveat: perturbed-observation EnKF has a sampling-noise floor, so σ_o = 0.05 does not exactly recover gain 1 — a square-root filter is the follow-up |
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
