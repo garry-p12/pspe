@@ -6,7 +6,7 @@ import { ForecastPanel } from "./ForecastPanel";
 import { RoutePanel } from "./RoutePanel";
 import { ObservePanel } from "./ObservePanel";
 import { RoadQueryPanel } from "./RoadQueryPanel";
-import type { InspectGrids } from "@/lib/inspect";
+import { decodeGrids as decode, type InspectGrids } from "@/lib/inspect";
 import { depthTexture, withDepth } from "@/lib/depthtex";
 import type { RoadQuery } from "@/lib/roadquery";
 
@@ -46,20 +46,6 @@ interface Place { name: string; short: string; lat: number; lon: number; kind: s
 /** Area, at a precision that does not round a flood away. */
 function km2(v: number): string {
   return v >= 10 ? v.toFixed(0) : v.toFixed(1);
-}
-
-/** The service's quantised grids, as typed arrays. */
-function decode(ins?: {
-  meta: InspectGrids["meta"]; depth_u8: string; elev_u16: string;
-} | null): InspectGrids | null {
-  if (!ins) return null;
-  const bytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-  const e = bytes(ins.elev_u16);
-  return {
-    meta: ins.meta,
-    depth: bytes(ins.depth_u8),
-    elev: new Uint16Array(e.buffer, e.byteOffset, e.byteLength / 2),
-  };
 }
 
 /** Storms a planner would actually test against, not abstract return periods. */

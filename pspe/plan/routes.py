@@ -170,6 +170,60 @@ def edge_depths(g: Graph, sample: Callable[[float, float], float]) -> list[float
     return out
 
 
+def edge_cells(g: Graph, bounds: dict, shape: tuple[int, int]):
+    """Grid cells each edge touches, once, for sampling many fields fast.
+
+    `edge_depths` walks every edge's geometry through a Python closure per
+    point. That is fine for one field and far too slow for a schedule: a town
+    fetched live has a few thousand edges, and thirteen snapshots over them is
+    millions of calls. The geometry does not move between snapshots, so the
+    cell indices are computed once here and every field after that is a single
+    fancy-index and a segmented maximum.
+
+    Returns (flat_index, offsets) where `flat_index[offsets[e]:offsets[e+1]]`
+    are the flattened cell indices for edge e. Edges that fall entirely outside
+    the box get an empty slice and read as dry, which is what a road outside the
+    modelled area has to read as -- the model has nothing to say about it.
+    """
+    import numpy as np
+
+    h, w = shape
+    W, E = bounds["west"], bounds["east"]
+    S, N = bounds["south"], bounds["north"]
+    flat: list[int] = []
+    offs = [0]
+    for e in g.edges:
+        pts = list(e.coords)
+        for i in range(len(e.coords) - 1):
+            a, b = e.coords[i], e.coords[i + 1]
+            pts.append(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2))
+        seen = set()
+        for lon, lat in pts:
+            fx = (lon - W) / (E - W)
+            fy = (N - lat) / (N - S)
+            if not (0.0 <= fx < 1.0 and 0.0 <= fy < 1.0):
+                continue
+            r = min(h - 1, int(fy * h))
+            c = min(w - 1, int(fx * w))
+            seen.add(r * w + c)
+        flat.extend(sorted(seen))
+        offs.append(len(flat))
+    return np.asarray(flat, dtype=np.int64), np.asarray(offs, dtype=np.int64)
+
+
+def depths_from_field(field, flat, offs) -> list[float]:
+    """Deepest water per edge for one field, using precomputed cells."""
+    import numpy as np
+
+    vals = np.nan_to_num(np.asarray(field, dtype=np.float32).ravel()[flat])
+    out = np.zeros(len(offs) - 1, dtype=np.float32)
+    for e in range(len(offs) - 1):
+        a, b = offs[e], offs[e + 1]
+        if b > a:
+            out[e] = vals[a:b].max()
+    return out.tolist()
+
+
 def nearest_node(g: Graph, lon: float, lat: float) -> int | None:
     """The junction a place is reached from."""
     best, bi = float("inf"), None
@@ -280,3 +334,248 @@ def fastest(
 def cut_km(g: Graph, depths: Sequence[float], limit_m: float) -> float:
     """Network length under more water than the vehicle can drive through."""
     return sum(e.length_m for e, d in zip(g.edges, depths) if d > limit_m) / 1000.0
+
+
+# --------------------------------------------------------------------------
+# Time, which is what makes this a planning problem rather than a lookup
+# --------------------------------------------------------------------------
+#
+# A peak-depth field answers "was this road cut at any point", and that is the
+# wrong question for someone deciding whether to drive. They are on a given
+# road at the time they reach it, and the flood is still moving: a crossing that
+# is dry now and 80 cm deep in two hours is passable to someone leaving now and
+# a trap for someone leaving at lunchtime. Routing against the peak refuses
+# roads that are fine for the next hour; routing against the present refuses
+# nothing and sends people into water that arrives while they drive.
+#
+# So the network carries a SCHEDULE -- depth per edge per snapshot time -- and
+# an edge is usable for a crossing that occupies [a, b] only if it stays under
+# the limit across that whole window.
+
+
+@dataclass
+class Schedule:
+    """Depth per edge over time, from the solver's snapshots.
+
+    `times` are minutes from the start of the run; `depths[k][e]` is edge e's
+    deepest water at snapshot k. Between snapshots the depth is taken as the
+    larger of the two bracketing values, which is conservative in the only
+    direction that matters: it never claims a road is passable during an
+    interval it did not look at.
+    """
+    times: list[float]
+    depths: list[list[float]]
+
+    def at(self, ei: int, t: float, tol: float = 1e-6) -> float:
+        """Depth on edge ei at time t.
+
+        Exact AT a snapshot, and the enclosing pair's maximum strictly between
+        two. The distinction is not pedantic: taking the pair maximum at the
+        boundary as well reported a road as flooded at the very moment the
+        snapshot says it is dry, which pushed a crossing to the next hour and
+        made one test trip arrive at 187 minutes where 127 is correct.
+        Conservative inside an interval is right; conservative at a sample we
+        actually have is just wrong.
+        """
+        if not self.times:
+            return 0.0
+        if t <= self.times[0] + tol:
+            return self.depths[0][ei]
+        if t >= self.times[-1] - tol:
+            return self.depths[-1][ei]
+        for k in range(1, len(self.times)):
+            if abs(t - self.times[k]) <= tol:
+                return self.depths[k][ei]
+            if t < self.times[k]:
+                return max(self.depths[k - 1][ei], self.depths[k][ei])
+        return self.depths[-1][ei]
+
+    def worst_between(self, ei: int, a: float, b: float) -> float:
+        """Deepest water on edge ei while a crossing occupies [a, b].
+
+        Includes both endpoints and every snapshot inside the window, so a
+        crossing that starts dry and ends deep is judged on the deep end.
+        """
+        worst = max(self.at(ei, a), self.at(ei, b))
+        for k, t in enumerate(self.times):
+            if a <= t <= b and self.depths[k][ei] > worst:
+                worst = self.depths[k][ei]
+        return worst
+
+    @property
+    def horizon_min(self) -> float:
+        return self.times[-1] if self.times else 0.0
+
+    def peak(self) -> list[float]:
+        """Deepest water per edge over the whole run: the static view."""
+        if not self.depths:
+            return []
+        n = len(self.depths[0])
+        return [max(row[e] for row in self.depths) for e in range(n)]
+
+
+def _earliest_start(
+    sched: Schedule, ei: int, t: float, minutes: float, limit_m: float,
+    allow_wait: bool,
+) -> float | None:
+    """Earliest time at or after `t` that a crossing of `ei` can be made.
+
+    `None` if there is no such time within the schedule. Candidate starts are
+    `t` and each snapshot boundary after it, which is exhaustive given that the
+    schedule is piecewise constant between snapshots.
+    """
+    if sched.worst_between(ei, t, t + minutes) <= limit_m:
+        return t
+    if not allow_wait:
+        return None
+    for b in sched.times:
+        if b <= t:
+            continue
+        if sched.worst_between(ei, b, b + minutes) <= limit_m:
+            return b
+    return None
+
+
+def fastest_at(
+    g: Graph, src: int, dst: int, sched: Schedule, limit_m: float,
+    depart_min: float = 0.0, allow_wait: bool = True,
+) -> Route:
+    """Earliest arrival for someone leaving `src` at `depart_min`.
+
+    Label-setting on arrival time. Whether the first settled label is optimal
+    turns on something easy to get wrong, so it is worth stating: travel time
+    per edge does not depend on when you enter it, but EDGE AVAILABILITY IS NOT
+    MONOTONE -- our runs include the recession, so a crossing that is shut at
+    two hours can be open at six. With waiting forbidden, arriving somewhere
+    earlier is then not always better (arrive at noon and the only open road is
+    the slow one; arrive at four and the fast one has drained), and
+    earliest-arrival labelling is a heuristic rather than an optimum.
+
+    Waiting is therefore allowed, which is both the realistic option -- a
+    driver can hold at a junction, and the interface already tells them to hold
+    before setting out -- and the one that restores exactness: when waiting is
+    permitted, an earlier arrival dominates a later one, because the later
+    arrival can always be reproduced by waiting. `allow_wait=False` keeps the
+    stricter no-holding behaviour, which is then a conservative heuristic and
+    is labelled as one.
+    """
+    if src == dst:
+        return Route(True, 0.0, 0.0, [], 0.0, "already there")
+    arrive = {src: depart_min}
+    prev: dict[int, tuple[int, int]] = {}
+    pq: list[tuple[float, int]] = [(depart_min, src)]
+    done: set[int] = set()
+    while pq:
+        t, n = heapq.heappop(pq)
+        if n in done:
+            continue
+        done.add(n)
+        if n == dst:
+            break
+        for ei, m in g.adj.get(n, ()):
+            if m in done:
+                continue
+            start = _earliest_start(sched, ei, t, g.edges[ei].minutes,
+                                    limit_m, allow_wait)
+            if start is None:
+                continue
+            t2 = start + g.edges[ei].minutes
+            if t2 < arrive.get(m, float("inf")):
+                arrive[m] = t2
+                prev[m] = (n, ei)
+                heapq.heappush(pq, (t2, m))
+    if dst not in arrive:
+        return Route(False, float("inf"), 0.0, [], float("inf"),
+                     f"no route stays under {limit_m:.2f} m leaving at "
+                     f"{depart_min:.0f} min")
+    path, n = [], dst
+    while n != src:
+        p, ei = prev[n]
+        path.append(ei)
+        n = p
+    path.reverse()
+    km = sum(g.edges[ei].length_m for ei in path) / 1000.0
+    # The water the trip actually meets, which is not the same as the deepest
+    # water these roads see: that is the whole point of scheduling the crossing.
+    # Replaying the path has to replay any holding too, or the depths are read
+    # at times the driver is not there.
+    t = depart_min
+    worst = 0.0
+    for ei in path:
+        start = _earliest_start(sched, ei, t, g.edges[ei].minutes,
+                                limit_m, allow_wait)
+        t = start if start is not None else t
+        t2 = t + g.edges[ei].minutes
+        worst = max(worst, sched.worst_between(ei, t, t2))
+        t = t2
+    return Route(True, arrive[dst] - depart_min, km, path, worst)
+
+
+def latest_departure(
+    g: Graph, src: int, dst: int, sched: Schedule, limit_m: float,
+    step_min: float = 15.0, horizon_min: float | None = None,
+) -> tuple[float | None, Route | None]:
+    """The last moment someone can leave and still get through.
+
+    This is the number an operator actually needs, and it cannot be read off a
+    peak-depth map at all: "you have until 14:45" is a decision, "this road
+    floods at some point" is not. Scanned rather than solved backwards, because
+    the scan costs one label-setting pass per departure slot and stays correct
+    when the edge windows are non-convex -- which they are, since water rises
+    and recedes.
+    """
+    horizon = sched.horizon_min if horizon_min is None else horizon_min
+    best_t, best_r = None, None
+    last = 0.0
+    t = 0.0
+    while t <= horizon:
+        r = fastest_at(g, src, dst, sched, limit_m, depart_min=t)
+        if r.ok:
+            best_t, best_r = t, r
+        last = t
+        t += step_min
+    if best_t is None:
+        return None, None
+    # A trip that is still possible at the end of the modelled window has no
+    # deadline that this model knows about, and must not be given one. Returning
+    # the horizon here made the interface say "leave within 12 hours, after that
+    # every route is cut" about a scenario in which nothing floods at all --
+    # a statement the run does not support in either direction, since it has
+    # nothing to say about hour thirteen.
+    if best_t >= last:
+        return None, best_r
+    return best_t, best_r
+
+
+def cut_at(
+    g: Graph, route: Route, sched: Schedule, limit_m: float,
+    depart_min: float = 0.0,
+) -> list[dict]:
+    """Where and when a given route meets water, in order along it.
+
+    The explanation the operator reads is built from this: which road, how deep,
+    how far along, and how long after leaving. A route that is open still has
+    entries here when it passes through water it can cross, and those are worth
+    naming -- "35 cm across Wyrallah Road 12 minutes in" is the difference
+    between a route someone trusts and one they turn back from.
+    """
+    out = []
+    t, km = depart_min, 0.0
+    for ei in route.edges:
+        e = g.edges[ei]
+        start = _earliest_start(sched, ei, t, e.minutes, limit_m, True)
+        if start is not None:
+            t = start
+        t2 = t + e.minutes
+        d = sched.worst_between(ei, t, t2)
+        if d > 0.05:
+            out.append({
+                "name": e.name, "class": e.cls,
+                "depth_m": round(d, 3),
+                "km_along": round(km, 2),
+                "minutes_after_leaving": round(t - depart_min, 1),
+                "passable": d <= limit_m,
+            })
+        t = t2
+        km += e.length_m / 1000.0
+    return out

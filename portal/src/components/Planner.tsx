@@ -10,13 +10,14 @@ import { PlanPanel } from "./PlanPanel";
 import { PlanSection } from "./PlanSection";
 import { ObservePanel, type Observation } from "./ObservePanel";
 import { RoutePanel } from "./RoutePanel";
+import { TripPanel, type TripResult } from "./TripPanel";
 import type { RoadQuery } from "@/lib/roadquery";
 import { loadManifest } from "@/lib/data";
 import type { Manifest } from "@/lib/types";
 import { eventLabel, km, money, type OpsPayload } from "@/lib/ops";
 import { useRegion } from "./RegionContext";
 import {
-  loadInspect, nearestRoad, sampleAt,
+  decodeGrids, loadInspect, nearestRoad, sampleAt,
   type InspectGrids, type PointInfo,
 } from "@/lib/inspect";
 
@@ -60,7 +61,7 @@ export function Planner() {
    *  the wrong one. */
   const [vehicle, setVehicle] = useState(0.25);
   const [routeLines, setRouteLines] = useState<{
-    forTab: "district" | "anywhere";
+    forTab: "district" | "anywhere" | "trip";
     quickest: { coords: [number, number][]; minutes: number } | null;
     robust: { coords: [number, number][]; minutes: number } | null;
     dest: { lat: number; lon: number } | null;
@@ -71,7 +72,9 @@ export function Planner() {
   const [roadQ, setRoadQ] = useState<RoadQuery | null>(null);
   const [adHocRoads, setAdHocRoads] = useState<GeoJSON.FeatureCollection | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [tab, setTab] = useState<"district" | "anywhere">("district");
+  const [tab, setTab] = useState<"district" | "anywhere" | "trip">("district");
+  /** A trip's own result: its own box, its own flood, its own network. */
+  const [trip, setTrip] = useState<TripResult | null>(null);
   const [placed, setPlaced] = useState<PlacedLevee[]>([]);
   const [placing, setPlacing] = useState(false);
   const [observed, setObserved] = useState<Observation | null>(null);
@@ -201,6 +204,12 @@ export function Planner() {
     [point, roads],
   );
 
+  // The trip ships the same quantised grids an ad-hoc analysis does, so the
+  // body of water and the click-anywhere depth work there too.
+  const tripGrids = useMemo(
+    () => decodeGrids(trip?.inspect as Parameters<typeof decodeGrids>[0]),
+    [trip]);
+
   const frame = manifest
     ? manifest.frames.reduce((a, b) => (b.wet_cells > a.wet_cells ? b : a), manifest.frames[0]).i
     : 0;
@@ -228,18 +237,31 @@ export function Planner() {
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <span className="text-[13px] text-ink-mute">Area</span>
           <div className="flex gap-1">
-            {(["district", "anywhere"] as const).map((k) => (
+            {(["district", "anywhere", "trip"] as const).map((k) => (
               <button
                 key={k}
                 className="pill"
                 data-on={tab === k}
-                onClick={() => { setTab(k); if (k === "district") setAnalysis(null); }}
+                onClick={() => {
+                  setTab(k);
+                  if (k === "district") setAnalysis(null);
+                  if (k !== "trip") setTrip(null);
+                }}
               >
-                {k === "district" ? "This district" : "Anywhere"}
+                {k === "district" ? "This district"
+                  : k === "anywhere" ? "Anywhere" : "Plan a trip"}
               </button>
             ))}
           </div>
         </div>
+
+        {tab === "trip" && (
+          <TripPanel
+            onResult={setTrip}
+            onRoutes={(r) => setRouteLines(
+              r ? { ...(r as object), forTab: "trip" } as typeof routeLines : null)}
+          />
+        )}
 
         {tab === "anywhere" && (
           <AnywherePanel
@@ -484,8 +506,13 @@ export function Planner() {
           <PlannerMap
             manifest={manifest}
             frame={frame}
-            roads={tab === "district" ? roads : adHocRoads}
+            roads={tab === "district" ? roads
+              : tab === "trip" ? (trip?.roads ?? null) : adHocRoads}
             markers={tab === "district" ? markers : []}
+            pins={tab === "trip" && trip
+              ? [{ lon: trip.origin.lon, lat: trip.origin.lat, label: "from" },
+                 { lon: trip.destination.lon, lat: trip.destination.lat, label: "to" }]
+              : null}
             onMarker={onMarker}
             onPick={onPick}
             pin={point ? { lon: point.lon, lat: point.lat } : null}
@@ -496,9 +523,13 @@ export function Planner() {
             routes={routeLines?.forTab === tab ? routeLines : null}
             place={tab === "anywhere" ? place : null}
             observed={observed}
-              analysis={analysis}
+              analysis={tab === "trip"
+                ? (trip ? { bounds: trip.bounds, depth_png: trip.depth_png,
+                            terrain_png: trip.terrain_png } : null)
+                : analysis}
             focus={focus}
-            grids={tab === "anywhere" ? adHocGrids : grids}
+            grids={tab === "anywhere" ? adHocGrids
+              : tab === "trip" ? tripGrids : grids}
             heights={mode === "build" ? custom : (current?.heights ?? [])}
             solid={solid}
           />

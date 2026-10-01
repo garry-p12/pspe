@@ -36,6 +36,7 @@ export function PlannerMap({
   observed,
   placed,
   placedHeights,
+  pins,
   routes,
   place,
   focus,
@@ -66,6 +67,8 @@ export function PlannerMap({
   /** Height built at each placed site in the option being drawn, so a site
    *  that is part of the chosen plan does not look like one that is not. */
   placedHeights?: number[] | null;
+  /** Labelled points: the two ends of a trip, which the route runs between. */
+  pins?: { lon: number; lat: number; label: string }[] | null;
   /** The way out, and the way out that survives being wrong about the depth. */
   routes?: {
     quickest: { coords: [number, number][]; minutes: number } | null;
@@ -380,6 +383,44 @@ export function PlannerMap({
       );
     }
 
+    // The two ends of a trip. Labelled, because "from" and "to" on a map are
+    // not interchangeable and a route drawn between two identical dots makes
+    // the reader work out which way they are going.
+    if (pins?.length) {
+      out.push(
+        new ScatterplotLayer({
+          id: "trip-pins",
+          data: pins,
+          radiusUnits: "pixels",
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getRadius: 8,
+          getFillColor: (d: { label: string }) =>
+            d.label === "from" ? [255, 255, 255, 245] : [34, 197, 94, 250],
+          stroked: true,
+          getLineColor: [10, 14, 20, 230],
+          getLineWidth: 2,
+          lineWidthUnits: "pixels",
+          updateTriggers: { getFillColor: pins.length },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new TextLayer({
+          id: "trip-pin-labels",
+          data: pins,
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getText: (d: { label: string }) => d.label,
+          getSize: 12,
+          getColor: [255, 255, 255, 255],
+          fontWeight: 700,
+          getTextAnchor: "start",
+          getPixelOffset: [12, 0],
+          outlineWidth: 2,
+          outlineColor: [10, 14, 20, 220],
+          fontSettings: { sdf: true },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+
     // ---- the way out ---------------------------------------------------
     // Drawn over the water on purpose. A route is an instruction, and an
     // instruction that disappears under the thing it is routing around is not
@@ -565,7 +606,7 @@ export function PlannerMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [b, frame, ext, roads, markers, onMarker, pin, cutFraction, cutKey,
       observed, analysis, placed, place, settle, solid, grids,
-      heightKey, placedKey, routeKey]);
+      heightKey, placedKey, routeKey, pins]);
 
   if (!size) return <div ref={host} className="h-full w-full bg-bg-inset" />;
 

@@ -23,6 +23,20 @@ export async function loadInspect(): Promise<InspectGrids> {
   return { meta, depth: new Uint8Array(d), elev: new Uint16Array(e) };
 }
 
+/** The service's quantised grids, as typed arrays. */
+export function decodeGrids(ins?: {
+  meta: InspectMeta; depth_u8: string; elev_u16: string;
+} | null): InspectGrids | null {
+  if (!ins) return null;
+  const bytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const e = bytes(ins.elev_u16);
+  return {
+    meta: ins.meta,
+    depth: bytes(ins.depth_u8),
+    elev: new Uint16Array(e.buffer, e.byteOffset, e.byteLength / 2),
+  };
+}
+
 export interface PointInfo {
   lon: number;
   lat: number;

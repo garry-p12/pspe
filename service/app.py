@@ -21,7 +21,7 @@ import urllib.request
 import math
 import time
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import numpy as np
 import torch
@@ -37,7 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pspe.observe import sar  # noqa: E402
 from pspe.simulate.real import forcing  # noqa: E402
-from pspe.plan import surrogate  # noqa: E402
+from pspe.plan import routes, surrogate  # noqa: E402
+from pspe.explain import route_brief  # noqa: E402
 from pspe.simulate.flood import FloodConfig, FloodSolver  # noqa: E402
 from pspe.simulate.real.anywhere import (  # noqa: E402
     build_domain, forcing_for,
@@ -541,7 +542,12 @@ def build_forcing(dom, req) -> dict:
         out["q_m3s"] = round(q_design, 1)
         out["stage_m"] = round(stage, 2)
         out["note"] = (
-            f"{q_design:,.0f} m3/s on the {inflow.edge} edge, {scale:.0f}x "
+            # `:g`, not `:.0f`: the storm presets give scales of 1, 2.5 and 4,
+            # and `.0f` printed 2.5 as "2" -- so the note read "2x the forecast
+            # peak of 3,000 m3/s" directly beside a value of 7,500. A stated
+            # multiple a reader can check in their head has to be the multiple
+            # that was applied.
+            f"{q_design:,.0f} m3/s on the {inflow.edge} edge, {scale:g}x "
             + (f"the forecast peak of {q:,.0f} m3/s. "
                if q * scale >= q_bankfull * scale else
                f"bankfull for this channel (~{q_bankfull:,.0f} m3/s, estimated "
@@ -587,7 +593,9 @@ def site_masks(dom, sites: list[dict]) -> "torch.Tensor":
     return torch.stack(out) if out else torch.zeros(0, h_, w_)
 
 
-def solve_beds(dom, req, z: "torch.Tensor", fx: dict) -> tuple["torch.Tensor", int]:
+def solve_beds(dom, req, z: "torch.Tensor", fx: dict,
+               snap_hours: Sequence[float] | None = None
+               ) -> tuple["torch.Tensor", int, "torch.Tensor | None"]:
     """Peak depth for a batch of beds, one timestep loop for all of them.
 
     Extracted so the plan the greedy search RECOMMENDS can be solved as well as
@@ -609,6 +617,18 @@ def solve_beds(dom, req, z: "torch.Tensor", fx: dict) -> tuple["torch.Tensor", i
     qx, qy = solver.zeros_flux(b)
     peak = h.clone()
     src, sea_mask, sea_level = fx["source"], fx["sea_mask"], fx["sea_level"]
+    # Snapshots are the INSTANTANEOUS depth at a few times, not the running
+    # peak. Passability at 14:00 is the water on the road at 14:00; a peak
+    # field answers "was this ever cut", which refuses roads that are fine for
+    # the next hour and is the wrong question for someone deciding to drive.
+    # Named `snap_at`, not `want`: the surge branch below already binds `want`
+    # to the boundary stage field, and the first river step overwrote the
+    # schedule with an (H, W) tensor. Same shadowing that made the SafeDreamer
+    # arm score the wrong critic head -- a local name reused inside a long loop
+    # is a collision waiting for the one driver that reaches it.
+    snap_at = sorted(float(x) * 3600.0 for x in (snap_hours or []))
+    snaps: list["torch.Tensor"] = []
+    nxt = 0
     tt, dur, steps = 0.0, req.run_hours * 3600.0, 0
     while tt < dur:
         dt = min(solver.adaptive_dt(h), dur - tt)
@@ -629,7 +649,16 @@ def solve_beds(dom, req, z: "torch.Tensor", fx: dict) -> tuple["torch.Tensor", i
         peak = torch.maximum(peak, h)
         tt += dt
         steps += 1
-    return peak, steps
+        while nxt < len(snap_at) and tt >= snap_at[nxt]:
+            snaps.append(h.clone())
+            nxt += 1
+    # A run that ends before the last requested time still has to return a
+    # schedule of the right length, or the client silently reads a shorter
+    # horizon than it asked about.
+    while nxt < len(snap_at):
+        snaps.append(h.clone())
+        nxt += 1
+    return peak, steps, (torch.stack(snaps, dim=1) if snaps else None)
 
 
 @app.post("/plan")
@@ -668,7 +697,7 @@ def plan_anywhere(req: PlanRequest) -> dict:
     z = z0[None] + (P[:, :, None, None] * masks[None]).sum(1)
 
     fx = build_forcing(dom, req)
-    peak, steps = solve_beds(dom, req, z, fx)
+    peak, steps, _ = solve_beds(dom, req, z, fx)
     b = z.shape[0]
 
     # What the plan is bought to change: depth over the protected area, or the
@@ -790,7 +819,7 @@ def plan_anywhere(req: PlanRequest) -> dict:
     if any(h > 0 for h in hv) and not any(list(pl) == list(hv) for pl in plans):
         z_sel = z0[None] + (torch.tensor([hv], dtype=torch.float32)[:, :, None, None]
                             * masks[None]).sum(1)
-        peak_sel, _ = solve_beds(dom, req, z_sel, fx)
+        peak_sel, _, _ = solve_beds(dom, req, z_sel, fx)
         chosen_u8 = base64.b64encode(
             (np.clip(np.nan_to_num(peak_sel[0].numpy()) / DEPTH_VMAX, 0.0, 1.0)
              * 255).astype(np.uint8).tobytes()).decode()
@@ -856,6 +885,273 @@ def plan_anywhere(req: PlanRequest) -> dict:
                    "single-measure effects exactly, the combinations through a "
                    "surrogate fitted to them and bounded by a conformal margin."),
     }
+    CACHE[key] = out
+    return {**out, "cached": False}
+
+
+class RouteRequest(BaseModel):
+    """Get me from here to there, through a flood that is still moving."""
+    origin: dict                      # {"lat":.., "lon":.., "name":..}
+    destination: dict
+    name: str = "Route"
+    # What the vehicle can drive through. An ambulance, a bus and a hatchback
+    # are three different questions about the same water.
+    vehicle_depth_m: float = Field(0.25, ge=0.05, le=2.0)
+    rain_mm_h: float = Field(50.0, ge=0.0, le=300.0)
+    storm_hours: float = Field(6.0, ge=0.5, le=48.0)
+    run_hours: float = Field(12.0, ge=1.0, le=72.0)
+    driver: str = Field("river", pattern="^(rain|river|coastal)$")
+    river_q_m3s: Optional[float] = None
+    surge_m: float = Field(2.5, ge=0.0, le=10.0)
+    # How many times the schedule is sampled. The flood is resolved to this,
+    # and the deadline can only ever be as sharp as the sampling.
+    snapshots: int = Field(13, ge=2, le=25)
+    depart_step_min: float = Field(30.0, ge=5.0, le=120.0)
+    dx: Optional[float] = None        # None -> chosen from how far apart they are
+
+
+# Terrain, the solve and the road network, kept apart from the routing.
+#
+# The whole response is already cached by request hash, which helps only an
+# identical request. But asking the same trip for a truck instead of a car
+# changes nothing physical -- same terrain, same flood, same roads, a different
+# threshold -- and re-solving it was two minutes for a number the service
+# already had everything to compute. Keyed on what each stage actually depends
+# on, so changing the vehicle re-routes and nothing else.
+SOLVE_CACHE: dict[str, dict] = {}
+ROADS_CACHE: dict[str, dict] = {}
+_CACHE_MAX = 6
+
+
+def _cache_put(store: dict, key: str, value) -> None:
+    if len(store) >= _CACHE_MAX:
+        store.pop(next(iter(store)))
+    store[key] = value
+
+
+def _km_between(a: dict, b: dict) -> float:
+    lat = math.radians((float(a["lat"]) + float(b["lat"])) / 2)
+    dx = (float(b["lon"]) - float(a["lon"])) * 111.320 * math.cos(lat)
+    dy = (float(b["lat"]) - float(a["lat"])) * 110.540
+    return math.sqrt(dx * dx + dy * dy)
+
+
+@app.post("/route")
+def route_between(req: RouteRequest) -> dict:
+    """A route from A to B that avoids the flood, and the reasons for it.
+
+    The domain is not given here, it is DERIVED: a box containing both ends
+    with room to detour, at whatever resolution keeps the solve interactive.
+    That is the difference between a tool that answers for one valley and one
+    that answers for a trip someone actually has to make.
+
+    Routing happens against a SCHEDULE rather than a peak field, because the
+    traveller is on each road at the time they reach it. The answers that come
+    out of that are ones a peak map cannot give: leave now and you get through;
+    leave after 14:45 and you do not; the direct road is the one that goes
+    under, and here is the one that does not.
+    """
+    key = "route:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
+    if key in CACHE:
+        return {**CACHE[key], "cached": True}
+
+    t0 = time.time()
+    o, d = req.origin, req.destination
+    span_km = _km_between(o, d)
+    if span_km < 0.3:
+        return {"ok": False, "reason":
+                "Those two points are less than 300 m apart. Pick a "
+                "destination further away than the width of a street."}
+
+    # Room to detour. A box drawn tight around the two ends would make the
+    # straight line the only option, and a flood route is a detour by nature.
+    pad_km = max(0.3 * span_km, 3.0)
+    half_lat = (span_km / 2 + pad_km) / 110.540
+    mid_lat = (float(o["lat"]) + float(d["lat"])) / 2
+    mid_lon = (float(o["lon"]) + float(d["lon"])) / 2
+    half_lon = half_lat / max(math.cos(math.radians(mid_lat)), 0.2)
+    # Cover both ends even when the trip runs mostly east-west or north-south.
+    half_lat = max(half_lat, abs(float(o["lat"]) - float(d["lat"])) / 2 + pad_km / 110.540)
+    half_lon = max(half_lon, abs(float(o["lon"]) - float(d["lon"])) / 2
+                   + pad_km / (111.320 * max(math.cos(math.radians(mid_lat)), 0.2)))
+    box = {"west": mid_lon - half_lon, "east": mid_lon + half_lon,
+           "south": mid_lat - half_lat, "north": mid_lat + half_lat}
+
+    # Resolution follows the trip. A 12 km trip is solved at 50 m; a 60 km one
+    # cannot be, and saying so in the response is better than quietly taking
+    # twenty minutes or quietly returning a grid too coarse to mean anything.
+    width_m = (box["east"] - box["west"]) * 111_320 * math.cos(math.radians(mid_lat))
+    target_cells = 250
+    dx = req.dx or max(30.0, 10.0 * round(width_m / target_cells / 10.0))
+    if dx > 240.0:
+        return {"ok": False, "reason":
+                f"Those points are {span_km:.0f} km apart. One domain covering "
+                f"both would need cells coarser than 240 m, at which a 2 m flood "
+                f"on a road is a rounding error. Route between closer points, or "
+                f"split the trip."}
+
+    snap_h = [req.run_hours * i / (req.snapshots - 1) for i in range(req.snapshots)]
+    # Everything the flood depends on, and nothing the vehicle does.
+    skey = hashlib.sha1(json.dumps([
+        {k: round(v, 6) for k, v in box.items()}, dx, req.driver, req.rain_mm_h,
+        req.storm_hours, req.run_hours, req.river_q_m3s, req.surge_m,
+        req.snapshots,
+    ], sort_keys=True).encode()).hexdigest()[:16]
+    hit = SOLVE_CACHE.get(skey)
+    reused = hit is not None
+    if hit is None:
+        dom = build_domain(box["west"], box["south"], box["east"], box["north"],
+                           dx=dx, name=req.name)
+        fx = build_forcing(dom, req)
+        z0 = torch.as_tensor(dom.z, dtype=torch.float32)[None]
+        peak, steps, snaps = solve_beds(dom, req, z0, fx, snap_hours=snap_h)
+        hit = {"dom": dom, "fx": fx, "peak": peak, "snaps": snaps, "steps": steps}
+        _cache_put(SOLVE_CACHE, skey, hit)
+    dom, fx, peak, snaps, steps = (hit["dom"], hit["fx"], hit["peak"],
+                                   hit["snaps"], hit["steps"])
+    z = np.asarray(dom.z, dtype=np.float32)
+    peak_np = peak[0].numpy()
+
+    rkey = hashlib.sha1(json.dumps(
+        {k: round(v, 5) for k, v in box.items()}, sort_keys=True).encode()
+    ).hexdigest()[:16]
+    net = ROADS_CACHE.get(rkey)
+    if net is None:
+        # `fetch_roads` raises when every mirror fails, and Overpass does fail
+        # -- it rate-limits, and a 33 km box is a large query. Letting that
+        # propagate threw away a solve that had just taken two minutes and
+        # returned a 500 with nothing in it. The solve is already cached by the
+        # time we get here, so the honest answer is to say which half failed
+        # and that retrying is now cheap.
+        try:
+            net = fetch_roads(box["west"], box["south"], box["east"], box["north"])
+        except Exception as exc:                            # noqa: BLE001
+            return {"ok": False, "reason":
+                    f"The flood is solved for this trip, but OpenStreetMap is "
+                    f"not answering, so there is no road network to route on "
+                    f"({exc}). The solve is kept: trying again will not re-run "
+                    f"it.",
+                    "solved": True, "bounds": box, "dx_m": dom.dx,
+                    "depth_png": depth_png(peak_np, DEPTH_VMAX),
+                    "terrain_png": terrain_png(dom.z),
+                    "driver": fx["driver"], "driver_note": fx["note"]}
+        _cache_put(ROADS_CACHE, rkey, net)
+    g = routes.build_graph(net.get("features", []))
+    if len(g.edges) < 2:
+        return {"ok": False, "reason":
+                "OpenStreetMap returned almost no roads for this area, so "
+                "there is no network to route on."}
+
+    flat, offs = routes.edge_cells(g, box, z.shape)
+    sched = routes.Schedule(
+        times=[h * 60.0 for h in snap_h],
+        depths=[routes.depths_from_field(snaps[0, k].numpy(), flat, offs)
+                for k in range(snaps.shape[1])],
+    )
+    peak_edges = sched.peak()
+    limit = req.vehicle_depth_m
+
+    src = routes.nearest_node(g, float(o["lon"]), float(o["lat"]))
+    dst = routes.nearest_node(g, float(d["lon"]), float(d["lat"]))
+    if src is None or dst is None or src == dst:
+        return {"ok": False, "reason":
+                "Both ends snap to the same junction, or no junction at all. "
+                "Pick points on different roads."}
+    snap_km = {
+        "origin": round(_km_between(o, {"lat": g.nodes[src][1], "lon": g.nodes[src][0]}), 2),
+        "destination": round(_km_between(d, {"lat": g.nodes[dst][1], "lon": g.nodes[dst][0]}), 2),
+    }
+
+    # Four answers, because the comparison is the explanation.
+    dry = routes.fastest(g, src, dst, [0.0] * len(g.edges), limit)
+    now = routes.fastest_at(g, src, dst, sched, limit, depart_min=0.0)
+    static = routes.fastest(g, src, dst, peak_edges, limit)
+    deadline, at_deadline = routes.latest_departure(
+        g, src, dst, sched, limit, step_min=req.depart_step_min)
+
+    chosen = now if now.ok else (at_deadline if at_deadline and at_deadline.ok else None)
+    depart = 0.0 if now.ok else (deadline or 0.0)
+
+    # What the direct road does, which is what "avoids the flooding" means:
+    # the quickest way ignoring water, and where that way goes under. Evaluated
+    # at the departure being reported, because a road that is dry for someone
+    # leaving now and 70 cm deep for someone leaving at the deadline is the
+    # whole reason this is scheduled rather than static -- quoting the t=0
+    # answer beside a later departure would explain the wrong trip.
+    def cuts_on_direct(t_depart: float) -> list[dict]:
+        if not dry.ok:
+            return []
+        return [c for c in routes.cut_at(g, dry, sched, limit, t_depart)
+                if not c["passable"]]
+
+    direct_cuts = cuts_on_direct(depart)
+    direct_cuts_at_deadline = (cuts_on_direct(deadline)
+                               if deadline is not None else [])
+
+    def route_out(r, t_depart: float) -> dict | None:
+        if r is None or not r.ok:
+            return None
+        return {
+            "ok": True,
+            "minutes": round(r.minutes, 1),
+            "km": round(r.km, 2),
+            "max_depth_m": round(r.max_depth_m, 3),
+            "via": r.names(g)[:8],
+            "coords": [[round(x, 6), round(y, 6)] for x, y in r.coords(g)],
+            "depart_min": round(t_depart, 1),
+            "water_on_the_way": routes.cut_at(g, r, sched, limit, t_depart),
+        }
+
+    cut_timeline = [
+        {"minutes": round(t, 0),
+         "cut_km": round(routes.cut_km(g, sched.depths[k], limit), 1)}
+        for k, t in enumerate(sched.times)
+    ]
+
+    out = {
+        "ok": True,
+        "origin": o, "destination": d,
+        "span_km": round(span_km, 1),
+        "bounds": box,
+        "grid": [int(z.shape[0]), int(z.shape[1])],
+        "dx_m": dom.dx,
+        "vehicle_depth_m": limit,
+        "network_km": round(g.total_km, 1),
+        "edges": len(g.edges),
+        "snap_km": snap_km,
+        # The trip itself.
+        "route": route_out(chosen, depart),
+        "dry_route": route_out(dry, 0.0),
+        # What a peak-depth map would have told you, which is the comparison
+        # that justifies carrying a schedule at all.
+        "static_route": route_out(static, 0.0),
+        "leave_now": now.ok,
+        "deadline_min": None if deadline is None else round(deadline, 0),
+        "deadline_route": route_out(at_deadline, deadline or 0.0),
+        "direct_road_cuts": direct_cuts,
+        # The same question asked of the last possible departure, which is where
+        # the detour actually shows up: by then the quick road is under water.
+        "direct_road_cuts_at_deadline": direct_cuts_at_deadline,
+        "cut_km_now": round(routes.cut_km(g, sched.depths[0], limit), 1),
+        "cut_km_peak": round(routes.cut_km(g, peak_edges, limit), 1),
+        "cut_timeline": cut_timeline,
+        "snapshot_minutes": [round(t, 0) for t in sched.times],
+        # Provenance, in the same shape the other endpoints use.
+        "driver": fx["driver"], "driver_note": fx["note"],
+        "river_q_m3s": fx["q_m3s"], "river_stage_m": fx.get("stage_m"),
+        "storm": {"rain_mm_h": req.rain_mm_h, "storm_hours": req.storm_hours,
+                  "run_hours": req.run_hours},
+        "depth_png": depth_png(peak_np, DEPTH_VMAX),
+        "terrain_png": terrain_png(dom.z),
+        **roads_and_grids(dom, peak_np, box["west"], box["south"],
+                          box["east"], box["north"]),
+        "roads": net,
+        # Says which it was, because "solved in 3 s" and "re-used a solve from
+        # 3 minutes ago" are different claims about the same number.
+        "timing": {"seconds": round(time.time() - t0, 1), "steps": steps,
+                   "solve_reused": reused},
+    }
+    out["brief"] = route_brief.render(route_brief.context_from(out, g))
     CACHE[key] = out
     return {**out, "cached": False}
 

@@ -4275,6 +4275,179 @@ this section addresses the *temporal* question (when to leave, with the network
 degrading under you), which is a genuinely sequential problem and is not
 attempted.
 
+### 5.14 A trip, not a place: origin, destination, and a deadline (2026-10-01)
+
+§5.13 routes out of a town that has already been analysed. The question it does
+not answer is the one a person actually asks: *I am here, I need to get there,
+what do I do.* That needs the domain to be derived from the trip rather than
+chosen in advance, the flood to be carried as a schedule rather than a peak, and
+the answer to come with its reasons attached.
+
+Three of the four PSPE stages do work here, and it is worth being exact about
+which: **Simulate** supplies the schedule, **Plan** solves the time-dependent
+routing, and **Explain** emits a brief scored by `faithfulness.py` against the
+route record. **Perceive is not in this loop** — the depths come from the
+solver, not from an instrument. The portal has an observation layer (§5.7a) and
+the trip does not consult it, so "all four stages" would be a claim about a
+diagram rather than about this answer.
+
+**The domain follows the trip.** `/route` takes two points and builds everything
+else: a box containing both with room to detour (30% of the span, minimum 3 km),
+at whatever resolution keeps the solve interactive — `dx = width / 250`, so a
+20 km trip is solved at 130 m and a trip too long for one domain is refused with
+the arithmetic rather than quietly returned at a resolution where a 2 m flood on
+a road is a rounding error. Lismore to Coraki, 20.2 km apart: a 250 x 251 grid at
+130 m, about 4,120 road segments over 1,346 km of network, **104 s** end to end
+including the terrain fetch, the solve and the OpenStreetMap query. Asking the
+same trip for a truck instead of a car takes **1.0 s**: the flood does not depend
+on the vehicle, so the solve and the network are cached and only the routing
+re-runs. The response says which of the two happened, because "answered in 1 s"
+and "re-used a solve from two minutes ago" are different claims about the same
+number.
+
+"About 4,120" is deliberate. The network is fetched live, and Overpass returned
+4,132 ways over 1,340.5 km on one call and 4,120 over 1,345.8 km on another for
+the identical box, so **network size is not a reproducible quantity here** and
+any km figure derived from it carries that. Comparing cut-length across two
+fetches briefly looked like a monotonicity violation — 359.9 km cut at a 45 cm
+threshold against 359.6 km at 25 cm, which is impossible for one network.
+Within a single fetch it is 362.3 km at 25 cm and 359.9 at 45 cm, monotone as it
+must be. The cache now also keeps a session self-consistent, which is the
+smaller reason for it.
+
+**The flood is a schedule, and that is the whole point.** The solver now emits
+instantaneous depth at 13 times across the run, not just the running peak, and an
+edge is usable for a crossing occupying [a, b] only if it stays under the
+vehicle's depth across that whole window — conservative between snapshots, which
+is the only safe direction to be wrong. Routing is then label-setting on arrival
+time, with waiting permitted; why that qualifier is load-bearing rather than
+incidental is below.
+
+What that buys, on this trip, at a 25 cm car threshold:
+
+| answer | result |
+|---|---|
+| routed against the **peak** field (what §5.13 does) | **no route exists** |
+| routed against the **schedule**, leaving now | 22 min, 24.8 km, **no standing water** |
+| the same trip, leaving at the last possible moment | 25.5 min, 27.7 km, still dry, **a different way round** |
+| last departure that still gets through | **3h30** |
+
+The first row is the finding. A peak-depth map — the output every flood twin
+produces, and what §5.13 routes on — tells this operator there is **no way out of
+Lismore**. There is: for the next three and a half hours. The peak field is the
+union of everything that ever floods, and routing on a union of states that never
+coexist refuses roads that are dry when the driver passes them.
+
+The third row is the other half: leave at the deadline and the route is not the
+same route. It is 3.3 minutes and 2.9 km longer and goes via Wyrallah Road,
+because by then the quick way is under water — **Coraki Road, under 1.0 to 2.9 m
+at the four places the direct line crosses it**. That is what "a route that
+avoids the flooding" means once time is in the model, and it cannot be computed
+from a peak at all. The interface names those four crossings and their depths
+under "Why not the direct road", because "avoids flooding" is a claim and the
+roads it avoided are the evidence for it.
+
+**The flood arriving, in km of network lost** (1,340 km total, car threshold):
+
+| hours in | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| impassable (km) | 0 | 56 | 88 | 125 | 160 | 206 | 267 | 286 | 303 | 320 | 323 | 324 | 323 |
+
+The deadline sits where it does because of this curve. Two resolutions bound how
+sharp it can be: departures are scanned on a 30-minute grid, so "3h30" means the
+last 30-minute slot that works, and the schedule itself is sampled hourly, with
+each interval taking the larger of its two bracketing snapshots. A departure at
+3h30 is therefore judged partly on the 4h state. Both errors point the same way
+— the deadline reported is no later than the true one, by up to about an hour —
+which is the only direction worth being wrong in, and is the reason the
+interval maximum is taken rather than an interpolation.
+
+**Is the route optimal? Only once waiting is allowed, and that took a
+correction.** Label-setting on arrival time is the natural generalisation of
+Dijkstra here, and the first version of this asserted it was optimal because
+travel time per edge does not depend on when you enter it. That argument is
+incomplete: **edge availability is not monotone**, since these runs include the
+recession, so a crossing shut at two hours can be open at six. With holding
+forbidden, arriving somewhere earlier is then not always better — arrive at noon
+and the only open road is the slow one; arrive at four and the fast one has
+drained — and earliest-arrival labelling is a heuristic, not an optimum. Holding
+is therefore permitted, which is both realistic (a driver can wait at a
+junction, and the interface already tells them to wait before setting out) and
+what restores exactness: when waiting is allowed, an earlier arrival dominates a
+later one because the later one can be reproduced by waiting. On a constructed
+two-road case where the fast road drains at two hours and the detour is slower
+than the wait, the two differ by more than a factor of two: **300 minutes
+without holding, 127.5 with**, the latter being the correct answer.
+
+A second correction came out of the same test. The schedule takes the larger of
+the two bracketing snapshots inside an interval, which is the right
+conservatism; it was also applying that maximum *at* a snapshot, where the value
+is known exactly, and so reported a road flooded at the moment the sample says
+it is dry. That pushed one crossing into the next hour and the trip arrived at
+187 minutes where 127.5 is correct. Conservative between samples is right;
+conservative at a sample you have is just wrong. Neither correction moved the
+Lismore-to-Coraki result, which was re-measured after both.
+
+**Explain, held to the module's own standard.** `pspe/explain/route_brief.py`
+emits the brief the interface leads with, and it is *parseable* for the same
+reason the PDE briefs are: `faithfulness.py` exists because a brief that sounds
+like an explanation and quietly disagrees with the plan is worse than no brief.
+`parse` recovers the departure call, duration, distance, named roads, deepest
+water and deadline; `faithfulness` scores them against the route record. Exact
+on all three decision shapes — leave now, leave later, no route — and **exact on
+the payload the service actually shipped for this trip**, which is the check
+that matters: the brief is scored against the record the map was drawn from,
+not against a fixture. The brief for this trip:
+
+> Leave now. Drive 22 minutes, 24.8 km. Via Ballina Road, B60 then Ballina Road.
+> No standing water on this route. Deadline 3h30 from now.
+
+Generated from the same record the line on the map is drawn from, so the words
+and the map cannot disagree about which roads or how deep.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 38 | Stated storm multiple formatted with `:.0f` | the driver note read "2x the forecast peak of 3,000 m3/s" directly beside the 7,500 m3/s it applied — a 2.5x scale printed as 2x, in the one sentence written to let a reader check the forcing | reading the note beside the number it describes | 5.14 |
+
+The note now reads "7,500 m3/s on the west edge, 2.5x the forecast peak of
+3,000 m3/s", which is the multiple that was applied.
+
+**Rule 44: a number stated so a reader can check it has to survive being
+checked.** Provenance text exists to be verified against the value beside it,
+which makes a rounded multiplier in it worse than no multiplier at all: it
+invites the arithmetic and then fails it.
+
+**What is exact here, and what would need a policy.** The routing is a
+time-dependent shortest path and it is solved exactly — there is no learned
+component and inventing one would be inventing a difficulty, as §5.13 already
+argued for the static case. The sequential problem that genuinely needs more
+than DP is the one this does not attempt: the forecast is a *single realisation*,
+so the deadline is conditional on the storm happening as modelled. Under an
+ensemble of forcings the decision becomes "leave now on the short road, or wait
+for the next observation and risk the long one", under a constraint on arriving
+at all — a POMDP whose observation is our own Perceive stage, and where the
+conformal machinery of §5.13 sets the constraint level. The solver batches, so
+an ensemble costs almost nothing to generate; what is missing is the policy and
+its evaluation, and that is the honest next experiment rather than something
+this section claims.
+
+**One robustness fix, prompted by the wait.** Overpass rate-limited during
+this work and a fetch ran past eight minutes. `fetch_roads` raises when every
+mirror fails, which meant a request that had already spent two minutes solving
+the flood returned a 500 with nothing in it. `/route` now catches it and returns
+the solve — the depth field, the terrain, what drove it — with a refusal saying
+that the missing half is the road network and that retrying will not re-run the
+solve. A tool whose two halves fail independently should fail that way in its
+output too.
+
+**Other limits.** A design storm, not a forecast of today. Speeds are free-flow
+by road class with no traffic model, no bridge or closure data, and no
+assumption that a road open to the model is open to the public. Snapshots are 13
+over the run, so passability is resolved to about an hour, and the schedule takes
+the larger of the two bracketing values inside each interval. The box is derived
+from two points, so a trip whose only sensible detour leaves that box cannot be
+found. Checks: `portal/scripts/verify-trip.mjs`.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
@@ -4452,12 +4625,13 @@ they are harder, because the code is correct and the output looks right.
 | 35 | SMBPO's truncated prefix cost rescaled linearly, on a cost that accrues non-linearly | −4.7% bias, 4× the pessimism term: the arm was net optimistic and violated more than baseline | a baseline failure that matched our predicted direction | 9.2a |
 | 36 | A ranked list of solved options whose selection reached nothing but its own radio button | every option's depth field was computed and all but the baseline discarded | **using it** | 5.12a |
 | 37 | Headline reduction read from a surrogate extrapolated at the point the greedy search chose | 111.7% displayed against a solved 99.81%, past the physical maximum, margin unattainable so nothing caught it | solving the recommended plan to answer a question about a road | 5.13 |
+| 38 | Stated storm multiple formatted with `:.0f` | the forcing note read "2x the forecast peak of 3,000 m3/s" beside the 7,500 it applied | reading the note beside the number it describes | 5.14 |
 
 **Defect 25 is the one to remember.** It degrades data continuously rather than
 breaking it, affects only some fires, and leaves every downstream number
 plausible. Nothing short of a conservation check finds it.
 
-### Rules 16–43
+### Rules 16–44
 
 16. A scheme that cannot violate the constrained quantity cannot be used to
     study violating it; verify conservation before trusting a solver.
@@ -4505,6 +4679,10 @@ plausible. Nothing short of a conservation check finds it.
     search chose. A search walks its surrogate past every member of the library
     the surrogate was fitted to, so the recommended point is both the one place
     the fit is an extrapolation and the one place whose answer is displayed.
+44. A number stated so a reader can check it has to survive being checked.
+    Provenance text exists to be verified against the value beside it, so a
+    rounded multiplier in it is worse than none: it invites the arithmetic and
+    then fails it.
 
 ---
 
