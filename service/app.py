@@ -476,10 +476,47 @@ def build_forcing(dom, req) -> dict:
             out["note"] = ("No river discharge is published for this reach, so "
                            "the storm is applied as rainfall instead.")
             return out
-        # The forecast peak is this week's weather, not a design flood. Scaled
-        # by the chosen storm so the question stays "what would a big one do".
+        # A DESIGN flood, grounded in the channel rather than in this week's
+        # weather.
+        #
+        # This used to be `forecast_peak * scale`, and that is multiplicative on
+        # a quantity that is near zero most of the time. Lismore -- one of the
+        # most flood-prone towns in Australia -- returned 0 km2 flooded on a dry
+        # week, because its gauge read 1 m3/s and 2x nothing is nothing. The
+        # archive scene never showed the bug because it carries a real design
+        # event (6,036 m3/s at Cedar Rapids).
+        #
+        # A flood is water the channel cannot hold, so the scale that matters is
+        # BANKFULL discharge: what flows when the channel is full to the top of
+        # its banks. Manning gives it from geometry we already measure --
+        #
+        #     Q_bank = (1/n) * A * R^(2/3) * sqrt(S),  A ~ W*d,  R ~ d
+        #
+        # -- and the storm presets then say how many times bankfull to send
+        # down it, which is how design floods are actually described. The
+        # forecast peak is still used when it is the LARGER of the two, so a
+        # town that really is flooding today is not talked out of it.
+        # Bank level is the FLOODPLAIN, which is low ground. Taking the 60th
+        # percentile of the whole box put it up on the hills, the depth pinned
+        # to its cap, and bankfull came out at 4,863 m3/s for Lismore -- more
+        # than the Wilsons River carried in the 2022 flood of record. A low
+        # percentile tracks the floodplain the channel actually sits in.
+        bank_m = float(np.percentile(z, 20))
+        # Capped at 6 m because a 60 m DEM cannot resolve a channel: the bed
+        # elevation it reports is already smoothed across the valley floor, so
+        # "depth below bank" is an upper bound on a real incision, not a survey.
+        depth_bank = max(0.5, min(6.0, bank_m - inflow.bed_m))
+        width_bank = max(inflow.width_cells * dom.dx, dom.dx)
+        slope_bank = max(abs(
+            (inflow.bed_m - forcing.river_outflow(z).bed_m)
+            if forcing.river_outflow(z) else 1.0
+        ) / max(max(z.shape) * dom.dx, 1.0), 1e-4)
+        q_bankfull = ((1.0 / 0.035) * (width_bank * depth_bank)
+                      * depth_bank ** (2.0 / 3.0) * math.sqrt(slope_bank))
+        # Heavy rain ~ bankfull, severe ~ 2x, extreme ~ 4x. Multiples of
+        # bankfull are the standard way a design flood is stated.
         scale = max(1.0, req.rain_mm_h / 20.0)
-        q_design = q * scale
+        q_design = max(q * scale, q_bankfull * scale)
 
         # Held as a STAGE, not poured in as a volume.
         #
@@ -504,8 +541,13 @@ def build_forcing(dom, req) -> dict:
         out["q_m3s"] = round(q_design, 1)
         out["stage_m"] = round(stage, 2)
         out["note"] = (
-            f"{q_design:,.0f} m3/s on the {inflow.edge} edge, {scale:.0f}x the "
-            f"forecast peak of {q:,.0f} m3/s. Held as a {stage:.1f} m stage over "
+            f"{q_design:,.0f} m3/s on the {inflow.edge} edge, {scale:.0f}x "
+            + (f"the forecast peak of {q:,.0f} m3/s. "
+               if q * scale >= q_bankfull * scale else
+               f"bankfull for this channel (~{q_bankfull:,.0f} m3/s, estimated "
+               f"from DEM geometry, not a gauged rating), since the gauge reads "
+               f"only {q:,.0f} m3/s today. ")
+            + f"Held as a {stage:.1f} m stage over "
             f"a {width_m:,.0f} m channel at a {slope:.4f} bed slope, draining "
             f"to the {outflow.edge if outflow else 'open'} edge. No rain on the box.")
         return out
@@ -545,6 +587,51 @@ def site_masks(dom, sites: list[dict]) -> "torch.Tensor":
     return torch.stack(out) if out else torch.zeros(0, h_, w_)
 
 
+def solve_beds(dom, req, z: "torch.Tensor", fx: dict) -> tuple["torch.Tensor", int]:
+    """Peak depth for a batch of beds, one timestep loop for all of them.
+
+    Extracted so the plan the greedy search RECOMMENDS can be solved as well as
+    the library it was chosen from. That matters for a claim about a road: the
+    route experiment measures the surrogate's error on the deepest water along a
+    route at a median 0.16-0.33 m, which is the size of the decision threshold
+    itself, so a route verdict taken from the surrogate cannot be stated with a
+    useful margin (see `eval/run_route_margin.py` and section 5.13). Solving the
+    one extra bed costs a fraction of the library batch and replaces a predicted
+    answer with a computed one.
+    """
+    rows = z.mean(dim=2).mean(dim=1)
+    slope = max(abs(float((rows[0] - rows[-1]) / (z.shape[1] * dom.dx))), 1e-5)
+    cfg = FloodConfig(dx=dom.dx, open_edges=("south", "north", "east", "west"),
+                      manning=0.035, bed_slope=slope, dt_max=300.0)
+    solver = FloodSolver(z, cfg)
+    b = z.shape[0]
+    h = torch.zeros(b, z.shape[1], z.shape[2])
+    qx, qy = solver.zeros_flux(b)
+    peak = h.clone()
+    src, sea_mask, sea_level = fx["source"], fx["sea_mask"], fx["sea_level"]
+    tt, dur, steps = 0.0, req.run_hours * 3600.0, 0
+    while tt < dur:
+        dt = min(solver.adaptive_dt(h), dur - tt)
+        if dt <= 0:
+            break
+        # Forcing is on for the storm and off afterwards, so the run shows the
+        # recession as well as the peak.
+        on = tt < req.storm_hours * 3600.0
+        r = (src if on else 0.0) if src is not None else 0.0
+        h, qx, qy = solver.step(h, qx, qy, dt, rain=r, z=z)
+        if sea_mask is not None and on:
+            # A boundary stage, held not poured: set depth so the free surface
+            # sits at the given level, and only ever raise it, so the boundary
+            # never drains the land. Used for both a coastal surge and a river
+            # inflow, which differ only in where the level comes from.
+            want = torch.clamp(sea_level - z, min=0.0)
+            h = torch.where(sea_mask.expand_as(h), torch.maximum(h, want), h)
+        peak = torch.maximum(peak, h)
+        tt += dt
+        steps += 1
+    return peak, steps
+
+
 @app.post("/plan")
 def plan_anywhere(req: PlanRequest) -> dict:
     """The whole framework, on terrain that is nowhere in the repository.
@@ -580,37 +667,9 @@ def plan_anywhere(req: PlanRequest) -> dict:
     # One bed per plan; one timestep loop for all of them.
     z = z0[None] + (P[:, :, None, None] * masks[None]).sum(1)
 
-    rows = z.mean(dim=2).mean(dim=1)
-    slope = max(abs(float((rows[0] - rows[-1]) / (z.shape[1] * dom.dx))), 1e-5)
-    cfg = FloodConfig(dx=dom.dx, open_edges=("south", "north", "east", "west"),
-                      manning=0.035, bed_slope=slope, dt_max=300.0)
-    solver = FloodSolver(z, cfg)
-    b = z.shape[0]
-    h = torch.zeros(b, z.shape[1], z.shape[2])
-    qx, qy = solver.zeros_flux(b)
-    peak = h.clone()
     fx = build_forcing(dom, req)
-    src = fx["source"]
-    sea_mask, sea_level = fx["sea_mask"], fx["sea_level"]
-    tt, dur, steps = 0.0, req.run_hours * 3600.0, 0
-    while tt < dur:
-        dt = min(solver.adaptive_dt(h), dur - tt)
-        if dt <= 0:
-            break
-        # Forcing is on for the storm and off afterwards, so the run shows the
-        # recession as well as the peak.
-        on = tt < req.storm_hours * 3600.0
-        r = (src if on else 0.0) if src is not None else 0.0
-        h, qx, qy = solver.step(h, qx, qy, dt, rain=r, z=z)
-        if sea_mask is not None and on:
-            # A boundary stage, held not poured: set depth so the free surface
-            # sits at the given level, and only ever raise it, so the boundary
-            # never drains the land. Used for both a coastal surge and a river
-            # inflow, which differ only in where the level comes from.
-            want = torch.clamp(sea_level - z, min=0.0)
-            h = torch.where(sea_mask.expand_as(h), torch.maximum(h, want), h)
-        peak = torch.maximum(peak, h)
-        tt += dt; steps += 1
+    peak, steps = solve_beds(dom, req, z, fx)
+    b = z.shape[0]
 
     # What the plan is bought to change: depth over the protected area, or the
     # whole domain when nothing is named.
@@ -659,6 +718,17 @@ def plan_anywhere(req: PlanRequest) -> dict:
             "core_reduction_pct": reduction[i],
             "area_flooded_km2": round(float(wet[i]) * cell_km2, 2),
             "peak_depth_m": round(float(peak[i].max()), 2),
+            # The solved field for THIS option, quantised the way `inspect`
+            # quantises the baseline. The solver already computes one field per
+            # plan and we returned only peak[0], so choosing an option in the
+            # portal moved a radio button and nothing else: there was no flood
+            # to draw for it. One array per option serves all three uses the
+            # client has -- the body of water, the paint on the terrain, and the
+            # click-anywhere depth query -- which is why it is the grid and not
+            # a picture.
+            "depth_u8": base64.b64encode(
+                (np.clip(np.nan_to_num(peak[i].numpy()) / DEPTH_VMAX, 0.0, 1.0)
+                 * 255).astype(np.uint8).tobytes()).decode(),
         }
         for i, pl in enumerate(plans)
     ]
@@ -709,10 +779,44 @@ def plan_anywhere(req: PlanRequest) -> dict:
         })
     attribution.sort(key=lambda a: -a["marginal_pct"])
 
+    # The recommended plan, solved rather than predicted. The greedy search
+    # walks the surrogate, so `hv` is almost never one of the library's beds;
+    # the depth claim about it carries a conformal margin, but a claim about a
+    # ROAD cannot (section 5.13: the surrogate's error on the deepest water
+    # along a route is the size of the passability threshold). One more bed
+    # through the same loop makes that answer a solve.
+    chosen_u8 = None
+    chosen_reduction = 0.0
+    if any(h > 0 for h in hv) and not any(list(pl) == list(hv) for pl in plans):
+        z_sel = z0[None] + (torch.tensor([hv], dtype=torch.float32)[:, :, None, None]
+                            * masks[None]).sum(1)
+        peak_sel, _ = solve_beds(dom, req, z_sel, fx)
+        chosen_u8 = base64.b64encode(
+            (np.clip(np.nan_to_num(peak_sel[0].numpy()) / DEPTH_VMAX, 0.0, 1.0)
+             * 255).astype(np.uint8).tobytes()).decode()
+        # What the plan actually does, next to what the surrogate said it would.
+        # The surrogate is an extrapolation at the recommended point -- it is
+        # fitted to the library and the greedy search walks it past every bed in
+        # it -- so it can and does return a reduction above 100%, which is not a
+        # bold claim but an out-of-range number. Measuring it is free once the
+        # bed is solved, and the gap is the honest headline.
+        core_sel = float((peak_sel[0] * sel).sum() / float(sel.sum()))
+        chosen_reduction = ((base - core_sel) / base * 100.0) if base > 1e-9 else 0.0
+
     out = {
         "ok": True,
         "name": req.name,
         "heights": hv,
+        # Present when the recommended plan was solved in its own right, which
+        # is what a route verdict about it has to be read from.
+        "chosen_depth_u8": chosen_u8,
+        "chosen_solved": chosen_u8 is not None,
+        # Solved, not predicted. Where both exist the solved one is the number
+        # to report and the gap is the surrogate's error at the point the search
+        # chose, which is the one point the surrogate was never fitted at.
+        "chosen_reduction_pct": chosen_reduction if chosen_u8 is not None else None,
+        "surrogate_overclaim_pct": (
+            None if chosen_u8 is None else eff - chosen_reduction),
         "cost_aud": cost(hv),
         "budget_aud": req.budget_aud,
         "reduction_pct": eff,

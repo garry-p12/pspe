@@ -1,5 +1,6 @@
 "use client";
 
+import { ForecastCheck } from "./ForecastCheck";
 import { useEffect, useState } from "react";
 
 interface Band { level: "quiet" | "watch" | "act"; headline: string; detail: string }
@@ -20,6 +21,16 @@ interface Forecast {
  * at full height and means nothing until it is set beside the number that
  * matters. */
 const FLOOD_THRESHOLD_MM = 60;
+
+/** Day-to-day spread of the river forecast, as a share of its peak. A rough but
+ *  honest stand-in for "how well do we know what the river will do". */
+function spreadPct(f: { discharge_daily?: { m3s: number }[]; peak_discharge_m3s: number }): number | null {
+  const q = (f.discharge_daily ?? []).map((d) => d.m3s).filter((v) => Number.isFinite(v));
+  if (q.length < 3 || !(f.peak_discharge_m3s > 0)) return null;
+  const mean = q.reduce((a, b) => a + b, 0) / q.length;
+  const sd = Math.sqrt(q.reduce((a, b) => a + (b - mean) ** 2, 0) / (q.length - 1));
+  return Math.min(60, (sd / Math.max(f.peak_discharge_m3s, 1e-6)) * 100);
+}
 
 export function ForecastPanel({ lat, lon, place }: {
   lat?: number; lon?: number; place?: string;
@@ -77,6 +88,16 @@ export function ForecastPanel({ lat, lon, place }: {
           <p className="text-[14px] font-semibold text-ink">{f.band.headline}</p>
         </div>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">{f.band.detail}</p>
+        <ForecastCheck spreadPct={spreadPct(f)} />
+        {/* A calm week is the common case and leaves this panel nearly empty.
+            Point somewhere useful rather than showing a blank. */}
+        {f.band.level === "quiet" && (
+          <p className="mt-3 text-[12px] leading-snug text-ink-faint">
+            Nothing much coming this week. To see how the tool works, open{" "}
+            <span className="text-ink">Plan</span> — it is loaded with the real
+            2022 flood, the worst this valley has had.
+          </p>
+        )}
       </div>
 
       <div className="relative mt-6 mb-1">

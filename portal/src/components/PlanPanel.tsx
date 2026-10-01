@@ -32,6 +32,10 @@ interface Plan {
   band_attainable: boolean;
   band_note: string | null;
   n_calibration_runs: number;
+  confidence_ceiling_pct?: number;
+  runs_needed?: number;
+  runs_have?: number;
+  refusal?: string | null;
   steps: PlanStep[];
   attribution: Attribution[];
   harmful: { site: number; alone_pct: number }[];
@@ -39,13 +43,27 @@ interface Plan {
   method: string;
 }
 
+/** 90 -> "9 times in 10". Percentages mean little to most readers; counts do. */
+function timesIn(pct: number): string {
+  const nice: Record<number, string> = {
+    50: "half the time", 60: "3 times in 5", 70: "7 times in 10",
+    75: "3 times in 4", 80: "4 times in 5", 90: "9 times in 10",
+    95: "19 times in 20", 99: "99 times in 100",
+  };
+  if (nice[pct]) return nice[pct];
+  if (pct >= 99) return "99 times in 100";
+  return `${Math.round(pct)} times in 100`;
+}
+
 export function PlanPanel({
-  budgetM, crestLengths, eventScale, onPlan, trigger = 0, onBusy,
+  budgetM, crestLengths, eventScale, onPlan, onShowHarm, trigger = 0, onBusy,
 }: {
   budgetM: number;
   crestLengths: number[];
   eventScale: number;
   onPlan?: (heights: number[]) => void;
+  /** Show on the map where a rejected wall would push the water instead. */
+  onShowHarm?: (site: number) => void;
   /** Bumped by whoever owns the action button; the panel shows results only. */
   trigger?: number;
   onBusy?: (v: boolean) => void;
@@ -53,8 +71,10 @@ export function PlanPanel({
   const [plan, setPlan] = useState<Plan | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  /** How sure the user has asked to be. Drives the margin, not the plan. */
+  const [certainty, setCertainty] = useState(90);
 
-  async function run() {
+  async function run(conf = certainty) {
     setBusy(true); setErr(null);
     try {
       const r = await fetch("/api/plan", {
@@ -64,6 +84,7 @@ export function PlanPanel({
           budget_aud: budgetM * 1e6,
           event_scale: eventScale,
           crest_lengths_m: crestLengths,
+          confidence_pct: conf,
         }),
       });
       if (!r.ok) throw new Error(`planner returned ${r.status}`);
@@ -84,6 +105,16 @@ export function PlanPanel({
     if (trigger > 0) { onBusy?.(true); run(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trigger]);
+
+  // Moving the certainty slider re-asks for the margin at the new level. The
+  // plan itself does not change -- only what we are willing to stand behind --
+  // so this is debounced and deliberately does not show the busy spinner.
+  useEffect(() => {
+    if (!plan) return;
+    const t = setTimeout(() => run(certainty), 200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [certainty]);
 
   const built = plan?.heights
     .map((h, i) => ({ h, i }))
@@ -122,23 +153,54 @@ export function PlanPanel({
 
               <div className="rounded border border-line-soft bg-bg-raised p-3">
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[12px] text-ink-faint">Estimated</span>
+                  <span className="text-[12px] text-ink-faint">Our best estimate</span>
                   <span className="tnum text-[18px] font-semibold text-ink">
                     {plan.reduction_pct.toFixed(0)}%
                   </span>
                 </div>
                 <div className="mt-1.5 flex items-baseline justify-between">
                   <span className="text-[12px] text-ink-faint">
-                    At least, {plan.confidence_pct ?? 90}% of the time
+                    {plan.band_attainable
+                      ? `What we'll stand behind, ${timesIn(certainty)}`
+                      : "What we'll stand behind"}
                   </span>
                   <span className="tnum text-[18px] font-semibold text-accent">
-                    {plan.guaranteed_pct.toFixed(0)}%
+                    {plan.band_attainable ? `${plan.guaranteed_pct.toFixed(0)}%` : "—"}
                   </span>
                 </div>
+
+                {/* How sure do you need to be? The margin is recomputed at the
+                    level the user picks, because a stated failure rate that the
+                    user cannot state is just a tuned constant. */}
+                <div className="mt-3 border-t border-line-soft pt-3">
+                  <div className="flex items-baseline justify-between">
+                    <label htmlFor="certainty" className="text-[12px] text-ink">
+                      How sure do you need to be?
+                    </label>
+                    <span className="tnum text-[12px] text-ink-faint">
+                      {timesIn(certainty)}
+                    </span>
+                  </div>
+                  <input
+                    id="certainty"
+                    type="range"
+                    min={50}
+                    max={99}
+                    step={1}
+                    value={certainty}
+                    onChange={(e) => setCertainty(Number(e.target.value))}
+                    className="mt-2 w-full"
+                  />
+                  <div className="mt-1 flex justify-between text-[11px] text-ink-faint">
+                    <span>a coin flip</span>
+                    <span>almost always</span>
+                  </div>
+                </div>
+
                 <p className="mt-2 text-[12px] leading-snug text-ink-faint">
                   {plan.band_attainable
-                    ? `Margin ±${plan.band_pct.toFixed(0)} points, from ${plan.n_calibration_runs} held-out solver runs. Write the business case against the lower figure.`
-                    : plan.band_note}
+                    ? `Being more sure costs you: the figure we'll stand behind drops as you raise the bar. It sits ${plan.band_pct.toFixed(0)} points below our estimate here, measured against ${plan.n_calibration_runs} past floods we tested on. Write the business case against the lower number.`
+                    : (plan.refusal ?? plan.band_note)}
                 </p>
               </div>
 
@@ -173,12 +235,36 @@ export function PlanPanel({
               )}
 
               {plan.harmful?.length > 0 && (
-                <p className="text-[12px] leading-snug text-ink-faint">
-                  Not selected:{" "}
-                  {plan.harmful.map((h) => `site ${h.site} (${h.alone_pct.toFixed(0)}%)`).join(", ")}
-                  {" "}— the model measures these as deepening flooding at the
-                  settlement rather than reducing it.
-                </p>
+                <div className="rounded border border-line-soft bg-bg-raised p-3">
+                  <p className="text-[12px] font-medium text-ink">
+                    Some walls would make it worse
+                  </p>
+                  <p className="mt-1 text-[12px] leading-snug text-ink-faint">
+                    A wall does not remove water, it moves it. Build in the wrong
+                    place and the water backs up somewhere that matters more.
+                    These were tested and rejected for that reason:
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {plan.harmful.map((h) => (
+                      <li key={h.site}>
+                        <button
+                          onClick={() => onShowHarm?.(h.site)}
+                          className="flex w-full items-baseline justify-between rounded px-1 py-0.5 text-left hover:bg-bg"
+                        >
+                          <span className="text-[13px] text-ink underline underline-offset-2">
+                            Wall at site {h.site}
+                          </span>
+                          <span className="tnum text-[13px] text-ink">
+                            {h.alone_pct > 0 ? "+" : ""}{(-h.alone_pct).toFixed(0)}% worse
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-[11px] leading-snug text-ink-faint">
+                    Tap one to see on the map where that water would go instead.
+                  </p>
+                </div>
               )}
 
               {plan.verify.required && (

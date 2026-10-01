@@ -5,7 +5,9 @@ import DeckGL from "@deck.gl/react";
 import { WebMercatorViewport } from "@deck.gl/core";
 import type { Layer } from "@deck.gl/core";
 import { TerrainLayer, TileLayer } from "@deck.gl/geo-layers";
-import { BitmapLayer, GeoJsonLayer, ScatterplotLayer } from "@deck.gl/layers";
+import { BitmapLayer, ColumnLayer, GeoJsonLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import type { InspectGrids } from "@/lib/inspect";
+import { leveeWalls, waterColumns } from "@/lib/watermesh";
 import type { Manifest } from "@/lib/types";
 import { ELEVATION_DECODER, frameUrl } from "@/lib/data";
 
@@ -33,7 +35,13 @@ export function PlannerMap({
   analysis,
   observed,
   placed,
+  placedHeights,
+  routes,
+  place,
   focus,
+  grids,
+  heights,
+  solid = true,
 }: {
   manifest: Manifest;
   frame: number;
@@ -55,7 +63,24 @@ export function PlannerMap({
   observed?: { observed_png?: string; bounds?: number[] } | null;
   /** Levees the user has dropped on an ad-hoc analysis. */
   placed?: { lat: number; lon: number }[];
+  /** Height built at each placed site in the option being drawn, so a site
+   *  that is part of the chosen plan does not look like one that is not. */
+  placedHeights?: number[] | null;
+  /** The way out, and the way out that survives being wrong about the depth. */
+  routes?: {
+    quickest: { coords: [number, number][]; minutes: number } | null;
+    robust: { coords: [number, number][]; minutes: number } | null;
+    dest: { lat: number; lon: number } | null;
+  } | null;
+  /** The town the user searched for, marked like the archive settlement. */
+  place?: { lat: number; lon: number; name: string } | null;
   focus: "region" | "town";
+  /** Depth and ground grids, for drawing the flood as a body of water. */
+  grids?: InspectGrids | null;
+  /** Chosen levee heights, drawn as walls of that height. */
+  heights?: number[] | null;
+  /** False falls back to the flat painted flood. */
+  solid?: boolean;
 }) {
   const b = manifest.bounds;
   const ext = manifest.frame_ext ?? "png";
@@ -101,6 +126,16 @@ export function PlannerMap({
   }, [b, size, focus, settle, ab]);
 
   const cutKey = cutFraction ? `${cutFraction.size}:${cutSignature}` : "none";
+  // Primitive keys for the array props, for the same reason cutKey exists: the
+  // layer memo has to rebuild when a height vector or a depth field changes,
+  // and `heights` arrives with a fresh identity on every render, so depending
+  // on the array itself would rebuild every layer continuously.
+  const heightKey = heights?.join(",") ?? "none";
+  const placedKey = placedHeights?.join(",") ?? "none";
+  const routeKey = routes
+    ? `${routes.quickest?.minutes ?? -1}:${routes.robust?.minutes ?? -1}:` +
+      `${routes.quickest?.coords.length ?? 0}:${routes.dest?.lat ?? 0}`
+    : "none";
 
   const layers = useMemo(() => {
     const out: Layer[] = [];
@@ -216,6 +251,65 @@ export function PlannerMap({
       );
     }
 
+    // ---- the flood as a body of water, and the levees as walls ----------
+    // Drawn wherever the depth and ground grids are available. The ad-hoc
+    // analysis ships them too (service returns `inspect` alongside the PNGs),
+    // so a town the user searched for gets the same body of water as the
+    // archive scene rather than a flat painted one.
+    if (solid && grids) {
+      const wb = analysis ? analysis.bounds : b;
+      const { cells, cellSizeM } = waterColumns(grids, wb, { step: 3, minDepth: 0.15 });
+      out.push(
+        new ColumnLayer({
+          id: "water-body",
+          data: cells,
+          diskResolution: 4,
+          // A diskResolution-4 column is a SQUARE inscribed in `radius`, so its
+          // side is radius*sqrt(2). Tiling cells of `cellSizeM` therefore needs
+          // radius = cellSizeM/sqrt(2) ~ 0.707, and `angle` to turn the square
+          // off its default 45 deg so edges meet the grid. At 0.62 the squares
+          // left gaps and the flood rendered as a halftone screen.
+          radius: cellSizeM * 0.73,
+          angle: 45,
+          extruded: true,
+          pickable: false,
+          getPosition: (d: { position: [number, number] }) => d.position,
+          // Stand the column on the ground and give it the water's own height.
+          getElevation: (d: { depth: number }) => d.depth,
+          elevationScale: 5,          // matches the terrain's exaggeration
+          // Shallow water reads lighter; deep water darker and more opaque, so
+          // depth is legible without a legend.
+          getFillColor: (d: { depth: number }) => {
+            const t = Math.min(1, d.depth / 6);
+            return [38 + 20 * (1 - t), 110 + 70 * (1 - t), 190 + 40 * (1 - t), 150 + 80 * t];
+          },
+          material: { ambient: 0.4, diffuse: 0.7, shininess: 120,
+                      specularColor: [160, 190, 220] },
+          updateTriggers: { getFillColor: [frame], getElevation: [frame] },
+        }) as unknown as Layer,
+      );
+    }
+
+    if (solid && heights?.some((h) => h > 0) && manifest.levee_geometry?.sites) {
+      const walls = leveeWalls(manifest.levee_geometry.sites, heights, {});
+      out.push(
+        new PolygonLayer({
+          id: "levee-walls",
+          data: walls,
+          extruded: true,
+          pickable: false,
+          getPolygon: (d: { polygon: [number, number][] }) => d.polygon,
+          getElevation: (d: { height: number }) => d.height,
+          elevationScale: 5,
+          getFillColor: [238, 238, 232, 255],
+          getLineColor: [40, 40, 40, 255],
+          material: { ambient: 0.6, diffuse: 0.5, shininess: 10,
+                      specularColor: [60, 60, 60] },
+          updateTriggers: { getElevation: [heights.join(",")] },
+        }) as unknown as Layer,
+      );
+    }
+
     if (pin) {
       out.push(
         new ScatterplotLayer({
@@ -233,19 +327,158 @@ export function PlannerMap({
         }) as unknown as Layer,
       );
     }
+    // Sites the user placed on a town they chose. Numbered for the same reason
+    // the archive sites are: the panel refers to them by number, and an
+    // unlabelled dot cannot be matched to a row.
     if (placed?.length) {
+      // Which of them the drawn option actually builds. Without this the dots
+      // look identical whatever is selected, so the map gave no sign that a
+      // choice had been made -- only the water changed, and on flat ground it
+      // can change very little.
+      const built = (i: number) => (placedHeights?.[i] ?? 0) > 0;
+      const rows = placed.map((d, i) => ({ ...d, n: i, h: placedHeights?.[i] ?? 0 }));
+      const builtKey = placedHeights ? placedHeights.join(",") : "none";
       out.push(
         new ScatterplotLayer({
           id: "placed-levees",
-          data: placed,
+          data: rows,
           radiusUnits: "pixels",
           getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
-          getRadius: 9,
-          getFillColor: [56, 189, 248, 235],
+          getRadius: (d: { n: number }) => (built(d.n) ? 17 : 13),
+          // Built reads as a solid wall colour; a site left out of this option
+          // recedes to an outline, still numbered so the rows still match.
+          getFillColor: (d: { n: number }) =>
+            built(d.n) ? [250, 204, 21, 245] : [56, 189, 248, 150],
           stroked: true,
-          getLineColor: [255, 255, 255, 220],
+          getLineColor: (d: { n: number }) =>
+            built(d.n) ? [24, 24, 27, 235] : [255, 255, 255, 200],
           getLineWidth: 2,
           lineWidthUnits: "pixels",
+          updateTriggers: {
+            getFillColor: builtKey, getLineColor: builtKey, getRadius: builtKey,
+          },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new TextLayer({
+          id: "placed-levee-labels",
+          data: rows,
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getText: (d: { n: number; h: number }) =>
+            d.h > 0 ? `${d.n} · ${d.h.toFixed(1)}m` : String(d.n),
+          getColor: (d: { n: number }) =>
+            built(d.n) ? [24, 24, 27, 255] : [255, 255, 255, 255],
+          updateTriggers: { getText: builtKey, getColor: builtKey },
+          getSize: 14,
+          fontWeight: 700,
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "center",
+          outlineWidth: 2,
+          outlineColor: [10, 14, 20, 200],
+          fontSettings: { sdf: true },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+
+    // ---- the way out ---------------------------------------------------
+    // Drawn over the water on purpose. A route is an instruction, and an
+    // instruction that disappears under the thing it is routing around is not
+    // one. The robust route sits underneath as a wider, paler line, so where
+    // the two coincide it reads as one road with a halo and where they diverge
+    // the detour is obvious without a legend.
+    if (routes?.robust?.coords?.length &&
+        routes.robust.minutes !== routes.quickest?.minutes) {
+      out.push(
+        new PathLayer({
+          id: "route-robust",
+          data: [{ path: routes.robust.coords }],
+          getPath: (d: { path: [number, number][] }) => d.path,
+          getColor: [250, 204, 21, 210],
+          getWidth: 9,
+          widthUnits: "pixels",
+          capRounded: true,
+          jointRounded: true,
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+    if (routes?.quickest?.coords?.length) {
+      out.push(
+        new PathLayer({
+          id: "route-quickest",
+          data: [{ path: routes.quickest.coords }],
+          getPath: (d: { path: [number, number][] }) => d.path,
+          getColor: [34, 197, 94, 245],
+          getWidth: 5,
+          widthUnits: "pixels",
+          capRounded: true,
+          jointRounded: true,
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+    if (routes?.dest) {
+      out.push(
+        new ScatterplotLayer({
+          id: "route-dest",
+          data: [routes.dest],
+          radiusUnits: "pixels",
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getRadius: 7,
+          getFillColor: [34, 197, 94, 255],
+          stroked: true,
+          getLineColor: [255, 255, 255, 240],
+          getLineWidth: 2,
+          lineWidthUnits: "pixels",
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new TextLayer({
+          id: "route-dest-label",
+          data: [routes.dest],
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getText: () => "out",
+          getSize: 12,
+          getColor: [255, 255, 255, 255],
+          fontWeight: 700,
+          getTextAnchor: "start",
+          getPixelOffset: [11, 0],
+          outlineWidth: 2,
+          outlineColor: [10, 14, 20, 220],
+          fontSettings: { sdf: true },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+
+    // The place the user searched for, marked the same way the archive town is.
+    if (place) {
+      out.push(
+        new ScatterplotLayer({
+          id: "place-ring",
+          data: [place],
+          radiusUnits: "pixels",
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getRadius: 26,
+          filled: false,
+          stroked: true,
+          getLineColor: [255, 255, 255, 220],
+          getLineWidth: 2.5,
+          lineWidthUnits: "pixels",
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new TextLayer({
+          id: "place-label",
+          data: [place],
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getText: (d: { name: string }) => d.name,
+          getSize: 13,
+          getColor: [255, 255, 255, 245],
+          fontWeight: 700,
+          getPixelOffset: [0, -36],
+          getTextAnchor: "middle",
+          outlineWidth: 3,
+          outlineColor: [10, 14, 20, 220],
+          fontSettings: { sdf: true },
           parameters: { depthCompare: "always" as const },
         }) as unknown as Layer,
       );
@@ -258,7 +491,7 @@ export function PlannerMap({
           pickable: true,
           radiusUnits: "pixels",
           getPosition: (d) => [d.lon, d.lat],
-          getRadius: (d) => (d.selected ? 15 : 11),
+          getRadius: (d) => (d.selected ? 20 : 16),
           getFillColor: (d) =>
             d.selected
               ? d.worsens
@@ -274,10 +507,65 @@ export function PlannerMap({
           parameters: { depthCompare: "always" as const },
         }) as unknown as Layer,
       );
+    const settle = analysis ? null : manifest.levee_geometry?.settlement;
+    if (settle) {
+      out.push(
+        new ScatterplotLayer({
+          id: "settlement-ring",
+          data: [settle],
+          radiusUnits: "pixels",
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getRadius: 26,
+          filled: false,
+          stroked: true,
+          getLineColor: [255, 255, 255, 220],
+          getLineWidth: 2.5,
+          lineWidthUnits: "pixels",
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new TextLayer({
+          id: "settlement-label",
+          data: [settle],
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getText: () => "the town",
+          getSize: 13,
+          getColor: [255, 255, 255, 245],
+          fontWeight: 700,
+          getPixelOffset: [0, -36],
+          getTextAnchor: "middle",
+          outlineWidth: 3,
+          outlineColor: [10, 14, 20, 220],
+          fontSettings: { sdf: true },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+
+      out.push(
+        new TextLayer<MeasureMarker>({
+          id: "measure-labels",
+          data: markers,
+          pickable: false,
+          getPosition: (d) => [d.lon, d.lat],
+          getText: (d) => String(d.id),
+          getSize: 15,
+          outlineWidth: 2,
+          outlineColor: [10, 14, 20, 200],
+          fontSettings: { sdf: true },
+          getColor: (d) => (d.selected ? [255, 255, 255, 255] : [255, 255, 255, 225]),
+          fontWeight: 700,
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "center",
+          parameters: { depthCompare: "always" as const },
+          updateTriggers: { getColor: markers },
+        }) as unknown as Layer,
+      );
     }
     return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [b, frame, ext, roads, markers, onMarker, pin, cutFraction, cutKey,
-      observed, analysis, placed]);
+      observed, analysis, placed, place, settle, solid, grids,
+      heightKey, placedKey, routeKey]);
 
   if (!size) return <div ref={host} className="h-full w-full bg-bg-inset" />;
 

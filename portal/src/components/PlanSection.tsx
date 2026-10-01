@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { eventLabel, km, type OpsPayload } from "@/lib/ops";
+import { BudgetTrace } from "./BudgetTrace";
 import { OptionList } from "./OptionList";
 
 /**
@@ -121,6 +122,12 @@ export function PlanSection({
               <span className="text-[13px] text-ink-mute">Do nothing</span>
             </div>
 
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">
+              This is what the 2022 flood did here, and what it would do again if
+              nothing is built. Your job is to decide what to build with the money
+              you have.
+            </p>
+
             <div className="mt-2.5 flex gap-7">
               <div>
                 <p className="tnum text-[26px] font-semibold leading-none text-ink">
@@ -175,7 +182,9 @@ export function PlanSection({
         {/* ---- budget ---------------------------------------------------- */}
         <div className="mt-5">
           <div className="flex items-baseline justify-between">
-            <label htmlFor="budget" className="eyebrow">Budget</label>
+            <label htmlFor="budget" className="eyebrow">
+              Step 1 — how much you can spend
+            </label>
             <span className="tnum text-[15px] font-semibold text-ink">A${budgetM}M</span>
           </div>
           <input
@@ -184,7 +193,14 @@ export function PlanSection({
             onChange={(e) => onBudget(Number(e.target.value))}
             className="mt-2 w-full accent-[var(--ink)]"
           />
+          <BudgetTrace options={measures} budgetM={budgetM} />
         </div>
+
+        <p className="mt-3 text-[12px] leading-snug text-ink-faint">
+          Each row is a wall you could build. The number on the right is how much
+          less land floods if you build it — bigger is better, and a red one makes
+          things worse. The numbers match the markers on the map.
+        </p>
 
         <OptionList
           options={measures}
@@ -219,7 +235,7 @@ export function PlanSection({
           className="w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium
                      text-bg transition-opacity hover:opacity-90 disabled:opacity-50"
         >
-          {planning ? "Searching…" : `Find the best plan for A$${budgetM}M`}
+          {planning ? "Working out the best combination…" : `Step 3 — find the best plan for A$${budgetM}M`}
         </button>
       </div>
     </div>

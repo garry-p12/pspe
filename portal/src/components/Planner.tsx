@@ -9,6 +9,7 @@ import { AnywherePanel, type AnalysisResult, type PlacedLevee } from "./Anywhere
 import { PlanPanel } from "./PlanPanel";
 import { PlanSection } from "./PlanSection";
 import { ObservePanel, type Observation } from "./ObservePanel";
+import { RoutePanel } from "./RoutePanel";
 import type { RoadQuery } from "@/lib/roadquery";
 import { loadManifest } from "@/lib/data";
 import type { Manifest } from "@/lib/types";
@@ -45,6 +46,25 @@ export function Planner() {
   const [chosen, setChosen] = useState<string>("base");
   const [focus, setFocus] = useState<"region" | "town">("region");
   const [grids, setGrids] = useState<InspectGrids | null>(null);
+  /** Water drawn as a body, or painted flat over the terrain. */
+  const [solid, setSolid] = useState(true);
+  const [place, setPlace] = useState<{ lat: number; lon: number; name: string } | null>(null);
+  const [adHocGrids, setAdHocGrids] = useState<InspectGrids | null>(null);
+  /** Heights of the option being drawn for an arbitrary place, per placed site. */
+  const [adHocHeights, setAdHocHeights] = useState<number[] | null>(null);
+  /** The way out and, where the margin allows one, the way out that survives
+   *  the depth being underestimated. Drawn on the map. */
+  /** What the vehicle being routed can drive through, metres, for the district
+   *  view. The Anywhere view keeps its own, because the two are looking at
+   *  different places and a threshold carried across would be answering about
+   *  the wrong one. */
+  const [vehicle, setVehicle] = useState(0.25);
+  const [routeLines, setRouteLines] = useState<{
+    forTab: "district" | "anywhere";
+    quickest: { coords: [number, number][]; minutes: number } | null;
+    robust: { coords: [number, number][]; minutes: number } | null;
+    dest: { lat: number; lon: number } | null;
+  } | null>(null);
   const [point, setPoint] = useState<PointInfo | null>(null);
   const [custom, setCustom] = useState<number[]>([]);
   const [mode, setMode] = useState<"options" | "build">("options");
@@ -61,6 +81,29 @@ export function Planner() {
   // actually arrives with -- what is coming, what does it cut, what do we
   // build -- and only one is ever open.
   const [section, setSection] = useState<"forecast" | "roads" | "plan">("forecast");
+
+  useEffect(() => {
+    if (section === "plan") setFocus("town");
+    else if (section === "forecast") setFocus("region");
+  }, [section]);
+
+  // Put the view in the address bar so a plan can be sent to someone. Read once
+  // on mount, written on change. Deliberately only the few things that identify
+  // what you are looking at -- not every transient bit of panel state.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const b = Number(q.get("budget"));
+    if (Number.isFinite(b) && b >= 2 && b <= 60) setBudget(b);
+    const sec = q.get("view");
+    if (sec === "forecast" || sec === "roads" || sec === "plan") setSection(sec);
+  }, []);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    q.set("budget", String(budget));
+    q.set("view", section);
+    window.history.replaceState(null, "", `?${q.toString()}`);
+  }, [budget, section]);
   const [planTrigger, setPlanTrigger] = useState(0);
   const [planning, setPlanning] = useState(false);
   const { setRegion } = useRegion();
@@ -209,6 +252,11 @@ export function Planner() {
             onLevees={setPlaced}
             placing={placing}
             onPlacing={setPlacing}
+            onPlace={setPlace}
+            onGrids={setAdHocGrids}
+            onHeights={setAdHocHeights}
+            onRoutes={(r) => setRouteLines(
+              r ? { ...(r as object), forTab: "anywhere" } as typeof routeLines : null)}
           />
         )}
 
@@ -247,6 +295,13 @@ export function Planner() {
               eventScale={scale}
               crestLengths={(ops.sites ?? []).map((s) => s.crest_length_m)}
               onPlan={(h) => { setMode("build"); setCustom(h); }}
+              onShowHarm={(site) => {
+                // Put ONLY the rejected wall on the map. The depth layer then
+                // shows where that water ends up instead of at the settlement,
+                // which is the thing the number cannot convey.
+                const h = (ops.sites ?? []).map((_, i) => (i === site ? 3.0 : 0));
+                setMode("build"); setCustom(h);
+              }}
               trigger={planTrigger}
               onBusy={setPlanning}
             />
@@ -296,6 +351,32 @@ export function Planner() {
               see how deep the water got there in 2022, or click a marker to
               assess a mitigation measure.
             </p>
+          </div>
+        )}
+
+        {/* Can people get out. No margin here: the district's options come
+            from a precomputed library and the field drawn is the reference
+            solution, so the honest answer is the route under that field and
+            what the flood costs in minutes -- not a guarantee about a plan
+            this tab cannot solve on demand (see section 5.13). */}
+        {tab === "district" && section === "plan" && manifest && (
+          <div className="border-b border-line-soft px-1 pb-2">
+            <RoutePanel
+              roads={roads}
+              grids={grids}
+              bounds={manifest.bounds}
+              from={manifest.levee_geometry?.settlement
+                ? { lat: manifest.levee_geometry.settlement.lat,
+                    lon: manifest.levee_geometry.settlement.lon,
+                    name: "the settlement" }
+                : null}
+              to={null}
+              vehicle={vehicle}
+              onVehicle={setVehicle}
+              plan={null}
+              onRoutes={(r) => setRouteLines(
+                r ? { ...(r as object), forTab: "district" } as typeof routeLines : null)}
+            />
           </div>
         )}
 
@@ -404,16 +485,22 @@ export function Planner() {
             manifest={manifest}
             frame={frame}
             roads={tab === "district" ? roads : adHocRoads}
-            markers={markers}
+            markers={tab === "district" ? markers : []}
             onMarker={onMarker}
             onPick={onPick}
             pin={point ? { lon: point.lon, lat: point.lat } : null}
             cutFraction={roadQ?.cutFraction ?? null}
             cutSignature={roadQ ? `${roadQ.threshold}:${roadQ.cutKm.toFixed(2)}` : "none"}
             placed={tab === "anywhere" ? placed : []}
+            placedHeights={tab === "anywhere" ? adHocHeights : null}
+            routes={routeLines?.forTab === tab ? routeLines : null}
+            place={tab === "anywhere" ? place : null}
             observed={observed}
               analysis={analysis}
             focus={focus}
+            grids={tab === "anywhere" ? adHocGrids : grids}
+            heights={mode === "build" ? custom : (current?.heights ?? [])}
+            solid={solid}
           />
         ) : (
           <div className="h-full w-full animate-pulse bg-bg-inset" />
@@ -434,6 +521,22 @@ export function Planner() {
               {f === "region" ? "Whole valley" : "Town"}
             </button>
           ))}
+          {/* The solid flood hides the ground under it, which some people want
+              to see. Plain wording: this is about what the water looks like,
+              not about rendering. */}
+          <button
+            onClick={() => setSolid((v) => !v)}
+            title={solid
+              ? "Show the ground under the water instead"
+              : "Show the water as a body, with its real depth"}
+            className={`rounded-md border px-2.5 py-1 text-[12px] backdrop-blur transition-colors ${
+              solid
+                ? "border-ink bg-ink text-bg font-medium"
+                : "border-ink-faint/40 bg-bg/80 text-ink hover:bg-bg"
+            }`}
+          >
+            Water depth
+          </button>
         </div>
       </div>
     </div>

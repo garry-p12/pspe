@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { bandAt, maxConfidencePct, runsNeeded, type CalibrationPoint } from "@/lib/margin";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -28,6 +29,7 @@ interface Fit {
   band_km: number;
   max_height_m: number;
   n_calibration_runs: number;
+  calibration?: CalibrationPoint[];
   delta?: number;
   band_attainable?: boolean;
   band_note?: string;
@@ -69,6 +71,8 @@ export async function POST(req: Request) {
     crest_lengths_m?: number[];
     step_m?: number;
     max_height_m?: number;
+    /** How sure the user asked to be, 50-99. Drives the margin, not the plan. */
+    confidence_pct?: number;
   };
 
   let data;
@@ -171,9 +175,21 @@ export async function POST(req: Request) {
     .sort((x, y) => x.alone_pct - y.alone_pct);
   // The margin bounds the surrogate's interaction error. A single measure is a
   // direct solver result and carries none.
-  const attainable = fit.band_attainable !== false;
-  const band = active > 1 && attainable ? fit.band_km : 0;
-  const conf = fit.delta ? Math.round(100 * (1 - fit.delta)) : null;
+  // The band is recomputed at whatever confidence was asked for, rather than
+  // served from the one level it happened to be calibrated at. Asking for more
+  // confidence than 30 held-out runs can carry returns a refusal, not a number.
+  const askedConf = typeof body.confidence_pct === "number"
+    ? Math.min(99.9, Math.max(50, body.confidence_pct))
+    : fit.delta ? 100 * (1 - fit.delta) : 90;
+  const cal = fit.calibration ?? [];
+  const recomputed = cal.length
+    ? bandAt(cal, fit.saturation_S || 100, askedConf)
+    : { band: fit.band_km, attainable: fit.band_attainable !== false,
+        needed: runsNeeded(askedConf), have: fit.n_calibration_runs };
+  const attainable = (fit.band_attainable !== false) && recomputed.attainable;
+  const band = active > 1 && attainable ? recomputed.band : 0;
+  const conf = Math.round(askedConf * 10) / 10;
+  const ceiling = Math.floor(maxConfidencePct(recomputed.have) * 10) / 10;
 
   return NextResponse.json({
     event_scale: body.event_scale ?? 1,
@@ -190,6 +206,12 @@ export async function POST(req: Request) {
     band_attainable: attainable,
     band_note: fit.band_note ?? null,
     n_calibration_runs: fit.n_calibration_runs,
+    // Everything the UI needs to explain a refusal without jargon.
+    confidence_ceiling_pct: ceiling,
+    runs_needed: recomputed.needed,
+    runs_have: recomputed.have,
+    refusal: attainable ? null
+      : `To promise this ${conf}% of the time we would need about ${recomputed.needed} test floods to check against. We have ${recomputed.have}. Lower the certainty, or run more tests.`,
     steps: trace,
     attribution,
     harmful,

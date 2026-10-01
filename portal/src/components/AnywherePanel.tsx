@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatChange, MATERIAL_PCT, OptionList, type OptionRow } from "./OptionList";
+import { describe, formatChange, MATERIAL_PCT, OptionList, type OptionRow } from "./OptionList";
 import { ForecastPanel } from "./ForecastPanel";
+import { RoutePanel } from "./RoutePanel";
 import { ObservePanel } from "./ObservePanel";
 import { RoadQueryPanel } from "./RoadQueryPanel";
 import type { InspectGrids } from "@/lib/inspect";
+import { depthTexture, withDepth } from "@/lib/depthtex";
 import type { RoadQuery } from "@/lib/roadquery";
 
 export interface AnalysisResult {
@@ -41,6 +43,25 @@ export interface AnalysisResult {
 
 interface Place { name: string; short: string; lat: number; lon: number; kind: string }
 
+/** Area, at a precision that does not round a flood away. */
+function km2(v: number): string {
+  return v >= 10 ? v.toFixed(0) : v.toFixed(1);
+}
+
+/** The service's quantised grids, as typed arrays. */
+function decode(ins?: {
+  meta: InspectGrids["meta"]; depth_u8: string; elev_u16: string;
+} | null): InspectGrids | null {
+  if (!ins) return null;
+  const bytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const e = bytes(ins.elev_u16);
+  return {
+    meta: ins.meta,
+    depth: bytes(ins.depth_u8),
+    elev: new Uint16Array(e.buffer, e.byteOffset, e.byteLength / 2),
+  };
+}
+
 /** Storms a planner would actually test against, not abstract return periods. */
 const STORMS = [
   { mm_h: 20, hours: 6, label: "Heavy rain", note: "120 mm — a wet day" },
@@ -50,12 +71,28 @@ const STORMS = [
 
 export interface PlacedLevee { lat: number; lon: number; height_m: number; width_m: number }
 
+/** One solved option: its ranking numbers, and the field behind them. */
+export interface AnywhereOption extends OptionRow {
+  area_flooded_km2: number;
+  peak_depth_m: number;
+  /** The option's own depth grid, quantised like the baseline's. */
+  depth_u8?: string;
+}
+
 /** A plan built for a place that has no precomputed anything. */
 export interface AnywherePlan {
   ok: boolean;
   reason?: string;
   heights: number[];
-  options: OptionRow[];
+  options: AnywhereOption[];
+  /** Ground and baseline depth for the planning grid, which is coarser than
+   *  the single solve's. An option's depth is read against this. */
+  inspect?: {
+    meta: { grid: [number, number]; depth_vmax_m: number;
+            elev_min_m: number; elev_max_m: number };
+    depth_u8: string;
+    elev_u16: string;
+  } | null;
   base_area_km2: number;
   base_peak_depth_m: number;
   cost_aud: number;
@@ -65,6 +102,16 @@ export interface AnywherePlan {
   guaranteed_pct: number;
   confidence_pct: number;
   band_note: string;
+  /** The fitted saturation and the height cap, so a route's own margin can be
+   *  calibrated client-side against the same surrogate the depth claim uses. */
+  saturation_S: number;
+  max_height_m: number;
+  /** The recommended plan, solved in its own right. Present whenever the
+   *  greedy search landed somewhere the library did not already cover. */
+  chosen_solved?: boolean;
+  chosen_reduction_pct?: number | null;
+  surrogate_overclaim_pct?: number | null;
+  chosen_depth_u8?: string | null;
   scenarios_solved: number;
   timing: { seconds: number };
   attribution: { site: number; height_m: number; marginal_pct: number; alone_pct: number }[];
@@ -78,6 +125,10 @@ export function AnywherePanel({
   onLevees,
   placing,
   onPlacing,
+  onPlace,
+  onGrids,
+  onHeights,
+  onRoutes,
   section,
   onRoadQuery,
   onRoads,
@@ -96,6 +147,16 @@ export function AnywherePanel({
   onLevees: (l: PlacedLevee[]) => void;
   placing: boolean;
   onPlacing: (v: boolean) => void;
+  /** The town the user settled on, so the map can mark it. */
+  onPlace?: (p: { lat: number; lon: number; name: string } | null) => void;
+  /** Depth + ground grids for the analysed box, so the map can draw the flood
+   *  as a body of water here too rather than only on the archive scene. */
+  onGrids?: (g: InspectGrids | null) => void;
+  /** Heights, per placed site, of whatever is currently drawn, so the map can
+   *  show which sites are built in it and how high. */
+  onHeights?: (h: number[] | null) => void;
+  /** The way out, so the map can draw it. */
+  onRoutes?: (r: unknown) => void;
 }) {
   const [q, setQ] = useState("");
   const [places, setPlaces] = useState<Place[]>([]);
@@ -107,6 +168,8 @@ export function AnywherePanel({
   const [budgetM, setBudgetM] = useState(20);
   const [driver, setDriver] = useState<"rain" | "river" | "coastal">("river");
   const [planChosen, setPlanChosen] = useState<string>("");
+  /** What the vehicle being routed can drive through, metres. */
+  const [vehicle, setVehicle] = useState(0.25);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [res, setRes] = useState<AnalysisResult | null>(null);
@@ -143,21 +206,63 @@ export function AnywherePanel({
   // that is fetched once and never rebuilt.
   const box = useMemo(() => (chosen ? boundsFor(chosen) : null), [chosen]);
 
+  useEffect(() => {
+    onPlace?.(chosen ? { lat: chosen.lat, lon: chosen.lon, name: chosen.short } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosen]);
+
   /** The service sends depth and ground as the same quantised grids the
    *  district ships as files, so the point query and the road scoring are one
    *  piece of code rather than two that drift. */
-  const grids = useMemo<InspectGrids | null>(() => {
-    const ins = res?.inspect;
-    if (!ins) return null;
-    const bytes = (b64: string) =>
-      Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const e = bytes(ins.elev_u16);
-    return {
-      meta: ins.meta,
-      depth: bytes(ins.depth_u8),
-      elev: new Uint16Array(e.buffer, e.byteOffset, e.byteLength / 2),
-    };
-  }, [res]);
+  const grids = useMemo<InspectGrids | null>(() => decode(res?.inspect), [res]);
+
+  /** The same, for the planning grid, which is coarser than the single solve's
+   *  and is the grid every option was solved on. */
+  const planGrids = useMemo<InspectGrids | null>(
+    () => (plan?.ok ? decode(plan.inspect) : null), [plan]);
+
+  const chosenOption = useMemo(
+    () => (plan?.ok ? plan.options.find((o) => o.id === planChosen) ?? null : null),
+    [plan, planChosen]);
+
+  /** The option the user picked, as a field.
+   *
+   *  Choosing an option used to move a radio button and nothing else, which
+   *  made the ranking look decorative -- the whole point of a list of options
+   *  is to see what each one does to the water. The solver had already run
+   *  every one of them; only the field was being thrown away. */
+  const shown = useMemo<InspectGrids | null>(() => {
+    if (!planGrids || !chosenOption?.depth_u8) return null;
+    return withDepth(planGrids, chosenOption.depth_u8);
+  }, [planGrids, chosenOption]);
+
+  /** One option's field, for scoring a route against the solved library. */
+  const planGridFor = useCallback((i: number) => {
+    const u8 = plan?.options?.[i]?.depth_u8;
+    return planGrids && u8 ? withDepth(planGrids, u8) : null;
+  }, [plan, planGrids]);
+
+  /** Dry ground once this option is built, as paint for the terrain. */
+  const shownPng = useMemo(() => (shown ? depthTexture(shown) : null), [shown]);
+
+  useEffect(() => {
+    onGrids?.(shown ?? grids);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, grids]);
+
+  useEffect(() => {
+    onHeights?.(chosenOption ? chosenOption.heights : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenOption]);
+
+  /** One owner for what the map draws. The solve sets `res`; a chosen option
+   *  overrides the field on it, leaving its bounds and terrain alone, so the
+   *  comparison is the same ground with different water. */
+  useEffect(() => {
+    if (!res) { onResult(null); return; }
+    onResult(shown && shownPng ? { ...res, depth_png: shownPng } : res);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [res, shown, shownPng]);
 
   /** Roads are fetched when the roads view is opened, not with the solve:
    *  Overpass is slow and unreliable, and it has no business delaying a flood
@@ -168,7 +273,7 @@ export function AnywherePanel({
   const roadsFor = useRef<string>("");
 
   useEffect(() => {
-    if (section !== "roads" || !box) return;
+    if ((section !== "roads" && section !== "plan") || !box) return;
     const b = box;
     const key = `${b.west.toFixed(4)},${b.south.toFixed(4)}`;
     if (roadsFor.current === key) return;
@@ -190,7 +295,7 @@ export function AnywherePanel({
   }, [section, box, onRoads]);
 
   const planHere = useCallback(async (p: Place, lv: PlacedLevee[]) => {
-    setPlanning(true); setPlanErr(null); setPlan(null);
+    setPlanning(true); setPlanErr(null); setPlan(null); setPlanChosen("");
     try {
       // Same box as the single solve, coarser: every candidate option is solved
       // in one batch, so the grid buys the option count back.
@@ -244,16 +349,16 @@ export function AnywherePanel({
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail ?? d.error ?? `HTTP ${r.status}`);
-      setRes(d); onResult(d);
+      setRes(d);
       if (lv.length === 0) setBaseline(d);
     } catch (e) {
       setErr(String((e as Error).message));
-      setRes(null); onResult(null);
+      setRes(null);
     } finally {
       setBusy(false);
       if (timer.current) clearInterval(timer.current);
     }
-  }, [storm, driver, onResult]);
+  }, [storm, driver]);
 
   return (
     <div className="px-5 pb-5 pt-4">
@@ -420,7 +525,7 @@ export function AnywherePanel({
           <div className="mt-2.5 flex gap-7">
             <div>
               <p className="tnum text-[26px] font-semibold leading-none text-ink">
-                {res.flooded_km2.toFixed(0)} km²
+                {km2(res.flooded_km2)} km²
               </p>
               <p className="anno mt-1.5">land flooded</p>
             </div>
@@ -489,6 +594,55 @@ export function AnywherePanel({
               onChoose={setPlanChosen}
             />
           )}
+          {chosenOption && plan && (
+            <div className="mt-3 rounded-xl border border-ink/40 bg-bg-inset px-4 py-3.5">
+              <div className="flex items-baseline justify-between">
+                <h3 className="eyebrow">On the map now</h3>
+                <button
+                  onClick={() => setPlanChosen("")}
+                  className="text-[13px] text-ink-mute hover:text-ink"
+                >
+                  back to do nothing
+                </button>
+              </div>
+              <p className="mt-1.5 text-[13px] text-ink">
+                {describe(chosenOption).title} · {describe(chosenOption).detail}
+              </p>
+              <div className="mt-2.5 flex gap-7">
+                <div>
+                  <p className="tnum text-[22px] font-semibold leading-none text-ink">
+                    {km2(chosenOption.area_flooded_km2)} km²
+                  </p>
+                  <p className="anno mt-1.5">
+                    flooded · was {km2(plan.base_area_km2)}
+                  </p>
+                </div>
+                <div>
+                  <p className="tnum text-[22px] font-semibold leading-none text-ink">
+                    {chosenOption.peak_depth_m.toFixed(1)} m
+                  </p>
+                  <p className="anno mt-1.5">
+                    deepest · was {plan.base_peak_depth_m.toFixed(1)}
+                  </p>
+                </div>
+              </div>
+              {/* Two identical-looking columns are not a readout. An option
+                  that does nothing has to say so, or the numbers invite the
+                  reader to find a difference that is not there. */}
+              {Math.abs(chosenOption.core_reduction_pct ?? 0) < MATERIAL_PCT && (
+                <p className="anno mt-2.5 leading-relaxed">
+                  This option leaves the water where it is. The markers show
+                  where it would be built, and what it would cost.
+                </p>
+              )}
+              {!chosenOption.depth_u8 && (
+                <p className="anno mt-2.5 leading-relaxed">
+                  This option was solved before the map could show it. Solve
+                  again to see its water.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -536,9 +690,12 @@ export function AnywherePanel({
           </ul>
           <div className="mt-3 border-t border-line-soft pt-3">
             <div className="flex items-baseline justify-between">
-              <span className="text-[13px] text-ink-mute">Estimated</span>
+              <span className="text-[13px] text-ink-mute">
+                {plan.chosen_solved ? "Measured for this exact plan" : "Estimated"}
+              </span>
               <span className="tnum text-[18px] font-semibold text-ink">
-                {plan.reduction_pct.toFixed(1)}%
+                {(plan.chosen_solved && plan.chosen_reduction_pct != null
+                  ? plan.chosen_reduction_pct : plan.reduction_pct).toFixed(1)}%
               </span>
             </div>
             <div className="mt-1 flex items-baseline justify-between">
@@ -557,11 +714,49 @@ export function AnywherePanel({
               {" "}— measured as deepening flooding here.
             </p>
           )}
+          {plan.chosen_solved && plan.surrogate_overclaim_pct != null &&
+           Math.abs(plan.surrogate_overclaim_pct) >= 0.5 && (
+            <p className="anno mt-2.5 leading-relaxed">
+              The fast estimate put this at {plan.reduction_pct.toFixed(1)}%
+              {plan.surrogate_overclaim_pct > 0 ? ", which is " : ", which is "}
+              {Math.abs(plan.surrogate_overclaim_pct).toFixed(1)} points{" "}
+              {plan.surrogate_overclaim_pct > 0 ? "more" : "less"} than this plan
+              actually achieves. The figure above is a full run of this exact
+              plan, not the estimate the search used to find it.
+            </p>
+          )}
           <p className="anno mt-2 leading-relaxed">
             {plan.scenarios_solved} options solved on this terrain in{" "}
             {plan.timing.seconds.toFixed(0)}s. {plan.band_note}
           </p>
         </div>
+      )}
+
+      {/* ---- can people get out ---------------------------------------- */}
+      {section === "plan" && res && !busy && chosen && (
+        <RoutePanel
+          roads={roads}
+          grids={shown ?? grids}
+          bounds={box}
+          from={{ lat: chosen.lat, lon: chosen.lon, name: chosen.short }}
+          to={null}
+          vehicle={vehicle}
+          onVehicle={setVehicle}
+          plan={plan?.ok ? {
+            heights: plan.heights,
+            max_height_m: plan.max_height_m,
+            saturation_S: plan.saturation_S,
+            confidence_pct: plan.confidence_pct,
+            options: plan.options,
+            chosen_solved: plan.chosen_solved,
+          } : null}
+          planGridFor={planGridFor}
+          chosenGrid={
+            plan?.ok && plan.chosen_solved && plan.chosen_depth_u8 && planGrids
+              ? withDepth(planGrids, plan.chosen_depth_u8) : null
+          }
+          onRoutes={onRoutes}
+        />
       )}
 
       {/* ---- the action ------------------------------------------------- */}

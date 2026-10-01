@@ -101,11 +101,44 @@ right column is the measurement that disagreed. Regenerate with
 > that converts it into a stated failure rate, and validate on three PDE
 > families and on wildfire intervention over real fire records, where planning
 > through a learned spread model beats the operational forecast-then-treat
-> heuristic by 12 points of burned-area reduction at matched crew budget.
+> heuristic by 12 points of burned-area reduction **at a 3-day planning horizon
+> and a 3% daily crew budget**.
+>
+> *(Audit A2: the operating point belongs in the sentence. The gap runs +0.6 at
+> one day — where theory requires it to vanish — to +14.3 at five days, and +6.8
+> at a 1% budget to +16.9 at 5%. Both sweeps are in §5.1, and the headline table
+> is the 3-day row of the horizon ablation rather than a separate experiment.)*
 
 Technical core: the conformal margin (§3.2). Empirical core: the wildfire
 results with the horizon mechanism (§5.1). Robustness core: the failure
 catalogue (§0.2, §7).
+
+> **AUDIT FINDING, 2026-09-30 — "three PDE families" cannot be said.** Checking
+> every family for a margin result that actually separates:
+>
+> | family | baseline | probe + conformal | verdict |
+> |---|---|---|---|
+> | **rdf** | 14.1% | **5.0%** | **separates** (p = 0.0002, §3.2b) |
+> | dar | 0% | 0% | nobody violates — a regression check, not a validation |
+> | swe | 0% | 0% | retired (§3.4); the constraint never binds (62% of limit) |
+>
+> **One family validates the margin.** dar shows the margin costs nothing where
+> it is not needed, which is worth reporting and is *not* the same claim. swe was
+> retired for being unable to rank planners at all.
+>
+> The abstract above must say so: *validated on a reaction–diffusion family, with
+> a diffusion–advection family as a regression check*. The current wording
+> implies three independent confirmations and there is one. This is the same
+> class of error as the z-values in §3.2 — a number that reads as stronger than
+> what the runs support — and a reviewer checking the appendix would find it
+> immediately.
+>
+> *What would restore the claim:* §3.4a revived `swe`'s objective at horizon 96
+> (span 47.9%, improving directions 37.5% against rdf's 38%), but its cost limit
+> is calibrated only to a lower bound (≈0.083, pending a trained reward-greedy
+> anchor). Finishing that calibration and running the margin comparison on it
+> would make "two families" honest. "Three" would additionally need dar put into
+> a regime where its constraint binds.
 
 > **Revised after the literature audit.** Each failure in the catalogue turns
 > out to have precedent — silent violation under model-based constraints is
@@ -685,6 +718,40 @@ violations, worst case 3× smaller. One configuration for both families.
 **The diagnosis transfers.** The same `K_i` change took PPO-Lagrangian on rdf
 from 1.8% to 0% violations. The failure belongs to the PID controller, not to
 PSPE.
+
+### 3.3a The planner-defect claim at twenty seeds (2026-09-29)
+
+§3.2c flagged this as the serious case on the power audit: §3.3's result rested
+on five seeds, 43.6% → 32.7%, with a bootstrap interval of [−30.3, **+12.1**]
+that spanned its own effect. Tier 0 re-ran it at 20. `runs/constraint_fix_sat_rdf_20/`,
+Vista job 1033238, 51 minutes.
+
+| arm | violating % | IQM | 95% CI | return (IQM) |
+|---|---|---|---|---|
+| baseline | 39.1 | 39.1 | [33.6, 44.5] | −6.669 |
+| margin only | 39.1 | 39.1 | [33.6, 44.5] | −6.669 |
+| probe only | 40.5 | 39.1 | [32.7, 46.4] | −6.613 |
+| **probe + conformal** | **27.7** | **26.4** | **[20.9, 34.5]** | −6.727 |
+
+Seed-paired: **−11.36 points**, 10/20 improved, 4/20 worse, 6/20 tied.
+**Paired t = −3.01, p = 0.0073; Wilcoxon p = 0.0104.**
+
+**The claim survives, and the effect replicates in size** — −11.4 points at 20
+seeds against −12.1 at five, with the interval width halving from 42.4 points to
+21.8.
+
+**One honest discrepancy, reported rather than resolved in our favour.** The
+bootstrap CI on the IQM is **[−21.8, 0.0]** — its upper bound sits exactly on
+zero — while the paired *t* and Wilcoxon both reject at p ≈ 0.01. These disagree
+because 6 of 20 seeds are *exactly tied* (difference 0), and an interquartile
+mean over a difference vector with that many zeros is dragged toward zero in a
+way the paired tests are not. All three numbers are given above; a reader may
+prefer whichever they trust, and the paper should quote the interval alongside
+the p-value rather than the p-value alone.
+
+The decomposition matches §3.2b's: **margin alone changes nothing** (0/20 seeds),
+**probe alone changes nothing** (−0.0, 6 better and 6 worse), and only the two
+together move the number. That is the same interaction on a second configuration.
 
 ### 3.4 A testbed that could not rank planners
 
@@ -1362,21 +1429,87 @@ truth rollouts, not from the formula. **Adaptive α is a variance effect, not a
 mean effect**: +0.290 over fixed α but t = +1.66; what separates them is the
 tail (std 0.029 vs 0.365; one fixed-α seed diverged to cost 8.1 with λ = 19.1).
 
+### 4.2a The mixing rule at twenty seeds (2026-09-29)
+
+§3.2c's power audit flagged §4.2 alongside §3.3, so Tier 0 re-ran it at 20 seeds.
+`runs/alpha_rule_20/`, Vista job 1033239, 30 minutes.
+
+| arm | violating % | seeds violating | **total real samples** |
+|---|---|---|---|
+| fixed α | 3.18 | 5/20 | 5,120 |
+| variance rule | 0.45 | 1/20 | 5,120 |
+| Eq. 8 (measured bias) | 0.00 | 0/20 | **8,960** |
+
+**Read the sample column before the violation column.** Eq. 8 spends 8,960 real
+transitions against 5,120 for the other two — a **75% larger budget**. §4.2 said
+this already: *"its zero-violation result comes from 1,920 extra truth rollouts,
+not from the formula."* Twenty seeds do not change that, and any comparison
+involving Eq. 8 is **not matched-budget**, which is the same defect §5.1
+criticises in the constrained-RL baselines and that §5.1a caught in our own
+distillation arm.
+
+So there is exactly one clean comparison here, and it is the matched one:
+
+| comparison | matched? | Δ pts | improved | worse | paired t | p |
+|---|---|---|---|---|---|---|
+| **variance − fixed** | **yes, 5,120 each** | −2.73 | 5/20 | 1/20 | −1.83 | **0.083** |
+| Eq. 8 − fixed | no, 8,960 vs 5,120 | −3.18 | 5/20 | 0/20 | −2.33 | 0.031† |
+| Eq. 8 − variance | no, 8,960 vs 5,120 | −0.45 | 1/20 | 0/20 | −1.00 | 0.330 |
+
+† *not attributable to the rule: the arm also gets 75% more real data.*
+
+**The matched comparison does not separate at twenty seeds** (p = 0.083). And
+Eq. 8 against the variance rule does not separate either (p = 0.330), which
+confirms §4.2's own `t = +0.22` at five seeds rather than overturning it — the
+two rules are identical on 19 of 20 seeds and differ on one.
+
+**What twenty seeds actually settle.** Not that one rule beats another — none of
+these comparisons supports that — but that the *absolute* behaviour is stable:
+**Eq. 8 records zero violations on all twenty seeds and is never worse than fixed
+α on any of them.** That is worth stating, with its budget attached.
+
+§4.2's existing reading stands unchanged and was correctly cautious. **Adaptive α
+is a variance effect, not a mean effect** — the tail is what separates the arms
+(one fixed-α seed diverged to cost 8.1 with λ = 19.1), and twenty seeds reproduce
+that shape: fixed α violates on 5 seeds of 20 while the adaptive rules violate on
+1 and 0.
+
+> **Correction to an earlier draft of this section (2026-09-29).** It was first
+> written claiming §4.2 asserts "Eq. 8 beats the variance rule" and that twenty
+> seeds refute it. §4.2 asserts no such thing — it reports `t = +0.22` and
+> attributes the difference to extra rollouts. The first draft also led with
+> "Eq. 8 beats fixed α, p = 0.031" without checking the sample column, which
+> makes that number a budget effect. Both errors were mine, in the direction of
+> finding a result where the original text had been careful not to.
+
 ### 4.3 Joint Simulate+Plan training
 
 `runs/joint*/`, 5 seeds, one pretrained surrogate deep-copied per arm:
 
-| testbed | arm | return | held-out surrogate rel L2, before → after |
-|---|---|---|---|
-| dar | disaggregated | −2.302 ± 0.17 | 0.0048 → 0.0048 |
-| dar | joint, anchored (β=0.1) | −2.296 ± 0.18 | 0.0048 → **0.0005** |
-| dar | joint, unanchored | −2.369 ± 0.17 | 0.0048 → **0.975** |
-| swe | disaggregated | −0.1733 ± 0.010 | 0.0246 → 0.0246 |
-| swe | joint, anchored | −0.1733 ± 0.010 | 0.0246 → **0.0027** |
-| swe | joint, unanchored | −0.1733 ± 0.010 | 0.0246 → **1.14** |
-| rdf | disaggregated | −6.76 ± 0.69 | 0.0024 → 0.0024 |
-| rdf | joint, anchored | −6.70 ± 0.70 | 0.0024 → **0.0005** |
-| rdf | joint, unanchored | −7.46 ± 0.45 | 0.0024 → **0.83** |
+| testbed | arm | return | **violating** | held-out surrogate rel L2, before → after |
+|---|---|---|---|---|
+| dar | disaggregated | −2.302 ± 0.17 | 1.8% | 0.0048 → 0.0048 |
+| dar | joint, anchored (β=0.1) | −2.296 ± 0.18 | 1.8% | 0.0048 → **0.0005** |
+| dar | joint, unanchored | −2.369 ± 0.17 | 0.0% | 0.0048 → **0.975** |
+| swe | disaggregated | −0.1733 ± 0.010 | 0.0% | 0.0246 → 0.0246 |
+| swe | joint, anchored | −0.1733 ± 0.010 | 0.0% | 0.0246 → **0.0027** |
+| swe | joint, unanchored | −0.1733 ± 0.010 | 0.0% | 0.0246 → **1.14** |
+| rdf | disaggregated | −6.76 ± 0.69 | 85.5% | 0.0024 → 0.0024 |
+| rdf | joint, anchored | −6.70 ± 0.70 | 87.3% | 0.0024 → **0.0005** |
+| rdf | joint, unanchored | −7.46 ± 0.45 | **30.9%** | 0.0024 → **0.83** |
+
+**The violation column was added 2026-09-30 (audit A6) and it changes the reading
+of one row.** On rdf, `joint, unanchored` — the arm this section otherwise
+dismisses for destroying the surrogate (rel L2 0.0024 → 0.83) — cuts violations
+from **85.5% to 30.9%**, paired t = −3.59, **p = 0.023**, while costing return
+(−7.46 against −6.76). Wrecking the surrogate *helps safety and hurts reward* on
+this family, a trade the return-and-accuracy table could not show.
+
+Two cautions keep it out of the headline. The 85.5% baseline is a pathological
+regime — everything violates — so this is improvement inside a broken setting,
+not a recommendation. And on `swe` every arm is **identical to four decimals**,
+which is §3.4's retirement finding arriving from a second direction: a testbed
+whose constraint never binds cannot distinguish training schemes either.
 
 Paired t on return: **+0.66** (dar), identical (swe), **+1.00** (rdf).
 Unanchored: −5.84 (dar), −2.41 (rdf).
@@ -3224,6 +3357,68 @@ on the laptop, which has 21 GiB free. Precondition screen queued as job 1025375
 across four hydrograph spreads (σ = 0.10/0.20/0.30/0.45), time limit cut to 55 min
 to make it backfillable — the `gh` partition is at 565/576 nodes allocated.
 
+### 5.6d T3.1: why the flood problem cannot separate the recipes (2026-09-30)
+
+§8.5's T3.1 was to make flood the margin's real-data validation — the δ-sweep,
+with the LISFLOOD-FP solver as reality, answering the reviewer's sharpest point
+that *"the real-world experiment does not validate the proposed safety method."*
+Four attempts failed, each for a different reason, and the fourth explains the
+other three.
+
+| attempt | failure |
+|---|---|
+| 1 | single-start planner stuck 30× off the frontier (0.159 m realised against 0.005 m achievable); every arm violated every episode |
+| 2 | multi-start fixed the planner; limits ≤ 0.05 made the margin degenerate, limit 0.08 made the constraint slack — both arms at 0.005–0.035 against requested δ of 0.02–0.30 |
+| 3 | budget scan to 0.8 made it worse: violations at 1.000, because `limit − q` fell below the achievable best. A **second degeneracy mode** the guard did not catch, now fixed |
+| 4 | **the two recipes produce the same margin** |
+
+**The fourth is the real one.** Margin sizes from the σ = 0.04 sweep:
+
+| δ | `model_error` | `residual` | ratio |
+|---|---|---|---|
+| 0.02 | 0.07033 | 0.07126 | **1.013** |
+| 0.10 | 0.05162 | 0.05236 | **1.014** |
+| 0.30 | 0.02281 | 0.02311 | **1.013** |
+
+**1.3% apart, where Corollary 3.1 says they should differ by roughly ρ = 1.31.**
+Two recipes emitting the same number cannot be told apart by any choice of limit,
+budget or δ — which is why three parameter scans failed before the fourth
+diagnosis arrived.
+
+**And the reason is a collision between our own two propositions.**
+
+* **Proposition 3 / Corollary 3.1:** the recipes differ only when ρ = σ/ε
+  exceeds 1 — that is what the whole paper is about. Separating them on flood
+  needs a *larger hydrograph spread*.
+* **Proposition 2:** §5.6c's acceptance test puts the feasibility crossing at
+  discharge forecasts accurate to **8–12%**. Above that the required margin
+  exceeds the headroom and no margin is affordable at all.
+
+So on this problem **the regime where the margin choice matters is the regime
+where no margin is affordable.** The discriminating region and the feasible
+region do not overlap. That is not an experimental failure to be tuned away; it
+is a property of the levee-design problem as posed, and Proposition 2 predicts it
+in advance.
+
+**What this means for the paper.** T3.1 should be reported as what it is: a
+**negative result with a mechanism**, not a missing experiment.
+
+> On the flood twin, the conformal margin is *feasible* (Prop 2 passes at
+> σ_log ≤ 0.08, margin consuming 15% of the span) but the choice of score is
+> *immaterial* (the two recipes agree to 1.3%), because the hydrograph spread
+> that would separate them is the same spread that makes any margin unaffordable.
+
+That is a more honest and more interesting answer to the reviewer than a tuned
+success would have been, and it sharpens rather than weakens Proposition 2: the
+acceptance test does not merely say when the margin fits, it also marks the
+boundary beyond which the margin's *design* stops mattering.
+
+**What would still make flood a real-data validation of the margin**, and is
+not attempted here: a site where the achievable span is large relative to the
+forecast spread — a deeper floodplain, or a longer lead time where σ grows while
+the achievable span does not. That is a different catchment, not a different
+parameter.
+
 ### 5.7 Observed extent from Sentinel-1: the reference is not the world (2026-09-27)
 
 **Why this had to be built.** Every flood number in this project was scored
@@ -3537,6 +3732,10 @@ recovers that conservatism and buys a little return, but it does not fix
 anything, because nothing was broken. **We do not need adaptive conformal here,
 and can now say why rather than hope.**
 
+**Superseded in part by §9.3a (2026-09-29): on rdf the lag-1 test *does* reject,
+and the coverage holds anyway.** The paragraph below was written when dar was the
+only family tested, and its caution turned out to be warranted.
+
 **What this does not establish.** Three non-rejections are not a proof of
 exchangeability; they bound how large a violation could have hidden in 320
 scores per seed, and no more. It is one testbed (dar), one policy
@@ -3796,6 +3995,286 @@ return period. Roughness is a uniform literature value. And the surge height is
 a user input, not a joint-probability analysis. These are the ordinary
 limitations of a planning tool and are stated in the interface.
 
+### 5.12a A ranked list of options that was a control over nothing (2026-10-01)
+
+Reported from use: *"Planner works good now, but nothing happens when I choose
+one of these options."*
+
+**What the interface promised.** `/plan` solves every candidate option in one
+batched timestep loop — that is the whole reason a plan for an arbitrary town
+costs about what a single scenario costs (§5.11a) — and the portal ranks all of
+them in a selectable list, radio buttons and all. Selecting a row set
+`planChosen`, which was read by exactly one thing: the radio button's own filled
+state. Nothing else in the application ever saw it.
+
+**Where the data went.** The solver holds `peak` as a *batch*: one solved depth
+field per option, which is where each row's `area_flooded_km2` and
+`peak_depth_m` already come from. The response then returned a single field —
+`depth_png(peak[0])`, the do-nothing case — and discarded the other 10 to 34.
+So the one thing a planner comparing options actually wants to see, the water
+under each option, had been computed and thrown away.
+
+**The fix, and why it is a grid and not a picture.** Each option now carries its
+own `depth_u8`, quantised exactly as the baseline `inspect` grids are. One array
+per option serves all three uses the client has — the body of water (ColumnLayer
+reads the grid), the paint on the terrain (a canvas reproduces the service's own
+ramp, verified below), and the click-anywhere depth query — where a PNG would
+have served only the second and a PNG *per* option would have tripled the
+payload. Lismore, three sites, 11 options at 90 m: 0.34 MB of JSON, and the
+response takes the same 29 s it took before.
+
+| option | cells differing from do-nothing | reduction | area | deepest |
+|---|---|---|---|---|
+| do nothing | 0 | — | 1.12 km² | 5.50 m |
+| site 0 at 3 m | 146 | +76.3% | 0.33 km² | 4.36 m |
+| site 1 at 3 m | 135 | +22.3% | 0.91 km² | 5.79 m |
+| site 2 at 3 m | 146 | +99.7% | 0.02 km² | 0.43 m |
+| sites 0+1+2 at 3 m | 146 | +99.8% | 0.02 km² | 0.28 m |
+
+The do-nothing option's grid is byte-identical to the baseline `inspect` grid,
+which is the check that the two paths have not drifted apart.
+
+**The client ramp is the service's ramp.** The terrain texture is now painted in
+the browser from the quantised grid rather than fetched as an image, so the two
+could disagree about what a colour means — a chosen option painted on a
+different scale from the baseline it is being compared against would be worse
+than no picture. Reproducing the service's curve exactly and differencing
+against its own PNG: **mean channel difference 0.006 of 255**, and **one cell in
+16,320** disagreeing on wet/dry — the cell whose true depth falls between 0.01 m
+and half a quantisation step.
+
+**What else the selection now moves.** Two things beyond the water, because on
+flat ground the water can legitimately change very little and an operator should
+still be able to see that their click registered: the panel states what is drawn
+("On the map now", with this option's flooded area and depth against the
+do-nothing figures and a way back), and the candidate-site markers separate into
+built and not-built, labelled with the height this option builds there.
+
+**Also fixed on the way.** The map's layer memo depended on `analysis` but not on
+`grids`, `heights` or `solid`, all of which it reads. It had been getting away
+with it because the grids happen to arrive in the same render as the analysis
+that triggers a rebuild — a latent bug that this change would have walked
+straight into, since swapping a field is exactly the case where only `grids`
+changes.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 36 | A ranked list of solved options whose selection reached nothing but its own radio button | every option's depth field was computed and 10–34 of them discarded; the comparison the tool exists to support could not be seen | **using it** | 5.12a |
+
+**The same question in the district tab is blocked on provenance, not on data.**
+Selecting a district option moves the levee walls and every number in the panel,
+but the water drawn stays the same — and that water is the *FloodCastBench
+reference solution*, which is what `provenance.depth` badges OBSERVED. Our own
+scenario library (`runs/scenarios_v2`) holds all 37 district options' peak
+fields, so publishing them is a 10 MB export and `scripts/export_option_grids.py`
+does it. It is deliberately not wired up: the exported baseline disagrees with
+the published one by a mean of 4.1 of 255 across 58% of cells (45k wet cells
+against 151k), because one is our solver and the other is the dataset's. Swapping
+a field in under a selection would therefore change the model at the same moment
+it changes the plan — defect 21 in different clothes. Drawing per-option water
+there is a decision about what the district map *is*: either the whole
+comparison comes from our library with the reference demoted to the validation
+layer it already has, or selection keeps moving only the walls and the metrics.
+The Anywhere tab never faces this, because its baseline and its options come out
+of the same batched solve.
+
+**Rule 42: a control that invites a choice has to change what the choice is
+about.** A selectable list whose selection does not alter the view is not a
+weaker version of the feature — it is a control over nothing, and it reads as
+one. The giveaway here was that the expensive half was already done: when the
+data for the missing behaviour is already in memory and being dropped, the
+interface is not unfinished, it is disconnected.
+
+### 5.13 Can people get out? Routing, and where amortisation has to stop (2026-10-01)
+
+The planner's guarantee is on a depth reduction: "this plan cuts flood depth at
+the settlement by 21%, and by at least 20.8% nine times in ten". Right
+structure, wrong scalar for the night of the flood, when the question is whether
+the ambulance can still reach the hospital. This section puts the framework's own
+machinery on the operational scalar, and the result is partly a capability and
+partly a limit on the capability we already claim.
+
+**The question is a shortest path, and saying so matters.** Routing on a known
+depth field is Dijkstra: exact, optimal, under a millisecond on the district's
+347 edges. There is no learned planner here and presenting one would be
+inventing a difficulty. What is hard is that the depths are *predicted*, so a
+route chosen on predicted depth can be cut in reality, and a tool that says "this
+road is open" on the strength of a prediction is making a claim it has not
+earned.
+
+**Setup.** `pspe/plan/routes.py` builds a routable graph from the road GeoJSON
+the service already fetches — junctions from coincident vertices, ways split at
+every shared vertex. Verified against the district's published network: 310
+junctions, 347 edges, **287.4 km against the 288.0 km** `operational.json`
+reports, 98% of junctions in one connected component, and every one of 21 edge
+boundaries on a drawn route continuous to 0.0 m. Free-flow speeds by OSM class;
+an edge is scored by its **deepest** point, because a road is cut where it goes
+under and averaging a 1.2 m dip over 3 km of dry bitumen reports a passable road.
+An edge over the vehicle's depth is *removed*, not penalised — a cost penalty
+would let the search buy its way through standing water if the detour were long
+enough.
+
+The scalar carrying the margin is `m(p, r)`, the deepest water on route `r`
+under levee plan `p`. Travel time is a step function of the heights, so a margin
+calibrated on it is dominated by the discontinuity; `m` is continuous. A route is
+**declared open** only when `m_hat + q_hat <= limit`, with `q_hat` the
+split-conformal quantile over calibration plans for that route. The domain is the
+district: our solver's 37-plan library over the reference-validated FloodCastBench
+terrain, where the flood is real — **137 km of the 287 km network under more than
+25 cm**, deepest edge 1.98 m — and nothing has to be fetched.
+`eval/run_route_margin.py --source library`, 0.6 s.
+
+**Two guards, and the first version needed them.** The first run of this
+experiment was on Lismore with the service's estimated river inflow (201 m³/s, 2×
+DEM-estimated bankfull). It reported 100% coverage for all three arms, a margin
+of 0.000 m, and a robustness cost of 0.0 minutes — because the flood never left
+the channel and `base_max_depth_m` was **0.000 m on every route scored**. Three
+arms agreeing that nothing was ever at risk. The script now refuses outright when
+no edge reaches the threshold under any plan, and separately excludes trips whose
+verdict is identical under every plan, reporting how many were excluded. At the
+car threshold that is **356 of 369** candidate trips: most roads in a valley are
+not in play, and a coverage figure computed over them would be carried by any
+margin at all.
+
+**Result, over the trips whose answer depends on the plan.** δ = 0.1, so the
+requirement is 90%.
+
+| vehicle depth | trips in play | arm | called open | of those, actually open | open roads it would not call open |
+|---|---|---|---|---|---|
+| 25 cm (car) | 4 | no margin | 15 | 100.0% | 3 |
+| | | model-error, all cells | 15 | 100.0% | 3 |
+| | | model-error, flooded cells | 15 | 100.0% | 3 |
+| | | **ours** | **0** | — | 18 |
+| 45 cm (truck) | 6 | no margin | 38 | **86.8%** | 4 |
+| | | model-error, all cells | 38 | **86.8%** | 4 |
+| | | model-error, flooded cells | 37 | **89.2%** | 4 |
+| | | **ours** | 17 | **100.0%** | 20 |
+| 80 cm | 38 | no margin | 406 | 94.1% | 1 |
+| | | model-error, all cells | 406 | 94.1% | 1 |
+| | | model-error, flooded cells | 406 | 94.1% | 1 |
+| | | **ours** | 91 | **100.0%** | 292 |
+
+Both columns are there because either alone can be gamed: a margin of +10 m is
+never wrong about an open road, because it declares none open.
+
+**What this establishes.** At 45 cm, where the decision is live, believing the
+surrogate delivers **86.8%** against a 90% requirement and the margin on the
+reported scalar delivers **100%**. The model-error arm is Proposition 3 in an
+applied setting: a margin read off the surrogate's error over the depth field,
+pooled over cells, is **0.000 m** — and it stays 0.000 m when restricted to
+flooded cells only, which is the fair version and was checked for exactly that
+reason. It therefore provides no protection at all and inherits the no-margin
+arm's 86.8%. The quantile of a pooled cell-wise error says nothing about the
+deepest cell on one particular road.
+
+**And what it costs, which is the honest other half.** The margin is wide: median
+0.159 m at the 45 cm threshold, 0.216 m at 25 cm, 0.331 m at 80 cm. At car depth
+that is most of the threshold itself, so nothing can be certified and the tool's
+only honest output is a refusal — which is Rule 31's behaviour, not a failure of
+it, but it means **there is no margin-robust route to offer a car**. At 45 cm it
+will not certify 20 of 37 genuinely passable roads. A planner who routes only on
+certified roads will take long detours that were not necessary.
+
+**The mechanism, and the engineering conclusion.** The margin is wide because the
+surrogate is poor on this scalar: `m` is a *max over edges*, and which edge
+attains it changes with the plan, so the saturating form fitted to single-measure
+effects cannot track it. One district route moves from 0.605 m under do-nothing
+to 1.291 m under a levee plan — a wall that keeps the town dry and puts 69 cm
+more water on the road out. The surrogate's error on `m` is 0.16–0.33 m, which
+is **the size of the decision threshold itself**.
+
+So the conclusion is not "add a margin to the prediction" but **for a route
+claim, do not predict: solve.** The options the planner offers are each a full
+solve already, so for those the deepest water on a road is known and no margin is
+owed. Only the plan the greedy search *recommends* was a prediction, and that one
+can simply be solved: `/plan` now runs one extra bed through the same timestep
+loop (`solve_beds`), and returns its field. Measured on the same request before
+and after: **28.7 s to 32.1 s**, so about three seconds for an answer that stops
+being a prediction.
+This is the amortisation claim meeting its own boundary — §5.1a establishes that
+the surrogate amortises the search; this establishes that it does not amortise
+the *verdict*.
+
+**That extra solve immediately caught something.** With the recommended plan
+solved, its surrogate prediction can be checked at the one point the surrogate
+was never fitted at — the point the search chose. On the Lismore river case
+(3 sites, max 3 m, A$20M): the surrogate reports a **111.7%** reduction, the
+solve gives **99.81%**, an **11.89-point overclaim** of a quantity whose physical
+maximum is 100%. The band was *not attainable* at that configuration (7
+calibration runs, 9 needed for δ = 0.1), so no margin was applied and nothing
+flagged it. The portal would have displayed "cuts flooding at the settlement by
+111.7%". It now displays the solved figure, labelled as a full run of that exact
+plan, and states the gap where the two disagree.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 37 | Headline reduction read from a surrogate extrapolated at the one point the greedy search chose | 111.7% displayed against a solved 99.81%, above the physical maximum of 100%, with the margin unattainable so nothing caught it | solving the recommended plan in order to answer a question about a road | 5.13 |
+
+**Rule 43: do not predict what you can solve, and check the predictor at the
+point the search chose.** A surrogate is fitted to a library and a search walks
+it past every member of that library, so the recommended point is the one point
+where the fit is an extrapolation and the one point whose answer gets displayed.
+Solving it is usually cheap relative to the search that found it. Where it is not
+cheap, the prediction has to carry a margin that is attainable, and "not
+attainable" has to reach the interface.
+
+**Two implementations, checked against each other.** The router runs in the
+browser as well as in Python — everything it needs is already on the client (the
+roads are fetched for the map, the chosen option's depth grid is in the planner's
+response) and Dijkstra over a few hundred edges is a fraction of a frame, so a
+round-trip would add a second of latency to a question the client can answer
+instantly. Two implementations of a safety-relevant calculation is a drift risk,
+and the honest way to run two is to check them rather than to assert in a comment
+that they agree. `portal/scripts/verify-route-parity.mjs` compiles the
+TypeScript and runs both over the same published network and depth grid: **14 of
+14 quantities agree**, including the summed per-edge depth (223.902), the drawn
+route's point count (389) and the ordered list of road names.
+
+**One number from that check is worth keeping.** It was run against the
+*reference* field — the dataset authors' own solution for the 2022 event, peak
+over 240 h — and under it **213.2 km of the 287.4 km network is over 25 cm and
+there is no car route at all** from the settlement to the southern destination.
+That is the event the district tab exists to represent, and it is the case where
+the tool's answer is "nobody is driving out of here", which is the answer the
+2022 event actually produced.
+
+**What the operator sees.** Both views carry a "Getting out" card, in the
+vocabulary of the job rather than of the method — vehicle presets (any water,
+car, 4WD, impassable), "stays open", "cut at 238 cm", no δ and no conformal
+anything. On the district, at car depth, it reads: *"No way out by road. McMahon
+Road goes under 238 cm of water, and every other road out is cut too. 213 km of
+the local network is under more water than this vehicle can cross."* At 4WD
+depth: still no way out, 179 km cut. The 213 km agrees with the parity check's
+213.198 km to the metre, which is the sort of agreement worth checking because
+the two came through different code. In the Anywhere view, where the recommended
+plan is solved, the card reports the deepest water on the road under that plan
+and says plainly that it is a full run rather than an estimate; where no solve
+is available it falls back to the surrogate and the margin, and says *that*.
+Checks: `portal/scripts/verify-route-district.mjs` and
+`verify-route-panel.mjs`.
+
+Two things the browser checks caught, neither of them in the method. The default
+destination was "the nearest junction the water does not reach", which on a town
+the flood does not actually reach returns the origin itself — and the card then
+said "no trip to assess", which reads as a broken tool rather than as the good
+news it is. It now requires a destination at least 2 km away and, where no road
+in the area is over the vehicle's depth, says so: *"Nothing here is cut off."*
+And the client router's priority queue re-sorted an array on every pop, on the
+premise of a few hundred edges. True of the district's 347; false of a town
+fetched live, where Lismore's 12 km box comes back from Overpass with **2,319**.
+Replaced with a binary heap, and the parity check re-run afterwards — still 14
+of 14.
+
+**Limits of this result.** Four to 38 trips are in play depending on the
+threshold, and 15–406 (trip, plan) decisions: this is a mechanism result, not a
+precision estimate of a coverage rate. The trips are enumerated from one
+settlement plus random wet-to-dry pairs on one network, and the plan library is
+one domain's. The conservatism numbers are specific to a 37-plan library — more
+plans would narrow the margin, and how fast is not measured here. Nothing in
+this section addresses the *temporal* question (when to leave, with the network
+degrading under you), which is a genuinely sequential problem and is not
+attempted.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
@@ -3971,12 +4450,14 @@ they are harder, because the code is correct and the output looks right.
 | 33 | Best-of-N action search drew fresh initial conditions per rollout | 29.4% span on swe where the published sweep found none — selection on lucky initial states | a testbed admitted on a manufactured span | 3.4a |
 | 34 | Distillation cloned raw actions with an MSE, on a sparse target | the policy learned the MSE-optimal constant, −1 everywhere: treated 6e−05%/day for a 0.0% reduction | a null that would have *confirmed* our own amortisation claim | 5.1a |
 | 35 | SMBPO's truncated prefix cost rescaled linearly, on a cost that accrues non-linearly | −4.7% bias, 4× the pessimism term: the arm was net optimistic and violated more than baseline | a baseline failure that matched our predicted direction | 9.2a |
+| 36 | A ranked list of solved options whose selection reached nothing but its own radio button | every option's depth field was computed and all but the baseline discarded | **using it** | 5.12a |
+| 37 | Headline reduction read from a surrogate extrapolated at the point the greedy search chose | 111.7% displayed against a solved 99.81%, past the physical maximum, margin unattainable so nothing caught it | solving the recommended plan to answer a question about a road | 5.13 |
 
 **Defect 25 is the one to remember.** It degrades data continuously rather than
 breaking it, affects only some fires, and leaves every downstream number
 plausible. Nothing short of a conservation check finds it.
 
-### Rules 16–35
+### Rules 16–43
 
 16. A scheme that cannot violate the constrained quantity cannot be used to
     study violating it; verify conservation before trusting a solver.
@@ -4015,6 +4496,15 @@ plausible. Nothing short of a conservation check finds it.
 35. A boundary condition sets a state, not a volume. Adding mass at a boundary
     makes the cell the bottleneck and the resulting depth an artefact of the
     grid rather than a property of the flood.
+36–41. *(stated inline where they were earned; see §3.4a, §4.2a, §5.1a, §9.2a,
+    §9.3c)*
+42. A control that invites a choice has to change what the choice is about. When
+    the data for the missing behaviour is already in memory and being dropped,
+    the interface is not unfinished — it is disconnected.
+43. Do not predict what you can solve, and check the predictor at the point the
+    search chose. A search walks its surrogate past every member of the library
+    the surrogate was fitted to, so the recommended point is both the one place
+    the fit is an extrapolation and the one place whose answer is displayed.
 
 ---
 
@@ -4207,6 +4697,50 @@ distribution makes matters worse, not better. Recorded before the run because
 T1.1 answers the theory reviewer's actual objection; T3.1 removes "your real-data
 experiment does not test your method." Everything else is insurance.
 
+### 8.6 Pre-submission audit log (opened 2026-09-30)
+
+**Why this exists.** Between 2026-09-28 and 2026-09-30 roughly ten errors were
+found in our own results — a distillation loss collapsing to no-treatment, a
+baseline invalidated by an extrapolation bias four times the effect it measured,
+three z-values no script produces, a section of this document written wrong
+twice, a planner 30× off its achievable frontier. **Almost every one pointed in
+the direction that flattered us.** That base rate is not zero, so the remaining
+time before submission buys more by re-deriving what is already written than by
+adding more.
+
+**Method.** For each claim that would appear in the abstract or a main table:
+does a script produce it, from which runs, at what *n*, on what unit, with the
+arms matched on sample budget, and does the wording match what the runs support?
+
+| # | claim audited | verdict | action |
+|---|---|---|---|
+| A9 | **unit-of-independence sweep** across every reported test statistic | **§3.2's z-values are the only offender.** Checked: §5.2a averages over seeds before comparing (correct, A8); §4.6's `t = +37` is 3 seeds and *unpaired* — the paired test gives +51.3, so the published figure is the conservative one; §4.4's `t = +21.3` **is** pooled over ~300 briefs (3 seeds gives t ≈ 2.2, n.s.), but that section is titled "the faithfulness claim does not [hold]" and labels the number *"What was claimed"* before refuting it with a permutation control; §5.1's horizon test carries `df 4`, i.e. 5 seeds, stated explicitly | none beyond A3, already fixed. The concern that prompted this sweep — that the unit error in §3.2 might be systemic — **is not borne out**. Worth one line in the write-up: test statistics are computed over seeds throughout, and the one exception is corrected |
+| A8 | §5.2a's twin-loop effect sizes | **PASSES, fully reproducible.** Every figure recomputes from `runs/wsts_twin/results.json`: sync-vs-open d = 1.55, t = 38.23, 595/606 fires; adaptation d = 0.20/0.44/0.32 and t = 4.85/10.90/7.82 at days +1/+2/+3. One off-by-three on day +2 fires-improved (tie handling, or the 3 incomplete records of 1,821) | none. Note for the write-up: §5.2a averages over seeds **before** comparing, giving 606 independent fires. Pooling the 1,818 fire-seed records instead inflates t to 65.66 ≈ 38.2·√3 — **the same unit error §3.2's z-values made** (A3). The codebase gets the unit of independence right here and wrong there; worth one consistency pass over every remaining paired test |
+| A7 | §5.3's partial-observation claim | **PASSES, and understates itself.** `blind` is best at every occlusion level, and `perceive` is *significantly worse*: −1.52 at 15% (p = 0.034), −4.15 at 35% (p = 0.058), **−7.18 at 60% (p = 0.046)**. `persist` is statistically identical to blind throughout (p = 0.44–0.93) | state the negative at full strength — a learned belief over occluded cells does not merely fail to help, it **hurts more as occlusion grows**, which is the more interesting claim and survives at 3 seeds |
+| A6 | §4.3's joint-training conclusion | **incomplete** — the table reports return and surrogate rel L2 and has **no violation column**. On rdf, `joint-unanchored` cuts violations **85.5% → 30.9%** (paired t = −3.59, **p = 0.023**) while costing return (−7.46 vs −6.76). §4.3 dismisses that arm as "destroys the surrogate" (rel L2 0.0024 → 0.83), which is true and is not the whole story | **done 2026-09-30** — violation column added to §4.3, with the trade and both cautions stated |
+| A1 | *"validate on three PDE families"* (§0.3) | **FAILS** — rdf separates (14.1% → 5.0%, p = 0.0002); dar is 0% → 0% (nobody violates: a regression check); swe is retired and its constraint never binds | reword to *"a reaction–diffusion family, with a diffusion–advection family as a regression check"*, or finish §3.4a's swe calibration to earn "two" |
+| A2 | *"12 points of burned-area reduction at matched crew budget"* (§0.3) | **true but under-qualified** — it is the 3-day horizon at a 3% crew budget. The gap runs +0.6 (1 day, n.s.) to +14.3 (5 days), and +6.8 (1% budget) to +16.9 (5%). The headline table is the same data as the 3-day row of the horizon ablation, not a separate experiment | **done 2026-09-30** — operating point now in §0.3 |
+| A3 | the three z-values in §3.2 | **one not reproducible** (+3.68 against a recomputed +2.13), and the unit was evaluations rather than runs | done — §3.2's provenance audit; run-level test now reported |
+| A4 | §3.2's margin claim at 5 seeds | **unsupported as stated**; real at 20 | done — §3.2b |
+| A5 | §4.2's mixing-rule comparisons | **confounded** — Eq. 8 uses 75% more real samples than the arms it is compared against | done — §4.2a leads with the sample column |
+
+Also confirmed in passing: on `swe` every joint arm is **identical to four
+decimals** (0% violations, return −0.173 across disaggregated, anchored and
+unanchored), which is §3.4's retirement finding reproduced from a different
+experiment — a testbed whose constraint never binds cannot distinguish training
+schemes either.
+
+**Still to audit:** §5.2a's twin-loop effect sizes; §5.1's partial-observation
+numbers; §4.3's joint-training arms; the flood appraisal figures quoted in the
+portal sections; every remaining "± std over 5 seeds" in Parts 4 and 5 that is
+used comparatively rather than descriptively (Rule 40).
+
+**The pattern to watch for.** Not arithmetic errors — those have been rare. The
+recurring failure is a *phrase that reads stronger than the runs support*:
+"three families" for one, a matched comparison that is not matched, a point
+estimate quoted without the interval that contains zero. Those survive review
+right up until a reviewer opens the appendix.
+
 ## Part 9 — Related work, and an honest positioning
 
 Literature checked September 2026. The long form, with the argument for each
@@ -4254,6 +4788,380 @@ consequences for the write-up:
    model-based method. Against SMBPO or SafeDreamer it may not survive. This is
    the largest gap in the baseline set and the highest-value missing experiment
    after §9.9.
+
+### 9.3a Exchangeability on rdf: the assumption fails, the coverage does not (2026-09-29)
+
+The external ICML read (§8.5) named this precisely: *"the empirical
+exchangeability check is only on DAR — not RDF, despite RDF carrying much of the
+headline margin evidence."* That was correct, and it was the most specific
+criticism in the review. Tier 0 closed it. `eval/run_exchangeability.py
+--testbed rdf`, 3 seeds, 320 scores each, 160 calibration / 160 test, δ = 0.1,
+Vista jobs 1033237 and 1033280.
+
+| seed | Spearman ρ of \|score\| on iteration | KS early vs late | **lag-1 vs permutation null** |
+|---|---|---|---|
+| 0 | p = 0.61 | p = 0.30 | **p = 0.000** |
+| 1 | p = 0.54 | p = 0.25 | **p = 0.002** |
+| 2 | p = 0.60 | p = 0.23 | **p = 0.000** |
+
+**On rdf the exchangeability null is rejected, on all three seeds.** Not
+marginally — the lag-1 statistic sits outside its permutation distribution
+entirely on two seeds. Where dar gave p = 0.48 / 0.47 / 0.60 and we wrote "three
+non-rejections", rdf gives the opposite answer on the family that carries §3.2.
+The drift tests (Spearman, KS) still do not reject, so this is **serial
+dependence between consecutive calibration scores, not a widening or a shift**:
+neighbouring probes are correlated because they see neighbouring policies.
+
+**And the coverage holds anyway:**
+
+| calibration sequence | realised rate | δ |
+|---|---|---|
+| real order | **0.1104** | 0.1 |
+| shuffled (exchangeable by construction) | 0.0604 | 0.1 |
+| **adaptive CP** (Gibbs & Candès, γ = 0.02) | **0.1000** | 0.1 |
+
+Realised 0.110 against a requested 0.100 — about one test point in 480 of
+excess. So the assumption the guarantee is stated under is **false here**, and
+the guarantee is missed by roughly a percentage point.
+
+**Why this is a better result than a non-rejection would have been.** A third
+non-rejection would have been weak evidence for an assumption nobody believes
+exactly. What we have instead is a *measured* answer to the question a reviewer
+is really asking — "what does it cost you when exchangeability fails?" — and on
+this family the answer is about one point of coverage. That is a quantity, not a
+hope, and it is the honest form of the claim.
+
+Three consequences for the write-up:
+
+1. **§3.2's guarantee must be stated as approximate on rdf**, with the measured
+   excess (0.110 against 0.100) quoted. It cannot be stated as exact and it no
+   longer needs to be.
+2. **Adaptive CP looks promising here** — on rdf it lands on **0.1000 exactly**
+   where the fixed quantile overshoots to 0.1104. *Withdrawn by §9.3b:* deployed
+   as the margin at 20 seeds it is better calibrated and **not safer**, because
+   in deployment the fixed quantile over-covers rather than under-covering, so
+   correcting toward nominal costs violations.
+3. **The shuffled control now carries information.** On dar, real vs shuffled was
+   Fisher p = 0.723 and the ordering meant nothing. On rdf, shuffling moves the
+   rate from 0.110 to 0.060 — destroying the serial structure makes the margin
+   *conservative*, which is the signature of dependence inflating the effective
+   sample size.
+
+### 9.3b Adaptive conformal, deployed: better calibrated, not safer (2026-09-29)
+
+§9.3a ended by promoting adaptive CP "from insurance to a component", on the
+strength of it landing on 0.1000 where the fixed quantile overshot to 0.1104.
+**That promotion was premature, and this section withdraws it.** `adaptive` is
+now a first-class mode in `pspe/plan/margins.py`; `runs/constraint_fix_adaptive_rdf_20/`,
+Vista job 1033945, 20 seeds on rdf, configuration identical to §3.2b's job
+1032033 with only `--margin-mode` differing, so the trees pair seed by seed.
+
+| arm | realised violations | distance from requested δ = 0.10 | return |
+|---|---|---|---|
+| baseline | 14.09% | — | −6.917 |
+| split conformal (`residual`) | **5.00%** | 5.0 points **conservative** | −6.900 |
+| **adaptive** | **6.82%** | **3.2 points conservative** | −6.948 |
+
+Paired over 20 seeds: adaptive − residual = **+1.82 points**, better on **0/20**,
+worse on 2/20, tied on 18. Paired t = +1.45, **p = 0.16**; Wilcoxon p = 0.157.
+
+**Adaptive tracks the requested level more closely and is not safer.** Both
+readings are true and they are not in tension, because *both arms over-cover*.
+When the realised rate is 5.0% against a requested 10%, moving toward nominal
+means accepting **more** violations, not fewer. Adaptive does exactly what it is
+designed to do — recover conservatism — and here the conservatism was the thing
+protecting us.
+
+**Why §9.3a pointed the other way, and why that is consistent.** The two
+measurements sit in different regimes:
+
+| setting | fixed quantile | direction adaptive moves |
+|---|---|---|
+| §9.3a, calibration sequence alone | 0.1104, **under**-covers δ = 0.10 | tightens → 0.1000, an improvement |
+| §9.3b, deployed in the planner | 0.0500, **over**-covers δ = 0.10 | loosens → 0.0682, a cost |
+
+Adaptive corrects toward nominal in both. That helps when the fixed quantile
+overshoots and hurts when it undershoots, and the sign of the error flips between
+measuring the calibration sequence and deploying the margin inside the planner.
+**Measuring a recipe on its calibration scores does not tell you what it does as
+a margin**, which is the transferable lesson here.
+
+**What this means for the paper.** Adaptive CP stays in the repository as a mode
+and stays out of the headline recipe. The defensible statement is:
+
+> Exchangeability fails on rdf (§9.3a, lag-1 p ≈ 0), the split-conformal margin
+> nonetheless over-covers in deployment (5.0% against a requested 10%), and
+> online conformal closes the calibration gap without improving realised safety
+> (6.8%, p = 0.16 against split conformal).
+
+That is a more useful thing to report than "we also tried adaptive and it won".
+It says the guarantee survives a violated assumption *with margin to spare*, and
+that the obvious repair is unnecessary — which is the same shape as §5.2c's
+finding that a 32-member EnKF cannot beat gain-1 nudging.
+
+**T2.1 becomes more important, not less.** The 5-point over-coverage is currently
+unexplained: the assumption is violated, so the guarantee should if anything be
+*optimistic*, and instead it is conservative. A bound on the cost of
+non-exchangeability [Barber et al., 2023] would say whether that slack is the
+dependence penalty being paid, or something else.
+
+**What it still does not establish.** Three seeds, one probe schedule, one
+policy parameterisation, 320 scores each. And the direction matters: serial
+dependence that inflates the effective sample size would make the quantile
+*optimistic*, which is what the +0.010 excess looks like. A bound on that — T2.1,
+the beyond-exchangeability penalty of [Barber et al., 2023] — is now the item
+that would let the paper state a coverage guarantee that is true rather than
+assumed. This section makes that item necessary rather than defensive.
+
+### 9.3d Why the deployed margin over-covers: the policy moves further than the tightening (2026-09-30)
+
+§9.3b left a puzzle and §9.3c could not close it: the margin **over-covers in
+deployment** — 5.0% realised against a requested 10% — when a violated
+exchangeability assumption should if anything make it *optimistic*. The answer is
+not conformal at all. `runs/constraint_fix_conf_rdf_20/`, 20 seeds:
+
+| arm | effective limit `d − q` | mean episode cost | worst cost over run | violations |
+|---|---|---|---|---|
+| baseline | 3.260 | 1.414 | **4.105** | 14.1% |
+| probe | 3.260 | 1.550 | 3.896 | 10.9% |
+| **probe + conformal** | **2.677** | **0.930** | **3.232** | **5.0%** |
+
+**Two facts, and together they explain it.**
+
+*First, the constraint is slack in expectation for every arm.* Mean episode cost
+is 0.93–1.55 against limits of 2.68–3.26 — the planner sits **57–65% below its
+own target**. So the violation rate is not set by where the mean sits relative to
+the limit; it is set by **how far the tail reaches**. The worst cost is the number
+that straddles the limit: 4.105 for baseline (over 3.26, hence violations) and
+3.232 for probe+margin (just under). This is the mean-versus-realised mismatch of
+§3.5–§3.6 showing up in the deployment numbers rather than in the theory.
+
+*Second, the policy responds to the tightening by moving further than the
+tightening.* The margin lowers the effective limit by **0.583** (3.260 → 2.677).
+The dual responds by lowering the mean cost by **0.484** (1.414 → 0.930) and the
+worst cost by **0.873** (4.105 → 3.232). The tail contracts by half as much again
+as the target moved.
+
+**So the over-coverage is a deployment effect, not a calibration error.** The
+quantile is computed on residuals gathered under one policy and then applied to a
+limit that *changes the policy*; the new policy's cost distribution is tighter
+than the one calibrated against. The conformal step is correct and the shift
+happens after it. `run_flood_margin.py`'s own summary note has flagged this
+hazard all along — *"the margin is calibrated at the margin-free plan a0 and
+deployed at a1 = plan(q)"* — and this is that effect measured on the PDE family.
+
+**What it means for the claims.**
+
+1. **§9.3c's bound is not the explanation, and neither is it contradicted.** The
+   non-exchangeability penalty is one-sided — it permits violation up to
+   `δ + Δ` — so an over-covering result sits inside it trivially. The two
+   sections answer different questions: §9.3c bounds how bad it *could* get,
+   §9.3d explains why it is *better* than asked.
+2. **The margin is conservative for a reason we can now name**, which is worth
+   more than conservatism we cannot. Reporting 5.0% against a requested 10% is
+   defensible when accompanied by *why*; without it a reviewer reasonably asks
+   whether the quantile is simply mis-computed.
+3. **It sharpens the safety claim rather than weakening it.** The recipe does not
+   merely hit its stated rate — on this family it beats it, because tightening the
+   target moves the whole cost distribution and not just its upper tail.
+
+**Is the over-coverage predictable? No — and the reason is worth more than a yes
+would have been (2026-09-30).** If the 0.484 mean shift could be anticipated from
+calibration data, the margin could be sized tighter and the return cost lowered.
+Testing it on the 20 seeds:
+
+| quantity | mean | sd |
+|---|---|---|
+| margin `q` | 0.5831 | 0.1218 |
+| policy mean shift | 0.4843 | **1.4314** |
+| ratio shift / q | 1.009 | **2.375** |
+
+The shift is **not** predictable from the margin (r = −0.418, p = 0.067 — weak,
+marginal, and the wrong sign). It *appears* strongly predictable from the
+baseline's own mean cost (r = +0.859, p < 0.0001), and that is a trap: `shift`
+is *defined* as `baseline − margined`, and
+
+    corr(baseline mean cost, margined mean cost) = **+0.090, p = 0.71**
+
+so the two arms are essentially **uncorrelated**. With `margined` carrying no
+information about `baseline`, the correlation of `shift` with `baseline` is
+mechanical — predicted at `sd(baseline)/sd(shift) = 1.296/1.431 = 0.91` against
+the 0.859 measured. The apparent predictor is the definition looking back at
+itself.
+
+**What the r = 0.090 actually says, and it is the finding.** The margined
+policy's cost is *independent of where the unmargined policy sat*. The margin
+does not move a policy down by some amount; it relocates it to a level unrelated
+to its starting point. That is why the shift has an sd three times its own mean
+and why `shift/q` ranges over a factor of two in each direction.
+
+So the over-coverage cannot be anticipated and the margin cannot be tightened on
+this basis. The conservatism stays, it stays explained (§9.3d), and it stays
+unpredictable per seed — which is a limitation to state rather than a knob to
+turn.
+
+### 9.3c The cost of non-exchangeability, measured (2026-09-30)
+
+§8.5's T2.1, and the deepest objection in the external read: *"the exchangeability
+assumption needed for coverage is questionable under a changing policy."* §9.3a
+confirmed it is worse than questionable on rdf — the lag-1 test rejects on all
+three seeds. The right answer to a violated assumption is not to defend it but to
+**bound what violating it costs**.
+
+**The tool.** [Barber, Candès, Ramdas & Tibshirani, 2023, *Conformal prediction
+beyond exchangeability*] replaces the exchangeability requirement with a penalty:
+
+    coverage  ≥  1 − δ − Δ ,      Δ = Σᵢ wᵢ · d_TV(Z, Z^(σᵢ)) / Σᵢ wᵢ
+
+where `Z^(σᵢ)` swaps calibration point *i* with the test point. Equivalently the
+realised violation rate obeys `viol ≤ δ + Δ`. The guarantee never breaks; it
+degrades by a quantity that can be *measured*.
+
+**Instantiating it here, with the inequality in the safe direction.** The exact Δ
+needs the raw score sequence and a swap-based computation, which the runs did not
+persist (now fixed). What they did record is the **KS statistic between the first
+and last third of the sequence**, and for any two distributions
+
+    KS  ≤  d_TV
+
+so `δ + KS` is a **tighter** bound than `δ + Δ`. Anything clearing the tighter one
+clears the true one a fortiori. `runs/exchangeability_rdf/`, δ = 0.1:
+
+| seed | KS drift | realised violation | excess over δ | δ + KS | within? | budget used |
+|---|---|---|---|---|---|---|
+| 0 | 0.1132 | 0.1313 | +0.0312 | 0.2132 | **yes** | 27.6% |
+| 1 | 0.0660 | 0.0813 | −0.0188 | 0.1660 | **yes** | 0% (over-covers) |
+| 2 | 0.1038 | 0.1187 | +0.0187 | 0.2038 | **yes** | 18.1% |
+| **mean** | **0.0943** | **0.1104** | **+0.0104** | **0.1943** | **yes** | **11.0%** |
+
+**The measured drift permits a violation rate of 0.194; the realised rate is
+0.110.** The coverage penalty from non-exchangeability is real, it is bounded by
+a quantity we can measure on any run, and on rdf the margin spends **11%** of that
+budget.
+
+**This is what the paper should say instead of assuming exchangeability.** Not
+*"the scores are exchangeable"* — §9.3a shows they are not — but:
+
+> The guarantee degrades by at most the distributional drift in the calibration
+> sequence. On the family carrying our headline result that drift is KS = 0.094,
+> permitting a violation rate of 0.194 at δ = 0.1, and the realised rate is 0.110.
+
+That converts the reviewer's objection from an unaddressed assumption into a
+reported number, which is the whole point of T2.1.
+
+**EXACT COMPUTATION (2026-09-30, jobs 1038067/1038293) — and it corrects the
+framing above.** With the raw score sequences now persisted, Δ can be computed
+rather than bounded. Instantiating it as `d_TV(calibration half, test half)` on
+320 scores per seed gives 0.2000, against the KS proxy's 0.0943 — consistent
+with KS ≤ d_TV, and apparently leaving the margin using only 5.2% of its
+allowance.
+
+**That number is an artefact.** A binned total-variation estimator is biased
+upward at finite samples, and the size of that bias is measurable: shuffle the
+sequence, which makes it exchangeable by construction so its true TV is zero,
+and re-estimate.
+
+| bins | measured TV | shuffled null (true TV = 0) | excess |
+|---|---|---|---|
+| 10 | 0.1000 | 0.1020 | −0.0020 |
+| 20 | 0.1542 | 0.1533 | +0.0008 |
+| 30 | 0.2000 | 0.1872 | +0.0128 |
+| 50 | 0.2229 | 0.2431 | −0.0202 |
+| 80 | 0.2812 | 0.3003 | −0.0190 |
+
+**The real data is indistinguishable from the shuffled null at every bin count.**
+The excess hovers around zero and changes sign. So the measured 0.2000 is the
+estimator's noise floor at n = 160 per half, not a measurement of drift, and the
+same applies to the KS statistic that §9.3c used.
+
+**Reconciling this with §9.3a, which is the useful part.** The lag-1 permutation
+test rejects exchangeability decisively (p = 0.000, 0.002, 0.000) while KS does
+not reject and TV is at its noise floor. Those are consistent, because they test
+different things:
+
+| test | what it detects | result on rdf |
+|---|---|---|
+| lag-1 permutation | **serial dependence** (ordering) | **rejects** |
+| KS, first vs last third | marginal **shift** over the run | does not reject |
+| d_TV(cal half, test half) | marginal **shift** between halves | at the noise floor |
+
+A sequence can be strongly autocorrelated while both halves have identical
+marginals — which is exactly what rdf's calibration scores are. Consecutive
+probes see consecutive policies, so neighbouring scores are correlated; the
+*distribution* they are drawn from does not move.
+
+**What this means for the bound.** Barber et al.'s Δ sums total variations over
+**point swaps** `d_TV(Z, Z^(σᵢ))`, which is sensitive to dependence structure.
+Instantiating it as a two-sample distance between halves only captures *shift*,
+and shift here is ≈ 0. So:
+
+> The non-exchangeability on rdf is **dependence, not drift**. The drift
+> component of the coverage penalty is at the limit of what 320 scores can
+> resolve — effectively zero — which is consistent with the realised 0.1104
+> against a requested 0.1000. The dependence component is not captured by a
+> two-sample estimator and remains unquantified.
+
+**Measuring the dependence component (2026-10-01).** A two-sample distance
+cannot see ordering, so the estimator has to condition on it: mean
+`d_TV( P(s_t | s_{t−1} ∈ bin k), P(s_t) )` — how far knowing the *predecessor*
+moves the next score's distribution. Zero under exchangeability, positive under
+serial dependence. Validated against the shuffled null, as before:
+
+| bins | measured | shuffled null | excess |
+|---|---|---|---|
+| 4 | 0.0871 | 0.0683 | **+0.0188** |
+| 6 | 0.1156 | 0.1127 | +0.0030 |
+| 8 | 0.1618 | 0.1557 | +0.0061 |
+| 12 | 0.2528 | 0.2452 | +0.0076 |
+
+**The dependence is real: the excess is positive at every bin count**, where the
+two-sample TV flipped sign. That agrees with the lag-1 test and disagrees with
+the drift tests, which is the expected signature.
+
+**But the estimate is not precise enough to close the bound.** The excess spans
+0.003–0.019, a factor of six, against an observed coverage excess of
+**0.0104** (0.1104 realised, 0.1000 requested). At 4 bins the penalty covers the
+excess (bound 0.1188 > 0.1104); at 6–12 bins it does not (bounds 0.103–0.108 <
+0.1104). So:
+
+> The dependence penalty is **of the right order** to explain the coverage
+> excess — both are ~1 point — but a bin-resolution-dependent estimate spanning
+> 6× cannot establish that it *does*. What is shown is that the excess is small,
+> that it has a measurable source, and that the source is ordering rather than
+> drift.
+
+**Why this estimator is still not Barber's Δ.** Theirs sums `d_TV(Z, Z^(σᵢ))`
+over swaps at *every* calibration position; this conditions on lag 1 only. A
+sequence with longer-range structure would have a larger true Δ than this
+measures, which is the likely reason the 6–12-bin estimates fall short of the
+observed excess. The honest statement is that the dependence component is
+**bounded below** by ~0.003 and **not yet bounded above**, and that closing it
+needs the swap-wise computation rather than a better-tuned histogram.
+
+Two days of work on this question have produced: drift ruled out (≈ 0, §9.3c),
+dependence confirmed and measured to within a factor of six, and the coverage
+excess characterised at ~1 point. The assumption is no longer assumed; it is
+described. It is not yet bounded.
+
+That is a sharper statement than §9.3c's "11% of the budget", and it is the one
+the data supports. It also explains why adaptive conformal bought nothing in
+deployment (§9.3b): adaptive CP corrects for *drift*, and there is none.
+
+**Three honest limits.**
+
+1. **KS is a proxy for Δ, not Δ.** It compares first third to last third, where
+   the theorem sums swap-wise total variations. The inequality runs the safe way,
+   so the conclusion stands, but the *tightness* reported here (11%) is not the
+   tightness of the real bound — with the true Δ ≥ KS the budget used is smaller
+   still, so 11% is an upper estimate of how much of the allowance we spend.
+2. **It does not explain the deployment over-coverage.** §9.3b measured 5.0%
+   realised against 10% requested when the margin is deployed in the planner —
+   conservative, where a violated assumption should if anything make it
+   optimistic. The bound above permits that (it is one-sided) but does not
+   account for it. That gap is still open and is the natural next question.
+3. Three seeds, one probe schedule, one family. The exact Δ computation is now
+   possible — `run_exchangeability.py` persists `scores` — and should be run
+   before submission.
 
 ### 9.3 Conformal prediction for safety
 
@@ -4507,6 +5415,58 @@ That is a stronger and more general claim than the one predicted, and it is
 falsifiable in the same way: a third disagreement-based correction should also
 land near 12%, and a method that bounds realised outcomes by some other route
 should land near 5%.
+
+**SafeDreamer, and the prediction derived from the theorem rather than from
+intuition (2026-09-30).** §8.5's T4.1, run as a pre-registered test. Its
+mechanism is genuinely different from the other two — CAP uses ensemble spread,
+SMBPO ensemble pessimism, SafeDreamer a **learned cost critic fitted to imagined
+rollouts**, a value rather than a statistic of an ensemble. But a critic fitted
+to surrogate rollouts is still a functional of the model, so Proposition 3
+covers it, and Corollary 3.3 says the theorem does not *rank* such methods. The
+prediction recorded in `eval/run_safedreamer_baseline.py` before the run: *land
+near 12%, indistinguishable from CAP and SMBPO, about 7 points worse than ours.*
+
+`runs/safedreamer/`, 5 seeds on rdf, matched sample budget. Run-level:
+
+| arm | corrects using | violating |
+|---|---|---|
+| no margin | — | 14.09% |
+| CAP | adaptive mean + k·σ of ensemble spread | 11.99% |
+| SMBPO | unadapted max over ensemble | 12.20% |
+| **SafeDreamer** | **learned cost critic on imagined rollouts** | **13.17%** |
+| **ours** | conformal quantile of realised cost | **5.00%** |
+
+| comparison | Δ | 95% CI | p |
+|---|---|---|---|
+| SafeDreamer − ours | **+8.17** | [+2.91, +13.50] | **0.040** |
+| SafeDreamer − CAP | +1.18 | [−3.90, +6.30] | 0.914 |
+| SafeDreamer − SMBPO | +0.98 | [−3.90, +6.34] | 1.000 |
+| SafeDreamer − no margin | −0.92 | [−7.09, +5.25] | 0.972 |
+
+**Every clause of the prediction holds.** It lands at 13.17% against a predicted
+~12%; it is indistinguishable from CAP (p = 0.91) and from SMBPO (p = 1.00); it
+loses to ours by 8.17 points against a predicted ~7; and — the clause that
+matters most — **it is not distinguishable from applying no margin at all**
+(p = 0.97), the same verdict CAP and SMBPO earned.
+
+**Three mechanisms, one answer.** An adapted second moment, an unadapted maximum,
+and a learned value function all land between 11.99% and 13.17%, mutually
+indistinguishable, none of them better than doing nothing, while conformalising
+the realised cost sits at 5.00%. The methods have almost nothing in common except
+the distribution they are computed on, and that is what the result isolates:
+
+> **How you estimate model uncertainty does not matter. Which distribution you
+> bound does.** Under an expectation constraint, every correction measurable from
+> the model-error distribution fails once ρ > 1, regardless of its sophistication
+> — Proposition 3 — and three published methods spanning spread, pessimism and
+> learned value all demonstrate it.
+
+**And the prediction was right this time because it came from the theorem.**
+§9.2a's earlier attempt — that SMBPO would lose by *more* than CAP — was an
+intuition written after the mechanism, and it failed. This one was derived from
+Proposition 3, which explicitly declines to rank such methods, and all four
+clauses held. That is the difference, and it is the argument for deriving before
+predicting rather than the reverse.
 
 **Rule 41: when a prediction fails, check whether the failure refutes the
 mechanism or generalises it.** This one generalised it — the mechanism said

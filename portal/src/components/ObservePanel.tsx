@@ -72,11 +72,16 @@ export function ObservePanel({
       <button
         onClick={run}
         disabled={busy || !bounds}
+        title={!bounds ? "Waiting for the map to load" : "Fetch the most recent radar satellite pass over this area"}
         className="w-full rounded border border-line bg-bg-raised px-3 py-2
                    text-[13px] text-ink transition-colors hover:border-accent/50
                    disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {busy ? "Checking the last overpass…" : "Check the latest Sentinel-1 pass"}
+        {busy
+          ? "Looking at the latest satellite pass…"
+          : !bounds
+            ? "Loading the map first…"
+            : "See what the satellite saw"}
       </button>
 
       {err && <p className="mt-2 text-[12px] leading-snug text-ink-mute">{err}</p>}

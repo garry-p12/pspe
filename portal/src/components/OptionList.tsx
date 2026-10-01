@@ -90,7 +90,7 @@ export function OptionList({
       </p>
 
       <div className="mt-4 flex items-center justify-between">
-        <h3 className="eyebrow">Options</h3>
+        <h3 className="eyebrow">Step 2 — pick a wall, or several</h3>
         <div className="flex gap-1">
           {(["all", "helps", "worsens"] as const).map((f) => (
             <button
@@ -125,6 +125,24 @@ export function OptionList({
                     sel ? "border-[5px] border-ink" : "border-line"
                   }`}
                 />
+                <span className="flex shrink-0 gap-1" aria-hidden>
+                  {o.heights
+                    .map((h, si) => ({ h, si }))
+                    .filter((x) => x.h > 0)
+                    .map((x) => (
+                      <span
+                        key={x.si}
+                        className={`flex h-[18px] w-[18px] items-center justify-center rounded-full
+                                    text-[11px] font-semibold ${
+                          d < 0
+                            ? "bg-ink text-bg"
+                            : "bg-[var(--warn,#dc2626)] text-white"
+                        }`}
+                      >
+                        {x.si}
+                      </span>
+                    ))}
+                </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
                     <span className="truncate text-[13px] font-medium text-ink">{title}</span>
