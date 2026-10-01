@@ -53,7 +53,7 @@ class RouteBrief:
     cut_roads: list[str] = field(default_factory=list)
 
 
-def context_from(out: dict, g) -> dict:
+def context_from(out: dict) -> dict:
     """Pull the claims out of a `/route` response. One source, not two.
 
     The brief is built from the same record the map is drawn from, so there is
@@ -77,7 +77,11 @@ def context_from(out: dict, g) -> dict:
         "direct_cuts": [c for c in (out.get("direct_road_cuts") or [])],
         "dry_minutes": ((out.get("dry_route") or {}) or {}).get("minutes"),
         "vehicle_depth_m": out.get("vehicle_depth_m"),
+        # The cut length at t=0 is always about zero -- every run starts dry --
+        # so a brief that denies a route must quote the flood that denied it,
+        # not the state before it arrived.
         "cut_km_now": out.get("cut_km_now"),
+        "cut_km_peak": out.get("cut_km_peak"),
         "network_km": out.get("network_km"),
         "static_minutes": ((out.get("static_route") or {}) or {}).get("minutes"),
     }
@@ -93,8 +97,8 @@ def render(ctx: dict) -> str:
         for c in ctx["direct_cuts"][:3]:
             parts.append(f"Cut: {c['name'] or 'an unnamed road'} under "
                          f"{cm(c['depth_m'])} cm.")
-        parts.append(f"{ctx['cut_km_now']:.0f} km of {ctx['network_km']:.0f} km "
-                     f"is impassable.")
+        parts.append(f"Up to {ctx['cut_km_peak'] or 0:.0f} km of "
+                     f"{ctx['network_km']:.0f} km is impassable.")
         return " ".join(parts)
 
     if ctx["leave_now"]:
@@ -174,6 +178,26 @@ def parse(text: str) -> RouteBrief:
     return b
 
 
+def checked(out: dict) -> tuple[str | None, dict]:
+    """Render a brief and refuse to return one that misdescribes the plan.
+
+    The module's whole premise is that an explanation which disagrees with the
+    decision is worse than no explanation, and `faithfulness` can tell the
+    difference. Scoring it offline proves the renderer worked on the day it was
+    written; scoring it here makes it a property of every response, the way
+    `margins.conformal_quantile` returns None rather than a number it cannot
+    support. A brief that does not round-trip is withheld, and the structured
+    fields -- which the interface renders anyway, and which the brief is only a
+    summary of -- stand on their own.
+    """
+    ctx = context_from(out)
+    text = render(ctx)
+    score, bad = faithfulness(text, ctx)
+    report = {"faithfulness": round(score, 4), "mismatched": bad,
+              "withheld": score < 1.0}
+    return (text if score >= 1.0 else None), report
+
+
 def faithfulness(text: str, ctx: dict) -> tuple[float, list[str]]:
     """Fraction of the brief's checkable claims that match the plan.
 
@@ -189,6 +213,17 @@ def faithfulness(text: str, ctx: dict) -> tuple[float, list[str]]:
     want = ("impossible" if not ctx["ok"] else
             "now" if ctx["leave_now"] else "later")
     checks.append(("decision", b.decision == want))
+
+    if not ctx["ok"]:
+        # The no-route branch makes claims too, and checking only the verdict
+        # let through "no way is passable" beside "0 km is impassable" -- two
+        # sentences of the same brief disagreeing, scored 1.000. The weakest
+        # part of a guard is wherever it stops looking.
+        named = [c["name"] or "an unnamed road" for c in ctx["direct_cuts"][:3]]
+        checks.append(("cut_roads", b.cut_roads == named))
+        checks.append(("cut_km", f"{ctx['cut_km_peak'] or 0:.0f} km" in text))
+        checks.append(("not_self_contradictory",
+                       (ctx["cut_km_peak"] or 0) > 0))
 
     if ctx["ok"]:
         checks.append(("minutes", b.minutes is not None and

@@ -1,0 +1,53 @@
+{
+ "ok": true,
+ "leave_now": false,
+ "deadline_min": null,
+ "vehicle_depth_m": 0.25,
+ "network_km": 212.5,
+ "cut_km_now": 0.0,
+ "cut_km_peak": 117.1,
+ "direct_road_cuts": [
+  {
+   "name": "Casino Street",
+   "class": "primary",
+   "depth_m": 1.473,
+   "km_along": 2.23,
+   "minutes_after_leaving": 540.1,
+   "passable": false
+  }
+ ],
+ "direct_road_cuts_at_deadline": [],
+ "span_km": 2.2,
+ "dx_m": 50.0,
+ "route": null,
+ "dry_route": {
+  "ok": true,
+  "minutes": 2.8,
+  "km": 3.2,
+  "max_depth_m": 0.0,
+  "via": [
+   "Ballina Road",
+   "B60",
+   "Ballina Road",
+   "B60",
+   "Union Street",
+   "Unnamed road",
+   "Casino Street",
+   "Unnamed road"
+  ],
+  "depart_min": 0.0,
+  "water_on_the_way": [
+   {
+    "name": "Casino Street",
+    "class": "primary",
+    "depth_m": 1.473,
+    "km_along": 2.23,
+    "minutes_after_leaving": 540.1,
+    "passable": false
+   }
+  ]
+ },
+ "static_route": null,
+ "deadline_route": null,
+ "_fixture": "Trimmed from a real /route response; the rasters and road geometry are dropped because the brief is built from the decision record alone. 2.2 km across Lismore under the same stage: nothing is passable"
+}

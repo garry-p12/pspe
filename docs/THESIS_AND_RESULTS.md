@@ -4405,6 +4405,47 @@ not against a fixture. The brief for this trip:
 Generated from the same record the line on the map is drawn from, so the words
 and the map cannot disagree about which roads or how deep.
 
+**And the check is now in the live path, not just in this section.** Scoring a
+brief offline proves the renderer worked on the day it was written.
+`route_brief.checked` scores every response and **withholds** a brief that does
+not round-trip, which is the Explain stage's version of what
+`margins.conformal_quantile` already does by returning `None` rather than a
+number it cannot support. The score and the names of any mismatched claims
+travel in the response as `brief_check`, so the guarantee is auditable from
+outside the service rather than asserted inside it; the interface then shows the
+structured fields with a line saying the summary was withheld and why.
+
+A guard that has never been seen to fire is indistinguishable from no guard, so
+`eval/run_brief_guard.py` breaks the shipped brief in the ways a drifting
+renderer realistically would and checks each is caught *and named*. On a
+route-found payload: wrong distance, wrong duration, wrong departure call, wrong
+deadline, water invented on a dry route — all five caught, faithfulness falling
+from 1.000 to 0.857 with the altered claim flagged (`km`, `minutes`, `decision`,
+`deadline`, `deepest`).
+
+**And the guard's first live run found the guard's own blind spot.** A 2.2 km
+trip across Lismore under a 7,500 m³/s river stage correctly returned *no
+route*, and shipped this, scored 1.000:
+
+> No route. Every way through is under more water than 25 cm. Cut: Casino Street
+> under 147 cm. **0 km of 212 km is impassable.**
+
+The last two sentences contradict the first. Two faults, one in each half of the
+system. The brief was quoting the cut length **at t = 0**, which is structurally
+about zero because every run starts dry — so a brief denying a route was
+describing the state before the flood that denied it. And `faithfulness` was
+checking only the *departure call* on a no-route brief, so the contradiction was
+in a part of the text the guard had stopped looking at. The weakest part of a
+guard is wherever it stops.
+
+Both fixed: the no-route branch now quotes the peak ("Up to 117 km of 212 km is
+impassable"), and the check covers the cut roads, the cut length, and that the
+figure is non-zero at all. Re-scored, the old sentence falls to **0.750 and is
+withheld**, flagged `cut_km`; the route-found payload is unaffected. The same
+t = 0 figure was also on the interface as "impassable now", and is now the peak.
+Both payloads are kept as regressions — 7 drifts across 2 branches,
+all caught.
+
 | # | defect | effect | how it was caught | § |
 |---|---|---|---|---|
 | 38 | Stated storm multiple formatted with `:.0f` | the driver note read "2x the forecast peak of 3,000 m3/s" directly beside the 7,500 m3/s it applied — a 2.5x scale printed as 2x, in the one sentence written to let a reader check the forcing | reading the note beside the number it describes | 5.14 |
@@ -4430,6 +4471,20 @@ conformal machinery of §5.13 sets the constraint level. The solver batches, so
 an ensemble costs almost nothing to generate; what is missing is the policy and
 its evaluation, and that is the honest next experiment rather than something
 this section claims.
+
+**A resolution rule that made short trips the expensive ones.** `dx =
+width / 250` bounds the grid, which is the obvious thing to bound, and it is the
+wrong one on its own. Solve cost goes as cells squared per step times a step
+count that rises as the timestep falls, and the CFL timestep is proportional to
+`dx` — so with the cell count capped, cost goes as `1/dx` and a *finer* grid is
+slower. Since `dx` falls with the box, the worst case is a box sitting on the
+floor of the `dx` range, and that is exactly a short trip across one town: a
+2.6 km trip to Lismore Base Hospital was heading past ten minutes while the
+20 km trip to Coraki took 104 s. Raising the floor from 30 m to 50 m puts that
+case near two minutes and changes nothing for trips of 20 km or more, whose `dx`
+is set by the cell cap rather than the floor. Worth recording because the
+mistake was not in the arithmetic but in bounding one resource and assuming the
+other followed.
 
 **One robustness fix, prompted by the wait.** Overpass rate-limited during
 this work and a fetch ran past eight minutes. `fetch_roads` raises when every

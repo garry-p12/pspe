@@ -1,0 +1,166 @@
+{
+ "ok": true,
+ "leave_now": true,
+ "deadline_min": 210.0,
+ "vehicle_depth_m": 0.25,
+ "network_km": 1345.8,
+ "cut_km_now": 0.0,
+ "cut_km_peak": 362.3,
+ "direct_road_cuts": [],
+ "direct_road_cuts_at_deadline": [
+  {
+   "name": "Coraki Road",
+   "class": "secondary",
+   "depth_m": 1.036,
+   "km_along": 14.19,
+   "minutes_after_leaving": 12.1,
+   "passable": false
+  },
+  {
+   "name": "Coraki Road",
+   "class": "secondary",
+   "depth_m": 2.064,
+   "km_along": 16.04,
+   "minutes_after_leaving": 13.7,
+   "passable": false
+  },
+  {
+   "name": "Coraki Road",
+   "class": "secondary",
+   "depth_m": 1.166,
+   "km_along": 16.42,
+   "minutes_after_leaving": 14.0,
+   "passable": false
+  },
+  {
+   "name": "Coraki Road",
+   "class": "secondary",
+   "depth_m": 2.862,
+   "km_along": 16.46,
+   "minutes_after_leaving": 14.1,
+   "passable": false
+  },
+  {
+   "name": "Coraki Road",
+   "class": "secondary",
+   "depth_m": 3.194,
+   "km_along": 17.26,
+   "minutes_after_leaving": 14.8,
+   "passable": false
+  },
+  {
+   "name": "Coraki Road",
+   "class": "secondary",
+   "depth_m": 3.051,
+   "km_along": 19.81,
+   "minutes_after_leaving": 16.9,
+   "passable": false
+  },
+  {
+   "name": "Coraki Road",
+   "class": "secondary",
+   "depth_m": 1.681,
+   "km_along": 20.55,
+   "minutes_after_leaving": 17.6,
+   "passable": false
+  },
+  {
+   "name": "Dawson Street",
+   "class": "secondary",
+   "depth_m": 0.815,
+   "km_along": 22.19,
+   "minutes_after_leaving": 19.0,
+   "passable": false
+  },
+  {
+   "name": "Queen Elizabeth Drive",
+   "class": "secondary",
+   "depth_m": 0.815,
+   "km_along": 22.44,
+   "minutes_after_leaving": 19.2,
+   "passable": false
+  },
+  {
+   "name": "Queen Elizabeth Drive",
+   "class": "secondary",
+   "depth_m": 0.49,
+   "km_along": 22.88,
+   "minutes_after_leaving": 19.6,
+   "passable": false
+  },
+  {
+   "name": "Minto Street",
+   "class": "residential",
+   "depth_m": 0.49,
+   "km_along": 23.11,
+   "minutes_after_leaving": 19.8,
+   "passable": false
+  },
+  {
+   "name": "Martin Street",
+   "class": "residential",
+   "depth_m": 1.207,
+   "km_along": 23.13,
+   "minutes_after_leaving": 19.8,
+   "passable": false
+  }
+ ],
+ "span_km": 20.2,
+ "dx_m": 130.0,
+ "route": {
+  "ok": true,
+  "minutes": 22.2,
+  "km": 24.8,
+  "max_depth_m": 0.0,
+  "via": [
+   "Ballina Road",
+   "B60 (+1)",
+   "Ballina Road",
+   "B60 (+1)",
+   "Wyrallah Road",
+   "24",
+   "Wyrallah Road",
+   "Emily Street"
+  ],
+  "depart_min": 0.0,
+  "water_on_the_way": []
+ },
+ "dry_route": {
+  "ok": true,
+  "minutes": 22.2,
+  "km": 24.8,
+  "max_depth_m": 0.0,
+  "via": [
+   "Ballina Road",
+   "B60 (+1)",
+   "Ballina Road",
+   "B60 (+1)",
+   "Wyrallah Road",
+   "24",
+   "Wyrallah Road",
+   "Emily Street"
+  ],
+  "depart_min": 0.0,
+  "water_on_the_way": []
+ },
+ "static_route": null,
+ "deadline_route": {
+  "ok": true,
+  "minutes": 25.5,
+  "km": 27.71,
+  "max_depth_m": 0.0,
+  "via": [
+   "Ballina Road",
+   "B60 (+1)",
+   "Ballina Road",
+   "B60 (+1)",
+   "Wyrallah Road",
+   "24",
+   "Wyrallah Road",
+   "Emily Street"
+  ],
+  "depart_min": 210.0,
+  "water_on_the_way": []
+ },
+ "_fixture": "Trimmed from a real /route response; the rasters and road geometry are dropped because the brief is built from the decision record alone. Lismore to Coraki, 25 cm car threshold, river stage: a route exists"
+}

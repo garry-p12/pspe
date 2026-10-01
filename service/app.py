@@ -982,13 +982,26 @@ def route_between(req: RouteRequest) -> dict:
     # twenty minutes or quietly returning a grid too coarse to mean anything.
     width_m = (box["east"] - box["west"]) * 111_320 * math.cos(math.radians(mid_lat))
     target_cells = 250
-    dx = req.dx or max(30.0, 10.0 * round(width_m / target_cells / 10.0))
-    if dx > 240.0:
+    # Two bounds, and the floor is the one that is easy to miss. Solve cost goes
+    # as cells^2 per step times a step count that rises as the timestep falls,
+    # and the CFL timestep is proportional to dx -- so with the cell count
+    # capped, cost goes as 1/dx and a FINER grid is slower. dx falls with the
+    # box, so without a floor the worst case is a box sitting right on it,
+    # which is exactly a short trip across a town: a 2.6 km trip to the
+    # hospital was heading for ~10 minutes while a 20 km trip took 104 s. The
+    # 50 m floor puts that case at about two minutes, and 50 m is still finer
+    # than anything else in this tool resolves a flood at.
+    derived = 10.0 * round(width_m / target_cells / 10.0)
+    if derived > 240.0:
         return {"ok": False, "reason":
                 f"Those points are {span_km:.0f} km apart. One domain covering "
                 f"both would need cells coarser than 240 m, at which a 2 m flood "
                 f"on a road is a rounding error. Route between closer points, or "
                 f"split the trip."}
+    # An explicit ask is honoured down to 30 m; the derived value keeps the
+    # floor, because nobody asked for a ten-minute wait on a 2 km trip.
+    dx = (min(240.0, max(30.0, float(req.dx))) if req.dx
+          else min(240.0, max(50.0, derived)))
 
     snap_h = [req.run_hours * i / (req.snapshots - 1) for i in range(req.snapshots)]
     # Everything the flood depends on, and nothing the vehicle does.
@@ -1151,7 +1164,10 @@ def route_between(req: RouteRequest) -> dict:
         "timing": {"seconds": round(time.time() - t0, 1), "steps": steps,
                    "solve_reused": reused},
     }
-    out["brief"] = route_brief.render(route_brief.context_from(out, g))
+    # The brief is scored against the record it describes, and withheld if it
+    # does not match. The score travels with the response so the guarantee is
+    # auditable from the outside rather than asserted here.
+    out["brief"], out["brief_check"] = route_brief.checked(out)
     CACHE[key] = out
     return {**out, "cached": False}
 

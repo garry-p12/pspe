@@ -64,7 +64,9 @@ export interface TripResult {
   depth_png: string; terrain_png: string;
   roads: GeoJSON.FeatureCollection;
   inspect?: unknown;
-  brief: string;
+  /** Null when the written summary did not match the plan and was withheld. */
+  brief: string | null;
+  brief_check?: { faithfulness: number; mismatched: string[]; withheld: boolean };
   timing: { seconds: number; steps: number; solve_reused?: boolean };
   cached?: boolean;
 }
@@ -277,10 +279,27 @@ export function TripPanel({
         <>
           {/* The brief first, because it is the answer. Everything below it is
               the working. */}
-          <div className="mt-5 rounded-xl border border-ink/40 bg-bg-inset px-4 py-3.5">
-            <h3 className="eyebrow">What to do</h3>
-            <p className="mt-1.5 text-[14px] leading-relaxed text-ink">{res.brief}</p>
-          </div>
+          {res.brief ? (
+            <div className="mt-5 rounded-xl border border-ink/40 bg-bg-inset px-4 py-3.5">
+              <h3 className="eyebrow">What to do</h3>
+              <p className="mt-1.5 text-[14px] leading-relaxed text-ink">{res.brief}</p>
+            </div>
+          ) : (
+            /* The written summary is checked against the route record before it
+               is shown, and withheld if it disagrees. Better a missing
+               paragraph than a confident one that names the wrong road. */
+            <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
+              <h3 className="eyebrow">No written summary</h3>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
+                The summary did not match the route it was describing
+                {res.brief_check?.mismatched?.length
+                  ? ` (${res.brief_check.mismatched.join(", ")})`
+                  : ""}
+                , so it has been withheld. The figures below are the route
+                record itself and are unaffected.
+              </p>
+            </div>
+          )}
 
           {r ? (
             <div className="mt-4 rounded-xl border border-line px-4 py-3.5">
@@ -508,9 +527,11 @@ export function TripPanel({
 
           <div className="mt-4 border-t border-line-soft pt-3">
             <p className="anno leading-relaxed">
-              {res.cut_km_now.toFixed(0)} km of the {res.network_km.toFixed(0)} km
-              network is impassable now, {res.cut_km_peak.toFixed(0)} km at the
-              worst of the flood. {res.edges} road segments over a{" "}
+              {/* Not "impassable now": the run starts dry, so the t=0 figure is
+                  always about zero and says nothing about the flood. */}
+              Up to {res.cut_km_peak.toFixed(0)} km of the{" "}
+              {res.network_km.toFixed(0)} km network goes impassable at the worst
+              of this flood. {res.edges} road segments over a{" "}
               {res.span_km.toFixed(0)} km trip at {res.dx_m.toFixed(0)} m cells
               {res.timing.solve_reused
                 ? `, re-routed in ${res.timing.seconds.toFixed(0)}s on the flood already solved for this storm`
