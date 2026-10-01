@@ -292,7 +292,15 @@ def main() -> int:
                         "coverage_fixed": fixed,
                         "coverage_shuffled": shuffled,
                         "coverage_adaptive": adaptive,
-                        "adaptive_mean_delta": round(mean_delta, 4)})
+                        "adaptive_mean_delta": round(mean_delta, 4),
+                        # The raw ordered sequence. Summary statistics cannot
+                        # reconstruct the weighted total-variation term in the
+                        # beyond-exchangeability bound [Barber et al., 2023],
+                        # which needs the scores themselves and a swap-based
+                        # computation (§9.3c had to fall back on the KS
+                        # statistic as a lower bound on d_TV because this was
+                        # not saved). Order matters and is preserved.
+                        "scores": [round(float(x), 6) for x in scores]})
         print(f"[seed {seed}] {rows[-1]}", flush=True)
 
     if not rows:

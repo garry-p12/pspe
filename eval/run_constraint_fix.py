@@ -85,6 +85,19 @@ def main() -> int:
                         help="replace the k-sigma margin with a split-conformal quantile of the "
                              "probe's cost errors, which carries a stated failure rate")
     parser.add_argument("--margin-delta", type=float, default=0.1)
+    parser.add_argument("--task-target", type=float, default=None)
+    parser.add_argument("--task-umax", type=float, default=None)
+    parser.add_argument("--task-budget", type=float, default=None)
+    parser.add_argument("--task-cost-limit", type=float, default=None,
+                        help="override TASK_SPECS for this run only")
+    parser.add_argument("--margin-mode", default="episode",
+                        choices=["model_error", "episode", "residual", "adaptive"],
+                        help="which distribution the conformal quantile is taken "
+                             "over. 'adaptive' is Gibbs-Candes online conformal, "
+                             "which §9.3a promoted from diagnostic to arm after "
+                             "the lag-1 exchangeability test rejected on rdf "
+                             "(p = 0.000/0.002/0.000) while adaptive coverage "
+                             "landed on 0.1000 against a requested 0.1.")
     parser.add_argument("--out", default="runs/constraint_fix")
     args = parser.parse_args()
 
@@ -120,7 +133,18 @@ def main() -> int:
     # sample-efficiency claim, and what the probe arms add to.
     fit_transitions = int(data["states"].shape[0] * data["states"].shape[1])
 
+    # Task overrides go to make_task, so a revived testbed spec can be passed on
+    # the command line instead of editing TASK_SPECS and invalidating every
+    # existing result for that family. §3.4a revived swe at horizon 96 with
+    # target 0.12, u_max 0.14, budget 0.60; this is how that spec is exercised.
+    task_over = {}
+    if args.task_target is not None:     task_over["target_value"] = args.task_target
+    if args.task_umax is not None:       task_over["u_max"] = args.task_umax
+    if args.task_budget is not None:     task_over["budget"] = args.task_budget
+    if args.task_cost_limit is not None: task_over["cost_limit"] = args.task_cost_limit
+
     env_kwargs = dict(testbed=args.testbed, grid=args.grid, horizon=args.horizon,
+                      **task_over,
                       n_actuators=9, device=device, batched=True)
     rows = []
     for name, overrides in arms(args.probe_every, args.margin_k).items():
@@ -139,6 +163,7 @@ def main() -> int:
                               kp=args.kp, ki=args.ki, kd=args.kd,
                               margin_episode_std=args.margin_episode_std,
                               margin_conformal=args.margin_conformal,
+                              margin_mode=args.margin_mode,
                               margin_delta=args.margin_delta,
                               **overrides),
             eval_env=eval_env,

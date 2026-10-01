@@ -424,11 +424,24 @@ def main() -> None:
                 # "coverage" it achieves is an artefact of infeasibility, not of the
                 # recipe. The repo has seen this before as margin collapse (§3.5, 48x),
                 # so detect and label it rather than reporting a misleading pass.
-                infeasible = q_m >= lim
+                # TWO ways a margin can make the comparison meaningless, and
+                # the first version of this guard only caught one.
+                #   (a) q >= limit: the tightened target is negative outright.
+                #   (b) limit - q < the best depth any plan achieves: the target
+                #       is positive but unreachable, so the planner spends its
+                #       whole budget and violates regardless of recipe. Measured
+                #       at budget 0.8: limit 0.05, delta 0.05, q = 0.047 leaves a
+                #       target of 0.003 against an achievable best of 0.0227, and
+                #       every arm read violation = 1.000 while passing check (a).
+                # Either way the coverage is an artefact of infeasibility rather
+                # than a property of the recipe, so label both.
+                target_m = lim - q_m
+                infeasible = (q_m >= lim) or (target_m < d_full_mean)
                 if infeasible:
-                    print(f"  [{arm:12s}] q={q_m:.5f} >= limit {lim}: target is "
-                          f"negative, plan is degenerate -- coverage is not attributable "
-                          f"to the recipe", flush=True)
+                    print(f"  [{arm:12s}] q={q_m:.5f}, limit {lim}, "
+                          f"target {target_m:.5f} vs best achievable "
+                          f"{d_full_mean:.5f}: DEGENERATE -- coverage is "
+                          f"not attributable to the recipe", flush=True)
                 a1 = plan_under_margin(model, reality, args, q_m, gen, starts=plan_starts)
                 q_ev = sample_inflow(args.n_eval, args, gen, device)
                 d_ev = []

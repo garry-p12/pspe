@@ -34,7 +34,48 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
-MODES = ("model_error", "episode", "residual")
+MODES = ("model_error", "episode", "residual", "adaptive")
+
+
+def adaptive_quantile(sequence: Sequence[float], delta: float,
+                      gamma: float = 0.02) -> tuple[float | None, float]:
+    """Gibbs & Candes adaptive conformal, replayed over an ORDERED sequence.
+
+    Split conformal assumes the calibration scores are exchangeable. Section 9.3a
+    measured that assumption on rdf and it FAILS: the lag-1 permutation test
+    rejects on all three seeds (p = 0.000, 0.002, 0.000), because consecutive
+    probes see consecutive policies. The realised coverage there was 0.1104
+    against a requested 0.1000, and this recipe landed on 0.1000 exactly -- which
+    is why it is promoted here from a diagnostic in run_exchangeability.py to a
+    margin anyone can request.
+
+    The level moves against realised error,
+
+        delta_{t+1} = delta_t + gamma * (delta - err_t)
+
+    so a widening score distribution tightens the quantile instead of silently
+    undercovering. Unlike the other modes this one needs the scores IN ORDER;
+    passing a shuffled sequence silently turns it back into split conformal.
+
+    Returns (margin, mean level used). The margin is None when no prefix is long
+    enough to carry the level, matching `conformal_quantile`.
+    """
+    seq = list(sequence)
+    n = len(seq)
+    if n < 4:
+        return None, delta
+    start = max(2, n // 2)
+    d_t, used, q = delta, [], None
+    for i in range(start, n):
+        d_use = min(max(d_t, 1e-3), 0.5)
+        used.append(d_use)
+        q = conformal_quantile(seq[:i], d_use)
+        err = 1.0 if (q is None or seq[i] > q) else 0.0
+        d_t = d_t + gamma * (delta - err)
+    # The margin to deploy is the quantile at the level the run converged to.
+    d_final = min(max(d_t, 1e-3), 0.5)
+    q = conformal_quantile(seq, d_final)
+    return q, (sum(used) / len(used) if used else delta)
 
 
 def conformal_quantile(sample: Sequence[float], delta: float) -> float | None:
@@ -53,7 +94,7 @@ def conformal_quantile(sample: Sequence[float], delta: float) -> float | None:
 
 def margin(mode: str, delta: float, *, model_err: Sequence[float] = (),
            deviations: Sequence[float] = (), residuals: Sequence[float] = (),
-           bias: float = 0.0) -> float:
+           bias: float = 0.0, gamma: float = 0.02) -> float:
     """The margin for `mode`, or 0.0 when the level is not yet attainable.
 
     Margins are clipped at zero: a negative quantile would *loosen* the limit,
@@ -66,6 +107,10 @@ def margin(mode: str, delta: float, *, model_err: Sequence[float] = (),
         return max(0.0, q) if q is not None else 0.0
     if mode == "residual":
         q = conformal_quantile(list(residuals), delta)
+        return max(0.0, q) if q is not None else 0.0
+    if mode == "adaptive":
+        # Ordered residuals: the sequence is the point (see adaptive_quantile).
+        q, _ = adaptive_quantile(list(residuals), delta, gamma)
         return max(0.0, q) if q is not None else 0.0
     q = conformal_quantile(list(deviations), delta)
     return 0.0 if q is None else max(0.0, q) + max(0.0, bias)
