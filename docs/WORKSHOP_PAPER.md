@@ -15,8 +15,12 @@ learned or reduced-order model inherits that model's errors, and nobody says by 
 much.
 
 We contribute a safety margin for decisions made inside an imperfect simulator. The
-margin is a conformal quantile of the **realised cost distribution** — not of model
-error, and not of ensemble disagreement, both of which we show fail. On a
+margin is a conformal quantile of the **realised cost distribution** rather than of
+model error or ensemble disagreement, and we prove this is forced rather than
+preferred: no margin measurable from the model-error distribution alone attains a
+stated level uniformly in the spread of realised cost. Model-error margins are the
+right instrument for a pointwise guarantee and the wrong one under an expectation
+constraint. Both alternatives fail in experiment as the theorem predicts. On a
 reaction–diffusion hazard it cuts constraint violations from 14.1% to 5.0% (20
 seeds, paired difference −9.1 points, 95% CI [−11.8, −5.5], p = 0.0002) at **no cost
 in objective value**, and it beats a published model-based safe-RL method by 7.0
@@ -84,15 +88,36 @@ that is biased.
 
 The obvious fix is to inflate the cost estimate by how wrong the model is. We tried
 that, and it made things worse — violations rose from 14.5% to 18.2%. The reason is
-structural and is our main conceptual point:
+our main conceptual point, and it is worth stating with its scope attached, because
+the unqualified version is both less accurate and less interesting:
 
-> Under an *expectation* constraint, what carries a trajectory over the limit is not
-> how wrong the model is on average. It is the **spread of realised cost from
-> episode to episode**. A margin built on model error bounds the wrong
-> distribution.
+> A model-error margin is the **right** instrument for a pointwise guarantee — bound
+> the error at each state and you bound the state. It is the **wrong** instrument
+> under an *expectation* constraint, where what carries a trajectory over the limit
+> is not how wrong the model is on average but the **spread of realised cost from
+> episode to episode**. The two distributions are different objects, and the
+> constraint picks which one you need.
 
-The same argument predicts that **ensemble disagreement** will also fail, since it
-too estimates model wrongness rather than outcome spread. We test that below.
+This is a theorem, not a preference. Write `R(q; σ)` for the realised violation rate
+of a margin `q` when realised cost has spread `σ`.
+
+> **Proposition (separation).** Let `Q` be any margin rule that is a measurable
+> function of the model-error distribution alone. Then `R` is strictly increasing in
+> `σ`, tends to ½ as `σ → ∞` for symmetric error, and exceeds δ for every
+> `σ > (Q − b)/z_δ`. Hence **no margin measurable with respect to model error alone
+> attains level δ uniformly in σ.**
+
+The proof is three lines and we give it in the technical report; the content is not
+the difficulty but the statement, which says the choice of distribution is a
+feasibility constraint rather than a modelling taste. For Gaussian error it closes
+to `R(ρ) = 1 − Φ(z_δ/ρ)` with `ρ = σ/ε`, which predicts the failure *quantitatively*
+from one dimensionless ratio — including that requesting a **stricter** guarantee
+from the wrong distribution makes matters worse, the default's error growing from
+1.2× at δ = 0.30 to 3.7× at δ = 0.02.
+
+The same proposition covers **ensemble disagreement**, which is also a function of
+model wrongness and not of outcome spread. We test it below rather than resting on
+the theory.
 
 ### 2.2 The margin
 
@@ -386,6 +411,58 @@ quietly ranking them last.
 That sequence is the contribution made operable: plan in the surrogate, bound the
 error against reality, state what you would still verify before committing.
 
+### 5.2a The question an operator actually asks: can we get out, and by when
+
+Levee placement is a planning question answered months in advance. On the night,
+the question is a trip: *I am here, I need to get there, what do I do.* We added
+that, and it turned out to be the sharpest demonstration of why a twin has to
+simulate rather than only map.
+
+The forcing is a **stated design discharge** (3,000 m³/s on the Wilsons River,
+scaled 2.5× by the severe-storm preset to 7,500), not today's gauge reading: the
+numbers below are a design event, and a box that happens not to contain a detected
+through-channel falls back to rainfall and floods nothing, which we have seen and
+which the interface says.
+
+Give the portal two places. It derives everything else — a box containing both
+with room to detour, at a resolution chosen to keep the solve interactive — fetches
+terrain, solves the flood across it, pulls the road network from OpenStreetMap, and
+routes. **Lismore to Coraki, 20 km, 4,120 road segments, 104 s end to end.**
+
+The flood is carried as a **schedule**, not a peak: the solver emits instantaneous
+depth at 13 times across the run, and a road is usable for a crossing only if it
+stays under the vehicle's depth for the whole time the vehicle is on it. That one
+change decides the answer:
+
+| what the operator is told | result |
+|---|---|
+| routed against the **peak** depth field | **no route exists** |
+| routed against the **schedule**, leaving now | 22 min, 24.8 km, no standing water |
+| the same trip at the last possible departure | 25.5 min, 27.7 km, **a different road** |
+| how long the trip stays possible | **3h30** |
+
+A peak-depth map — the standard output of every flood twin, ours included — is the
+union of states that never coexist. Routing on it refuses roads that are dry when
+the driver passes them, and so tells this operator there is no way out of Lismore.
+There is, for three and a half hours. Leave at the deadline and the route is a
+different road, because by then Coraki Road is under 1.0–2.9 m where the direct line
+crosses it. None of that is computable from a peak.
+
+The routing itself is a time-dependent shortest path solved exactly, with waiting
+permitted — not a learned policy, and we say so because the temptation to dress
+Dijkstra as planning is exactly the kind of overclaim this paper is otherwise
+arguing against. What the framework contributes here is the schedule (Simulate), the
+time-dependent search (Plan), and a written brief that is **scored against the route
+it describes and withheld if it disagrees** (Explain) — the same refusal discipline
+as the margin, applied to prose. The brief is parseable, faithfulness is computed on
+every response, and a test deliberately drifts it seven ways to confirm the guard
+fires.
+
+What we do not claim: the deadline is conditional on the storm arriving as modelled.
+It is one realisation, not an ensemble, and making it robust to a wrong forecast is
+a sequential decision problem under partial observation that we have scoped and not
+solved.
+
 ### 5.3 The bug that justifies the whole margin apparatus
 
 Our own portal displayed a confidence it had no data to support. It showed
@@ -421,6 +498,12 @@ buys over a trained policy on real fire data: 21 points that survive the best
 distillation recipe we could implement. For heterogeneous, rare, high-consequence
 events, that is the argument for keeping a solver in the loop.
 
+**Decisions a map cannot support.** §5.2a is the clearest case: the same flood,
+the same network, and the standard peak-depth output says *no route out* where a
+time-resolved solve finds one with three and a half hours of margin. Anything an
+operator decides against a union of states that never coexist is decided against a
+scenario that never happens.
+
 **A testable standard for "our assimilation is good enough."** §3.2's EnKF sweep is
 a template: rather than asserting a simple correction suffices, run the classical
 filter with its error term swept and show where the optimum sits.
@@ -434,8 +517,18 @@ filter with its error term swept and show where the optimum sits.
 - **One validated flood event**, at CSI 0.53 against satellite.
 - **The guarantee is marginal, not per-step**: it bounds the probability that a
   trajectory's total cost exceeds the limit, not the cost at every timestep.
-- **Exchangeability is assumed** across a learning run, and we test but do not prove
-  it.
+- **The evacuation deadline is one realisation, not a forecast distribution.**
+  §5.2a's "3h30" is conditional on the storm arriving as modelled. Making it robust
+  to a wrong forecast is a sequential problem under partial observation; we scope it
+  and do not solve it.
+- **Exchangeability is tested, and on one of the two testbeds it fails.** Scores
+  collected during a learning run show significant lag-1 serial dependence on rdf
+  (p indistinguishable from zero, three seeds) with no drift and no distribution
+  shift — dependent, not drifting. The margin attains its level on both testbeds
+  regardless (miscoverage 0.0771 and 0.0854 against δ = 0.1), which is what the
+  beyond-exchangeability bound predicts for dependence that inflates the quantile's
+  variance without biasing it. We report this rather than the easier sentence,
+  because the assumption is the first thing a conformal reviewer checks.
 - The adaptation benefit in §3.2 is **small** (d = 0.20 at day +1). We report the
   effect size rather than the p-value alone.
 
@@ -465,8 +558,10 @@ number in this paper.
 | 6 | `runs/portal_shots/42_plan_options.png` | budget slider and ranked options over the 2022 event |
 | 7 | `runs/portal_shots/44_roads.png` | live OpenStreetMap road network |
 | 8 | `runs/portal_shots/40_forecast.png` | live forecast panel (Open-Meteo) |
+| 9 | ⚠️ **to capture** | §5.2a: a trip, its route, and its deadline. `95_trip.png` exists but shows a box with no detected through-channel, so the driver fell back to rainfall and nothing flooded — the wrong case for this figure. Re-shoot against a river-driven run at the stated design discharge |
+| 10 | `runs/portal_shots/81_option_picked.png` | per-option flood field: selecting a ranked option redraws the water |
 
-All portal figures captured 2026-09-28 against the current interface via
+Figures 1–8 captured 2026-09-28 against the then-current interface via
 `portal/scripts/poster-shots.mjs` and `plan-result.mjs` (1600×1000 at
 deviceScaleFactor 2). The earlier `figA5_portal_appraisal` and
 `figA6_portal_anywhere` are **not** used here: they embed screenshots from before

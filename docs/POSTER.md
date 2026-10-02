@@ -72,8 +72,16 @@ check against the real system, and take a conformal quantile of the difference:
 
 **The insight that makes it work.** The obvious approach is to inflate your estimate
 by *how wrong the model is*. **We tried it and it made things worse** (violations
-14.5% → 18.2%). Under a budget-style constraint, what pushes you over the limit is
-not average model error — it's the **spread of real outcomes**. Bound that instead.
+14.5% → 18.2%). That instrument is right for a *pointwise* guarantee and wrong for a
+*budget*: what pushes you over a budget is not average model error, it's the
+**spread of real outcomes**. Bound that instead.
+
+**And it is forced, not preferred.** No margin computed from model error alone can
+hold a stated level however wide the outcome spread gets — a three-line separation
+result. For Gaussian error it closes to **R(ρ) = 1 − Φ(z_δ/ρ)**, with ρ = (outcome
+spread)/(model error): one dimensionless number predicts the failure, and predicts
+that asking for a *stricter* guarantee from the wrong distribution makes it worse
+(1.2× error at δ = 0.30 → 3.7× at δ = 0.02).
 
 🔑 **One consequence worth the poster space:** when there isn't enough calibration
 data, the method **refuses to return a number**. A normal-approximation interval
@@ -187,6 +195,51 @@ what each measure contributed.*
 > an engineer to write the business case against **39%**, not **52%**. That
 > sentence is the whole contribution, in the place where it matters.
 
+## And on the night, the question is a trip
+
+Levees are decided months ahead. During the flood an operator asks *can we get
+from here to there, and by when.* Type two places; the portal derives the box,
+solves the flood across it, pulls the roads, and routes.
+
+**Lismore → Coraki · 20 km · 4,120 road segments · 104 s end to end**
+
+| what the operator is told | answer |
+|---|---|
+| routed on the **peak depth map** | ### no route exists |
+| routed on the **time-resolved flood**, leaving now | **22 min**, 24.8 km, dry |
+| same trip, last possible departure | 25.5 min, **a different road** |
+| how long it stays possible | ## 3h30 |
+
+> **This is the poster's argument in one row.** A peak-depth map is every flood
+> twin's standard output — ours included — and it is the **union of states that
+> never coexist**. Route on it and it refuses roads that are dry when the driver
+> passes them: it says *nobody gets out of Lismore*. They do, for three and a half
+> hours. Leave at the deadline and the road is different, because by then Coraki
+> Road is under **1.0–2.9 m** where the direct line crosses.
+
+**FIGURE 4b** — ⚠️ **NEEDS RE-CAPTURE.** `runs/portal_shots/95_trip.png` exists
+but shows the wrong case: that run's box did not contain a detected through-channel,
+so the driver fell back to rainfall and nothing flooded (0 km impassable, no
+deadline). The numbers in the table above come from a river-driven run at a stated
+design discharge:
+
+```
+curl -X POST http://127.0.0.1:8000/route -H 'Content-Type: application/json' -d '{
+  "origin":      {"lat": -28.8135, "lon": 153.2773, "name": "Lismore"},
+  "destination": {"lat": -28.9956, "lon": 153.2906, "name": "Coraki"},
+  "driver": "river", "river_q_m3s": 3000, "rain_mm_h": 50,
+  "storm_hours": 6, "run_hours": 12, "vehicle_depth_m": 0.25}'
+```
+
+Shoot the figure from a portal session reproducing that, or the caption and the
+screenshot will disagree. *Caption: two places in, a route and a deadline out, with
+the roads it avoided named.*
+
+**Honesty, same as everywhere else.** The route is a time-dependent shortest path
+solved exactly — not a learned policy, and we will not dress Dijkstra as planning.
+The written brief is **scored against the route it describes and withheld if it
+disagrees**: the margin's refusal discipline, applied to prose.
+
 ## Getting the physics right changed the answer completely
 
 Two corrections we made during development — both worth showing, because both would
@@ -291,6 +344,11 @@ is not a limitation. It is the feature.**
   every timestep.
 - ⚠️ The model-adaptation benefit is **small** (d = 0.20 at day +1). We report the
   effect size, not just the p-value.
+- ❌ The evacuation **deadline is one realisation**, not a forecast distribution.
+  "3h30" is conditional on the storm arriving as modelled.
+- ⚠️ **Exchangeability fails on one of our two testbeds** — lag-1 dependence,
+  p ≈ 0, three seeds — and the margin still attains δ on both (0.0771, 0.0854 vs
+  δ = 0.1). We tested the assumption where it breaks, not only where it holds.
 
 During development we **retracted three of our own results** — a distillation number
 that was an artefact of a collapsed loss, a baseline comparison invalidated by an
