@@ -459,6 +459,16 @@ PSPE stages do the work: Simulate supplies the schedule, Plan solves the search,
 Explain emits the brief. **Perceive is not in the single-trip loop**, and
 claiming "all four stages" would be a claim about a diagram.
 
+**The control exists because the estimate was unusable.** Left to infer the
+discharge, the tool derives bankfull from a 30 m elevation model: **234 m³/s** on
+this reach, which even the largest storm preset takes to under a thousand against
+a 2022 flood of record of order **3,000–4,000**. Until the discharge became
+statable, every trip the interface could model was a **1.4%**-of-network event
+with no deadline and a dry route — and a brief that scored 1.000 faithfulness
+because it correctly described a non-event. The numbers in §5.4 came from a
+command line the interface could not reproduce. We found that by trying to
+photograph our own published result, which is recorded as defect 40.
+
 **Figure 10** `runs/portal_shots/96_trip_river.png` — Lismore Base Hospital to
 Coraki, river driver at a **stated** 3,000 m³/s (the service applies the severe
 preset's 2.5×, so 7,500 m³/s held as a 4.0 m stage on the north edge). **157 km
@@ -557,6 +567,20 @@ filter with its error term swept and show where the optimum sits.
 - **The margin contributes nothing to route choice** (§5.4), and a trained
   policy over the same ensemble is an obvious arm we have not run.
 - The model-adaptation benefit is **small** (d = 0.20 at day +1).
+
+### Two rules this paper's own figures forced
+
+**A cited screenshot is a claim about the tool's present state, and carries a
+date.** An interface is rebuilt more often than a paper is written, and three
+figures cited in an earlier draft of this paper predated the per-option water,
+the route card and the methodology pages — including the one §5.1 calls its most
+important. Every portal figure here now carries a capture date for that reason.
+
+**Do not select the scenario that flatters the figure.** The deadline §5.4
+reports was reachable on the captured box at 8,000 m³/s and at 20,000, both of
+which would have made a more impressive figure and both of which imply applied
+discharges above the flood of record. The published figure is the plausible
+event, states that it contains no deadline, and names what was rejected.
 
 ### On the methodology, briefly
 

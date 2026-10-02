@@ -292,12 +292,26 @@ exceeds what the vehicle can cross while you're on it.**
 and meets no water, so there is **no deadline** — this route is on ground the
 flood does not reach.*
 
+> **Why the discharge is typed in.** Left to estimate it, the tool derives
+> bankfull from a 30 m elevation model: on this reach **234 m³/s**, which the
+> largest storm preset takes to under a thousand against a flood of record of
+> **3,000–4,000**. Every trip the interface could model was a **1.4%**-of-network
+> event until the discharge became statable — and the numbers in Column 4's
+> table came from a command line the interface could not reproduce. That gap was
+> found by trying to photograph our own published result.
+
 > **Why this figure and not a bigger flood.** A deadline was available at 8,000
-> m³/s (7h00) or 20,000 (3h30) — but the service applies 2.5× the stated peak,
-> so those show 20,000 and 50,000 m³/s on a river whose flood of record is
-> ~3,000–4,000. Picking a larger flood for a better caption is the failure this
-> poster is otherwise about. The 3h30 deadline in Column 4's table is measured
-> on a different pair, stated as such.
+> m³/s (7h00, 28% cut) or 20,000 (3h30, 42%) — but the service applies 2.5× the
+> stated peak, so those show 20,000 and 50,000 m³/s on a river whose record is
+> ~3,000–4,000. **Picking a larger flood for a better caption is the failure
+> this poster is otherwise about.** The published figure states what it does not
+> contain, and names both rejected discharges.
+
+> **And it reproduces from coordinates, not place names.** Geocoding "Lismore
+> NSW" returns a point 0.6 km from the one Column 4's table uses, which shifts
+> the derived box enough that the channel detector finds nothing and the driver
+> falls back to rainfall. A property of the detector on a 130 m grid, stated
+> rather than left to be rediscovered.
 
 ## Two results that argue against us, printed at the same size
 
@@ -400,6 +414,10 @@ OpenStreetMap/Overpass · FloodCastBench (reference hydrodynamics).
   and the two results-against-us are the poster's credibility.
 - Set the three big numbers at the same weight: **5.0%**, **half the crews**,
   **0 of 96**. Do not let the method number dominate the applications.
+- **A cited screenshot is a claim about the tool's present state, so every
+  portal figure here has a capture date.** An interface is rebuilt more often
+  than a poster is printed; three figures in an earlier draft showed a
+  superseded tool, including the one Column 3 calls most important.
 - **Figures re-shot 2026-10-01** against the current interface: 2 (plan result),
   6 (water), 7 (budget trace), 8 (margin explorer), 9 (limits), and the roads and
   forecast panels. The versions in earlier drafts predated the per-option water,
