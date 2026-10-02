@@ -175,6 +175,139 @@ def route_scalar(g, route, sched: routes.Schedule, depart: float) -> float:
     return worst
 
 
+def belief_trace(g, s_, t_, truth: routes.Schedule,
+                 others: list[routes.Schedule], args) -> list[dict]:
+    """Per-slot belief state, and what departing at that slot would cost.
+
+    The `filtered` arm walks forward and departs at the FIRST slot where a
+    margin-feasible route exists. That rule is myopic by construction, and the
+    results say so: it is caught by water 14 times out of 96 where the oracle is
+    caught none. Departing later narrows the belief -- observed depths rule
+    members out -- but roads close while you wait. That trade-off is a timing
+    decision, and it is the one genuinely sequential choice in this project.
+
+    None of this trajectory depends on the policy: which members survive at time
+    t is a function of `truth` and t alone, and everything downstream is a
+    function of the surviving set. So the trace is computed once per decision
+    and every candidate policy is scored by scanning it, which is what makes
+    nested cross-validation affordable at all.
+
+    `arrives` is evaluated against `truth` and is therefore NOT a feature. It is
+    the label, used for training on held-out members and for the hindsight bound.
+    """
+    trace = []
+    n = max(len(others), 1)
+    t_now = 0.0
+    while t_now <= truth.horizon_min:
+        keep = consistent(others, truth, t_now, args.obs_tol)
+        sub = [others[i] for i in keep]
+        fsub = mean_schedule(sub)
+        r0 = routes.fastest_at(g, s_, t_, fsub, args.limit, t_now)
+        vals = [route_scalar(g, r0, m, t_now) for m in sub] if r0.ok else []
+        vals = [v for v in vals if not math.isnan(v)]
+        qq = (margins.margin("residual", args.delta,
+                             residuals=[abs(v - route_scalar(g, r0, fsub, t_now))
+                                        for v in vals])
+              if vals else 0.0)
+        rr = routes.fastest_at(g, s_, t_, inflate(fsub, qq), args.limit, t_now)
+        res = walk(g, rr, truth, args.limit, t_now) if rr.ok else None
+        trace.append({
+            # --- features, all computable without seeing `truth` ------------ #
+            "t_frac": t_now / max(truth.horizon_min, 1e-9),
+            "surv_frac": len(keep) / n,
+            "spread": (float(np.std(vals)) if len(vals) > 1 else 0.0),
+            "margin_m": qq,
+            "feasible": bool(rr.ok),
+            # --- label, from `truth`: never a feature ---------------------- #
+            "arrives": bool(res and res["arrived"]),
+            "minutes": (res["minutes"] if res and res["arrived"] else None),
+            "t_now": t_now,
+            # The route the feasibility and arrival above were evaluated on.
+            # Held so the arms score the plan that was actually checked rather
+            # than one re-derived from a different belief. Not serialised.
+            "route": rr if rr.ok else None,
+        })
+        t_now += args.step_min
+    return trace
+
+
+# A policy is (survivor-fraction threshold, forced-go time fraction). Deliberately
+# two parameters: 96 decisions under nested leave-one-out leaves ~72 training
+# decisions per fold, which supports a threshold rule and does not support a
+# network. Capacity is chosen from the sample size, not from ambition.
+THETA = [i / 20 for i in range(21)]          # go once this fraction or fewer survive
+TAU = [i / 20 for i in range(21)]            # ... or once this much time has passed
+
+
+def apply_policy(trace: list[dict], theta: float, tau: float) -> dict | None:
+    """First slot the policy departs at, or None if it never does.
+
+    Waiting is only informative while members are still being ruled out, so the
+    rule is: go when a margin-feasible route exists AND either the belief has
+    narrowed to `theta` of the ensemble or `tau` of the window has elapsed. The
+    second clause is what stops it waiting past the last feasible slot.
+    """
+    for slot in trace:
+        if not slot["feasible"]:
+            continue
+        if slot["surv_frac"] <= theta or slot["t_frac"] >= tau:
+            return slot
+    return None
+
+
+def best_timing(trace: list[dict]) -> dict | None:
+    """The best slot in HINDSIGHT. An upper bound, not an arm.
+
+    No causal policy can reach this: it reads `arrives`, which depends on the
+    member that actually happened. It bounds what ANY timing rule could achieve
+    on this belief trajectory, which separates "filtered departs at the wrong
+    time" from "no departure time was any good".
+    """
+    ok = [s for s in trace if s["feasible"] and s["arrives"]]
+    return min(ok, key=lambda s: s["t_now"]) if ok else None
+
+
+def policy_score(recs: list[dict], theta: float, tau: float) -> float:
+    """Fraction of decisions in `recs` on which this rule arrives."""
+    got = 0
+    for r in recs:
+        sl = apply_policy(r["trace"], theta, tau)
+        if sl is not None and sl["arrives"]:
+            got += 1
+    return got / max(len(recs), 1)
+
+
+def fit_policy(train: list[dict]) -> tuple[float, float]:
+    """Best (theta, tau) on `train` by exhaustive search over the grid.
+
+    Ties go to the first maximiser, which with both grids ascending is the
+    earliest-departing rule -- so when waiting buys nothing the fit reduces to
+    the `filtered` baseline rather than to an arbitrary wait. The family
+    therefore cannot score below `filtered` in-sample, which is the property
+    that makes an improvement out-of-sample meaningful.
+    """
+    best, best_s = (0.0, 0.0), -1.0
+    for th in THETA:
+        for ta in TAU:
+            v = policy_score(train, th, ta)
+            if v > best_s:
+                best, best_s = (th, ta), v
+    return best
+
+
+def nested_folds(traces: list[dict]) -> dict[int, list[dict]]:
+    """Training set per outer fold: every trace whose truth member is not `k`.
+
+    The outer evaluation holds out one ensemble member as reality. Fitting on
+    all members would show the policy the member it is about to be scored
+    against -- its schedule, the filtering that schedule induces, and the
+    arrival labels that follow. This is the split that prevents it, and it is a
+    function so a test can assert the exclusion rather than trust the comment.
+    """
+    members = sorted({r["member"] for r in traces})
+    return {k: [r for r in traces if r["member"] != k] for k in members}
+
+
 def consistent(scheds: list[routes.Schedule], truth: routes.Schedule,
                upto_min: float, tol: float) -> list[int]:
     """Which members agree with what has been seen up to now.
@@ -309,10 +442,12 @@ def main() -> None:
             "others, so every arm would score identically and the comparison "
             "would be of nothing. Widen --spread or raise --trips.")
 
-    arms = ["leave-now", "static-peak", "dp-mean", "conformal", "filtered", "oracle"]
+    arms = ["leave-now", "static-peak", "dp-mean", "conformal", "filtered",
+            "learned", "best-timing", "oracle"]
     tally = {a: {"arrived": 0, "caught": 0, "no_plan": 0, "minutes": [],
                  "waited": []} for a in arms}
     rows = []
+    traces: list[dict] = []
 
     for k_true, truth in enumerate(scheds):
         others = [s for j, s in enumerate(scheds) if j != k_true]
@@ -362,7 +497,18 @@ def main() -> None:
                 t_now += args.step_min
             plans["filtered"] = (chosen, dep)
 
+            # The belief trajectory over every slot, for the learned arm and the
+            # hindsight bound. Both are decided after the loop, because training
+            # needs the other members' traces and cannot be done inline.
+            tr = belief_trace(g, s_, t_, truth, others, args)
+            traces.append({"member": k_true, "from": s_, "to": t_, "trace": tr})
+            bt = best_timing(tr)
+            plans["best-timing"] = ((bt["route"], bt["t_now"]) if bt
+                                    else (None, 0.0))
+
             for a in arms:
+                if a == "learned":
+                    continue                     # scored after the policy is fit
                 r, dp = plans[a]
                 res = walk(g, r, truth, args.limit, dp)
                 key = ("arrived" if res["arrived"]
@@ -373,6 +519,51 @@ def main() -> None:
                     tally[a]["waited"].append(dp)
                 rows.append({"member": k_true, "from": s_, "to": t_, "arm": a,
                              "depart_min": dp, **res, "margin_m": round(q, 3)})
+
+    # ---------------------------------------------------------------------- #
+    # The learned arm, with NESTED leave-one-out so nothing leaks.
+    #
+    # The outer evaluation already holds out one member as reality. Fitting the
+    # policy on all members would let it see the member it is about to be scored
+    # against -- the schedule, the filtering it induces, and the arrival labels
+    # that follow from it. So for outer fold k the policy is fitted using only
+    # traces whose truth member is NOT k, and applied to fold k unseen.
+    #
+    # With 8 members that is ~84 training decisions per fold for a two-parameter
+    # rule. Thin, and the reason the policy family is a threshold rather than a
+    # network: see THETA/TAU.
+    by_member: dict[int, list[dict]] = {}
+    for rec in traces:
+        by_member.setdefault(rec["member"], []).append(rec)
+    train_sets = nested_folds(traces)
+
+    fitted: dict[int, tuple[float, float]] = {}
+    for k in sorted(by_member):
+        best = fit_policy(train_sets[k])
+        fitted[k] = best
+        for rec in by_member[k]:
+            sl = apply_policy(rec["trace"], *best)
+            r, dp = (sl["route"], sl["t_now"]) if sl else (None, 0.0)
+            res = walk(g, r, scheds[k], args.limit, dp)
+            key = ("arrived" if res["arrived"]
+                   else "no_plan" if res["why"] == "no plan" else "caught")
+            tally["learned"][key] += 1
+            if res["arrived"]:
+                tally["learned"]["minutes"].append(res["minutes"])
+                tally["learned"]["waited"].append(dp)
+            rows.append({"member": k, "from": rec["from"], "to": rec["to"],
+                         "arm": "learned", "depart_min": dp, **res,
+                         "theta": best[0], "tau": best[1]})
+
+    print("\n=== learned timing policy, nested leave-one-out ===", flush=True)
+    for k in sorted(fitted):
+        th, ta = fitted[k]
+        print(f"  fold {k}: go when <= {th:.2f} of members survive, "
+              f"or after {ta:.2f} of the window", flush=True)
+    uniq = set(fitted.values())
+    print(f"  {len(uniq)} distinct rule(s) across {len(fitted)} folds"
+          + ("  -- stable" if len(uniq) == 1 else "  -- fold-dependent, read with care"),
+          flush=True)
 
     def pct(a: str) -> float:
         t = tally[a]
