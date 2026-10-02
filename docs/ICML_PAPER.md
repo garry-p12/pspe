@@ -257,21 +257,38 @@ head.
 |---|---|
 | reaction–diffusion | 14.1% → 5.0%, level attained |
 | diffusion–advection | 0% → 0%: nobody violates, so the margin cannot help and must not hurt — a **regression check**, not a validation |
-| shallow water | limit calibrated against a *trained* reward-greedy anchor (1.1437); 33.2% → 16.8% over 20 seeds, paired 95% CI [−24.7, −8.0]; on the ¾ of seeds where a plan exists at δ = 0.1, **12.1%, 95% CI [7.1, 17.1]** |
+| shallow water | limit calibrated against a *trained* reward-greedy anchor (1.1437); 37.4% → 21.5% over **80 seeds**, paired −15.9 points, 95% CI [−19.8, −12.1]; on the 52 of 80 seeds where a plan exists at δ = 0.1, **12.4%, 95% CI [9.4, 15.5]** |
 
-On shallow water the margin consumes the entire limit on 5 of 20 seeds — no
+On shallow water the margin consumes the entire limit on **28 of 80 seeds** — no
 admissible action exists, and a violation there measures the task's feasibility
-rather than the method's calibration. Pooled over all seeds the rate is 16.82%,
-CI [11.88, 21.76], excluding `δ`; pooled over feasible seeds it is 12.12%,
-CI [7.14, 17.10], containing it. **A coverage rate may only be pooled over
-configurations in which a plan exists**, and conflating the two moved this
-headline by four points.
+rather than the method's calibration. Pooled over all seeds the rate is 21.48%,
+CI [18.76, 24.19], excluding `δ`; pooled over feasible seeds it is 12.41%,
+cluster-robust CI [9.35, 15.47] with the seed as the unit of independence,
+containing it. **A coverage rate may only be pooled over configurations in which
+a plan exists**, and conflating the two moves this headline by nine points.
+
+**The estimate is stable, and that is what the extra seeds bought.** At 20 seeds
+the feasible pool read 12.12%, CI [7.14, 17.10] — an interval wide enough to
+contain `δ` whatever the truth was. At 80 seeds it reads 12.41% with an interval
+2.2× tighter. The point estimate moved 0.3 points across a 3.5× increase in
+sample, so the containment is now informative rather than a statement about
+power.
+
+It is also no longer comfortable. The estimate sits 2.4 points above nominal and
+a seed-level bootstrap puts `P(rate > δ) = 0.945`, just under the conventional
+threshold. **We read the excess as the exchangeability gap rather than as noise**:
+Barber et al. give coverage `≥ 1 − δ − Δ` beyond exchangeability, scores here are
+collected during a learning run, and the measured `Δ̂ = 0.024`, 95% CI
+`[−0.006, 0.055]`, is an estimate of precisely that quantity. The violations are
+diffuse — 43 of 52 feasible seeds violate at least once, the five worst carrying
+31% of the total — which is the signature of a distribution gap rather than of a
+few pathological seeds.
 
 > **The honest summary: the mechanism replicates on three families; the stated
-> rate is attained on one, trivially satisfied on a second, and not rejected on
-> the third.** Failing to reject `δ` is weaker than attaining it, and 165
-> evaluations cannot resolve 10% tightly. We do not write "validated on three
-> families".
+> rate is attained on one, trivially satisfied on a second, and on the third is
+> consistent with the level while trending above it by the amount the
+> beyond-exchangeability bound predicts.** Failing to reject `δ` is weaker than
+> attaining it. We do not write "validated on three families".
 
 **Exchangeability, tested where it fails.** Scores are collected *during* a
 learning run, which is a distribution shift by construction. Three seeds per

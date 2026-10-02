@@ -34,7 +34,7 @@ happens.
 
 We report what does not work with the same prominence: our own calibration method
 contributes **nothing** to discrete route choice, ensemble filtering converts
-refusals into departures at **2:1 odds rather than for free**, and 41 measurement
+refusals into departures at **2:1 odds rather than for free**, and 45 measurement
 defects are catalogued with the check that caught each.
 
 ---
@@ -470,7 +470,7 @@ interval, recomputed over the correct unit, spanned its own effect size. **All
 three initially pointed the way that favoured us**, which is why a
 claim-supporting result is now a trigger for an extra check.
 
-**41 measurement defects are catalogued with the check that caught each, and 47
+**45 measurement defects are catalogued with the check that caught each, and 52
 rules derived from them.** Four are worth a workshop audience's time because each
 is a *systems* failure invisible from inside the results:
 
@@ -480,7 +480,9 @@ is a *systems* failure invisible from inside the results:
 2. **An interface displaying 90% confidence from six calibration runs** where
    nine are required (§6.4).
 3. **A coverage rate averaged over configurations in which no plan existed**,
-   which moved a headline by four points.
+   which moved a headline by four points at 20 seeds and by **nine** at 80: a
+   third of that family admits no action once the margin is subtracted from the
+   budget, and scoring those seeds measures the task, not the method.
 4. **Figures cited as current that predated the interface rebuild** — including
    the figure an earlier draft called its most important. Every portal figure
    here now carries a capture date, because an interface is rebuilt more often

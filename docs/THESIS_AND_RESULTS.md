@@ -165,6 +165,29 @@ catalogue (§0.2, §7).
 >
 > "Three" validated would additionally need dar put into
 > a regime where its constraint binds.
+>
+> **UPDATE, 2026-10-02 — 80 seeds, and the feasibility split changes the
+> sentence above.** Jobs 1041301–12 took this to 80 seeds. Two corrections to
+> the paragraph above. First, the 16.8% it calls a miss was pooled over seeds
+> where the margin consumes the entire limit, which is defect 39: on the **52
+> of 80 seeds where a plan exists** the rate is **12.41%, 95% CI [9.35, 15.47]**
+> (cluster-robust, seed as the unit), which contains δ = 0.1. Second, the
+> mechanism is stronger than 20 seeds showed: paired **−15.91 points, 95% CI
+> [−19.77, −12.05]**, an interval 2.2× tighter.
+>
+> So the level is **not rejected** on swe rather than missed. It is also not
+> attained: the estimate sits 2.4 points above nominal, has not moved across a
+> 3.5× increase in sample, and the bootstrap puts P(rate > δ) = 0.945. The
+> excess is an estimate of Barber et al.'s exchangeability gap, Δ̂ = 0.024, 95%
+> CI [−0.006, 0.055] — the degradation the theory predicts for calibrating
+> against a distribution an on-policy planner is still changing. Full analysis
+> in §3.4b-ii.
+>
+> **The sentence §0.3 may use:** *the mechanism replicates on three PDE families
+> (swe paired −15.9 points, 95% CI [−19.8, −12.1], 80 seeds); the stated rate is
+> attained on rdf (5.0%), trivially satisfied on dar (0%), and on swe is
+> consistent with but trending above the level — 12.4%, 95% CI [9.4, 15.5] over
+> the 65% of seeds where a plan exists at δ = 0.1.*
 
 > **Revised after the literature audit.** Each failure in the catalogue turns
 > out to have precedent — silent violation under model-based constraints is
@@ -1071,6 +1094,101 @@ plan exists.** Where the margin consumes the whole limit there is no admissible
 action, so the realised violation measures the task's feasibility, not the
 method's calibration. Averaging the two together moves the headline in whichever
 direction the infeasible seeds happen to sit — here, four points.
+
+#### 3.4b-ii The same comparison at 80 seeds (jobs 1041301–12, 2026-10-02)
+
+Sixty more seeds, twelve jobs of 57 minutes each, all COMPLETED 0:0. This is the
+run that decides whether the "not rejected" above was a real property or an
+artefact of 165 evaluations.
+
+| arm | violating, 20 seeds | violating, 80 seeds | return, 80 seeds |
+|---|---|---|---|
+| baseline | 47.7% | 56.36% | −5.75 |
+| margin alone | 47.7% | 56.36% | −6.27 |
+| probe | 33.2% | 37.39% | −2.73 |
+| **probe + conformal margin** | **16.8%** | **21.48%** | −2.95 |
+
+**The margin-alone arm still matches baseline to four decimal places** at four
+times the sample — 0.5636 against 0.5636. The design check holds: with no
+real-system probe there is nothing to calibrate and the margin is correctly
+inert.
+
+Paired `probe+margin − probe` over 80 seeds: **−15.91 points, 95% CI [−19.77,
+−12.05]**. The 20-seed estimate was −16.4 [−24.7, −8.0]; the point estimate
+moved 0.5 points and the interval narrowed by a factor of 2.2. The mechanism
+is the best-supported result in this section.
+
+**Infeasibility grew with the sample.** `effective_limit = 0` on **28 of 80
+seeds (35%)**, against 5 of 20 (25%) before. The earlier figure was optimistic:
+a third of this family, not a quarter, admits no plan at all once a δ = 0.1
+margin is subtracted from the limit.
+
+| pool | seeds | violations | rate | 95% CI (binomial) |
+|---|---|---|---|---|
+| all seeds | 80 | 189/880 | 21.48% | [18.76, 24.19] — excludes δ |
+| **feasible (effective limit > 0)** | 52 | 71/572 | **12.41%** | **[9.71, 15.11] — contains δ = 0.1** |
+| infeasible (margin = limit) | 28 | 118/308 | 38.31% | [32.88, 43.74] |
+
+**The feasible-pool rate is stable: 12.12% at 20 seeds, 12.41% at 80.** A 3.5×
+increase in sample moved it 0.3 points. That stability is the finding — the
+earlier interval contained δ because it was 10 points wide, and the question was
+whether the point estimate would fall toward 10% or stay put. It stayed put.
+
+**A clustered interval, because 572 evaluations are not 572 independent
+observations.** The eleven evaluations within a seed share a trained planner and
+a drawn environment, so the binomial CI above is the wrong width. Taking the
+seed as the unit of independence:
+
+| interval | 95% CI | half-width |
+|---|---|---|
+| naive binomial, 572 evals | [9.71, 15.11] | 2.70 pts |
+| cluster-robust, 52 seeds | **[9.35, 15.47]** | 3.06 pts |
+| seed bootstrap, 20 000 resamples | [9.61, 15.73] | 3.06 pts |
+
+The design effect is mild — 1.1× — because the per-seed spread (sd 0.1125) is
+close to what binomial noise within a seed would produce anyway. It does not
+change the verdict, and reporting the naive interval without checking would have
+been luck rather than analysis.
+
+**What the result actually is, stated without flattery.** δ = 0.1 lies inside
+the interval, so the level is **not rejected**. But the point estimate sits
+**2.4 points above nominal**, it has not moved across a 3.5× increase in sample,
+and the bootstrap puts **P(rate > δ) = 0.945** — just under the conventional
+threshold. The honest reading is *consistent with δ = 0.1 and trending above
+it*, and the natural extrapolation is that a few hundred more seeds would
+exclude δ from below. Claiming attainment here would be claiming a null result
+as a positive one.
+
+**Which is the shape Barber et al.'s bound predicts**, and worth naming rather
+than apologising for. Beyond exchangeability, coverage is `≥ 1 − δ − Δ` with `Δ`
+the total-variation gap between the calibration and test distributions. The
+measured excess **is** an estimate of that gap: `Δ̂ = 0.024`, 95% CI
+`[−0.006, 0.055]`. A planner trained on-policy changes the distribution it is
+calibrated against as it learns, so `Δ > 0` is the expected state of affairs,
+not a defect. The theory says the margin degrades by exactly this much; the
+measurement says the degradation is 2.4 points.
+
+**Violations are not concentrated in a few bad seeds.** 9 of 52 feasible seeds
+never violate; 43 do. The five worst carry 31% of the pool's violations, with
+the worst at 0.545 — so this is a broad, moderate miss rather than a handful of
+blown seeds dragging an otherwise-calibrated method. That matters for the
+reading above: a concentrated failure would suggest an outlier mechanism to
+find and fix, and a diffuse one points at the exchangeability gap instead.
+
+**What §0.3 may now say.** *The mechanism replicates on three PDE families
+(paired −15.9 points on swe, 95% CI [−19.8, −12.1], 80 seeds); the stated rate
+is attained on rdf (5.0%), trivially satisfied on dar (0%), and on swe is
+consistent with but trending above the level — 12.4%, 95% CI [9.4, 15.5] over
+the 65% of seeds where a plan exists at δ = 0.1, an exchangeability gap of 2.4
+points.* "Validated on three families" remains unsayable.
+
+**Rule 52: when a wide interval fails to reject a level, the test is whether the
+point estimate moves as the interval narrows.** At 20 seeds swe read 12.12%
+[7.14, 17.10] and "contains δ" was the defensible sentence. The temptation was
+to leave it there, because the next run could only make it worse. It did: four
+times the data, the same 12.4%, and an interval that now almost excludes the
+level. Failing to reject is a statement about power, and the way to find out
+which it is, is to add data and watch the estimate rather than the interval.
 
 ### 3.5 What the margin should bound: the derived answer
 
@@ -5435,7 +5553,7 @@ arms matched on sample budget, and does the wording match what the runs support?
 | A8 | §5.2a's twin-loop effect sizes | **PASSES, fully reproducible.** Every figure recomputes from `runs/wsts_twin/results.json`: sync-vs-open d = 1.55, t = 38.23, 595/606 fires; adaptation d = 0.20/0.44/0.32 and t = 4.85/10.90/7.82 at days +1/+2/+3. One off-by-three on day +2 fires-improved (tie handling, or the 3 incomplete records of 1,821) | none. Note for the write-up: §5.2a averages over seeds **before** comparing, giving 606 independent fires. Pooling the 1,818 fire-seed records instead inflates t to 65.66 ≈ 38.2·√3 — **the same unit error §3.2's z-values made** (A3). The codebase gets the unit of independence right here and wrong there; worth one consistency pass over every remaining paired test |
 | A7 | §5.3's partial-observation claim | **PASSES, and understates itself.** `blind` is best at every occlusion level, and `perceive` is *significantly worse*: −1.52 at 15% (p = 0.034), −4.15 at 35% (p = 0.058), **−7.18 at 60% (p = 0.046)**. `persist` is statistically identical to blind throughout (p = 0.44–0.93) | state the negative at full strength — a learned belief over occluded cells does not merely fail to help, it **hurts more as occlusion grows**, which is the more interesting claim and survives at 3 seeds |
 | A6 | §4.3's joint-training conclusion | **incomplete** — the table reports return and surrogate rel L2 and has **no violation column**. On rdf, `joint-unanchored` cuts violations **85.5% → 30.9%** (paired t = −3.59, **p = 0.023**) while costing return (−7.46 vs −6.76). §4.3 dismisses that arm as "destroys the surrogate" (rel L2 0.0024 → 0.83), which is true and is not the whole story | **done 2026-09-30** — violation column added to §4.3, with the trade and both cautions stated |
-| A1 | *"validate on three PDE families"* (§0.3) | **CLOSED as far as the runs allow, 2026-10-01.** Trained anchor puts swe's limit at 1.1437; the margin separates 33.2% → 16.8% over 20 seeds, paired −16.4 points, 95% CI [−24.7, −8.0]. On the 15 seeds where a plan exists at δ = 0.1 the rate is **12.1%, 95% CI [7.1, 17.1]**, containing the level; on the other 5 the margin consumes the whole limit and the task is infeasible (defect 39) | say *"the mechanism replicates on three families; the rate is attained on rdf, trivially satisfied on dar, and not rejected on swe over the feasible seeds"*. Not "validated on three" — one family is a regression check, one is consistent but underpowered |
+| A1 | *"validate on three PDE families"* (§0.3) | **CLOSED at 80 seeds, 2026-10-02.** Trained anchor puts swe's limit at 1.1437; the margin separates 37.4% → 21.5% over 80 seeds, paired **−15.91 points, 95% CI [−19.77, −12.05]**. On the **52 of 80 seeds** where a plan exists at δ = 0.1 the rate is **12.41%, 95% CI [9.35, 15.47]** cluster-robust, containing the level; on the other 28 the margin consumes the whole limit and the task is infeasible (defect 39). The estimate is stable across 20 → 80 seeds (12.12% → 12.41%) and sits 2.4 points above nominal, bootstrap P(rate > δ) = 0.945 — an exchangeability gap, not an attained level (§3.4b-ii) | say *"the mechanism replicates on three families; the rate is attained on rdf, trivially satisfied on dar, and on swe is consistent with but trending above the level over the feasible seeds"*. Not "validated on three" — one family is a regression check, one is consistent-and-trending |
 | A2 | *"12 points of burned-area reduction at matched crew budget"* (§0.3) | **true but under-qualified** — it is the 3-day horizon at a 3% crew budget. The gap runs +0.6 (1 day, n.s.) to +14.3 (5 days), and +6.8 (1% budget) to +16.9 (5%). The headline table is the same data as the 3-day row of the horizon ablation, not a separate experiment | **done 2026-09-30** — operating point now in §0.3 |
 | A3 | the three z-values in §3.2 | **one not reproducible** (+3.68 against a recomputed +2.13), and the unit was evaluations rather than runs | done — §3.2's provenance audit; run-level test now reported |
 | A4 | §3.2's margin claim at 5 seeds | **unsupported as stated**; real at 20 | done — §3.2b |
