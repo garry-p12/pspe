@@ -181,6 +181,16 @@ def main() -> int:
             "worst_cost": round(s.get("eval/cost_max_over_run", float("nan")), 4),
             "cost_bias": round(s.get("dual/final_cost_bias", 0.0), 4),
             "effective_limit": round(s.get("dual/effective_limit", s["cost_limit"]), 4),
+            # A margin that consumes the whole limit leaves the planner nothing
+            # to spend, and a violation under that is a property of the TASK,
+            # not a failure of coverage. `run_flood_margin.py` has guarded this
+            # since section 5.11; this driver did not, so swe's 20-seed result
+            # pooled five infeasible seeds with fifteen feasible ones and read
+            # as 16.8% against delta = 0.1 when the feasible pool is 12.1% with
+            # an interval containing it (defect 39, section 3.4b).
+            "margin_exceeds_limit": bool(
+                s.get("dual/effective_limit", s["cost_limit"]) <= 1e-9
+                and s["cost_limit"] > 1e-9),
             "real_samples": s["samples_real_env"],
             "probe_samples": s.get("samples_real_probe", 0),
             "final_lambda": round(s.get("final_lambda", 0.0), 3),
@@ -188,7 +198,10 @@ def main() -> int:
         })
         print(f"[{name}] return {rows[-1]['return']} "
               f"violating {rows[-1]['violating_evals']} "
-              f"real samples {rows[-1]['real_samples']}")
+              f"real samples {rows[-1]['real_samples']}"
+              + ("  INFEASIBLE: the margin consumes the whole limit, so this "
+                 "seed's violation rate is not a coverage measurement"
+                 if rows[-1]["margin_exceeds_limit"] else ""))
 
     table = markdown_table(rows)
     (root / "results.md").write_text(table + "\n")

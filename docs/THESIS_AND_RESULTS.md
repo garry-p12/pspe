@@ -99,7 +99,8 @@ right column is the measurement that disagreed. Regenerate with
 > budget is fed cost measured *in the model*, while violation is realised under
 > *true* dynamics. We characterise this failure, give a split-conformal margin
 > that converts it into a stated failure rate. The mechanism replicates on three
-> PDE families and the stated rate is attained on two of them (§3.4b). We also
+> PDE families; the rate is attained on one, trivially satisfied on a second, and
+> not rejected on the third over the seeds where a plan exists (§3.4b). We also
 > validate on wildfire intervention over real fire records, where planning
 > through a learned spread model beats the operational forecast-then-treat
 > heuristic by 12 points of burned-area reduction **at a 3-day planning horizon
@@ -1024,20 +1025,52 @@ probe there are no matched pairs, nothing to calibrate, and the margin is
 correctly inert. It is the cheapest available check that the margin is reading
 its calibration set and not a constant.
 
-And the level is **missed**. 16.8% against δ = 0.1. On rdf the same machinery
-reaches 5.0% and the guarantee holds; here it does not, and a project whose
-whole contribution is a *stated* failure rate cannot describe 16.8% against a
-10% target as a validation. Per-seed violation is bimodal — every arm spans
-0.000 to 1.000 — so some seeds violate on every evaluation and others never do,
-and 20 seeds is thin for resolving a 10% rate against that variance. Whether
-more seeds would bring the mean under δ or merely tighten it around 16.8% is not
-something this run answers.
+**And the headline 16.8% was the wrong number, which the per-seed data shows
+immediately.** `effective_limit` — the limit minus the margin — is **exactly
+zero on 5 of the 20 seeds**. On those the margin consumes the whole budget: the
+planner is told to spend nothing, and a violation under that instruction is a
+property of the task, not a failure of coverage. Median margin 0.365 against a
+limit of 1.144, maximum the full 1.144. Realised cost reaches **10× the limit**
+at worst, which is why a δ = 0.1 margin on this family can be as wide as the
+budget it protects.
+
+Pooling evaluations instead of averaging seed fractions, at 11 evaluations per
+seed:
+
+| pool | seeds | violations | rate | 95% CI |
+|---|---|---|---|---|
+| all seeds | 20 | 37/220 | 16.82% | [11.88, 21.76] — excludes δ |
+| **effective limit > 0** | 15 | 20/165 | **12.12%** | **[7.14, 17.10] — contains δ = 0.1** |
+| effective limit = 0 | 5 | 17/55 | 30.91% | [18.70, 43.12] |
+
+So the reading is: **swe is infeasible at δ = 0.1 on a quarter of its seeds, and
+where the task is feasible the realised rate is 12.1% with an interval
+containing the level.** Not the same as attaining it — 165 evaluations cannot
+resolve 10% tightly, and failing to reject δ is weaker than confirming it. But a
+different claim from "misses the level", and the difference came entirely from
+scoring configurations in which no admissible plan exists.
+
+`eval/run_flood_margin.py` has guarded this since §5.11 (`infeasible = (q_m >=
+lim) or (target_m < d_full_mean)`). `run_constraint_fix.py` did not; it now
+flags `margin_exceeds_limit` per arm and says so on the console.
 
 **What §0.3 may now say.** *The mechanism replicates on three PDE families; the
-stated rate is attained on two.* dar attains it trivially (0% → 0%, nobody
-violates), rdf attains it at 5.0%, swe does not at 16.8%. That is weaker than
-"validated on three families" and stronger than the single-family fallback the
-audit previously required, and unlike either it is what the runs support.
+stated rate is attained on rdf (5.0%), trivially satisfied on dar (0%), and not
+rejected on swe (12.1%, 95% CI [7.1, 17.1]) over the three quarters of seeds
+where the task is feasible at δ = 0.1.* Longer than the original sentence and
+the only version the runs support. "Validated on three families" stays
+unsayable: one family is a regression check and another is
+consistent-but-underpowered.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 39 | Coverage averaged over seeds where the margin consumed the entire limit | swe read 16.8% against δ = 0.1 and was written up as missing the level; the feasible pool is 12.1% with an interval containing it | reading `effective_limit` per seed after the aggregate looked bad | 3.4b |
+
+**Rule 45: a coverage rate may only be pooled over configurations in which a
+plan exists.** Where the margin consumes the whole limit there is no admissible
+action, so the realised violation measures the task's feasibility, not the
+method's calibration. Averaging the two together moves the headline in whichever
+direction the infeasible seeds happen to sit — here, four points.
 
 ### 3.5 What the margin should bound: the derived answer
 
@@ -4883,12 +4916,13 @@ they are harder, because the code is correct and the output looks right.
 | 36 | A ranked list of solved options whose selection reached nothing but its own radio button | every option's depth field was computed and all but the baseline discarded | **using it** | 5.12a |
 | 37 | Headline reduction read from a surrogate extrapolated at the point the greedy search chose | 111.7% displayed against a solved 99.81%, past the physical maximum, margin unattainable so nothing caught it | solving the recommended plan to answer a question about a road | 5.13 |
 | 38 | Stated storm multiple formatted with `:.0f` | the forcing note read "2x the forecast peak of 3,000 m3/s" beside the 7,500 it applied | reading the note beside the number it describes | 5.14 |
+| 39 | Coverage averaged over seeds where the margin consumed the entire limit | swe read 16.8% against δ = 0.1 and was written up as missing the level; the feasible pool is 12.1%, interval containing it | reading `effective_limit` per seed after the aggregate looked bad | 3.4b |
 
 **Defect 25 is the one to remember.** It degrades data continuously rather than
 breaking it, affects only some fires, and leaves every downstream number
 plausible. Nothing short of a conservation check finds it.
 
-### Rules 16–44
+### Rules 16–45
 
 16. A scheme that cannot violate the constrained quantity cannot be used to
     study violating it; verify conservation before trusting a solver.
@@ -4940,6 +4974,11 @@ plausible. Nothing short of a conservation check finds it.
     Provenance text exists to be verified against the value beside it, so a
     rounded multiplier in it is worse than none: it invites the arithmetic and
     then fails it.
+45. A coverage rate may only be pooled over configurations in which a plan
+    exists. Where the margin consumes the whole limit there is no admissible
+    action, so the realised violation measures the task's feasibility and not
+    the method's calibration; averaging the two moves the headline by whatever
+    the infeasible cases happen to do.
 
 ---
 
@@ -5153,7 +5192,7 @@ arms matched on sample budget, and does the wording match what the runs support?
 | A8 | §5.2a's twin-loop effect sizes | **PASSES, fully reproducible.** Every figure recomputes from `runs/wsts_twin/results.json`: sync-vs-open d = 1.55, t = 38.23, 595/606 fires; adaptation d = 0.20/0.44/0.32 and t = 4.85/10.90/7.82 at days +1/+2/+3. One off-by-three on day +2 fires-improved (tie handling, or the 3 incomplete records of 1,821) | none. Note for the write-up: §5.2a averages over seeds **before** comparing, giving 606 independent fires. Pooling the 1,818 fire-seed records instead inflates t to 65.66 ≈ 38.2·√3 — **the same unit error §3.2's z-values made** (A3). The codebase gets the unit of independence right here and wrong there; worth one consistency pass over every remaining paired test |
 | A7 | §5.3's partial-observation claim | **PASSES, and understates itself.** `blind` is best at every occlusion level, and `perceive` is *significantly worse*: −1.52 at 15% (p = 0.034), −4.15 at 35% (p = 0.058), **−7.18 at 60% (p = 0.046)**. `persist` is statistically identical to blind throughout (p = 0.44–0.93) | state the negative at full strength — a learned belief over occluded cells does not merely fail to help, it **hurts more as occlusion grows**, which is the more interesting claim and survives at 3 seeds |
 | A6 | §4.3's joint-training conclusion | **incomplete** — the table reports return and surrogate rel L2 and has **no violation column**. On rdf, `joint-unanchored` cuts violations **85.5% → 30.9%** (paired t = −3.59, **p = 0.023**) while costing return (−7.46 vs −6.76). §4.3 dismisses that arm as "destroys the surrogate" (rel L2 0.0024 → 0.83), which is true and is not the whole story | **done 2026-09-30** — violation column added to §4.3, with the trade and both cautions stated |
-| A1 | *"validate on three PDE families"* (§0.3) | **PARTLY CLOSED, 2026-10-01.** The swe calibration finished: trained anchor puts the limit at 1.1437, and at that limit the margin separates — 33.2% → **16.8%** over 20 seeds, paired −16.4 points, 95% CI [−24.7, −8.0]. So the **mechanism** replicates on three families. The **level** does not: 16.8% against δ = 0.1, per-seed bimodal. rdf attains it (5.0%), dar trivially (0%) | say *"the mechanism replicates on three families; the stated rate is attained on two"* — not "validated on three". The weaker claim is the true one and still stronger than the single-family fallback this row previously required |
+| A1 | *"validate on three PDE families"* (§0.3) | **CLOSED as far as the runs allow, 2026-10-01.** Trained anchor puts swe's limit at 1.1437; the margin separates 33.2% → 16.8% over 20 seeds, paired −16.4 points, 95% CI [−24.7, −8.0]. On the 15 seeds where a plan exists at δ = 0.1 the rate is **12.1%, 95% CI [7.1, 17.1]**, containing the level; on the other 5 the margin consumes the whole limit and the task is infeasible (defect 39) | say *"the mechanism replicates on three families; the rate is attained on rdf, trivially satisfied on dar, and not rejected on swe over the feasible seeds"*. Not "validated on three" — one family is a regression check, one is consistent but underpowered |
 | A2 | *"12 points of burned-area reduction at matched crew budget"* (§0.3) | **true but under-qualified** — it is the 3-day horizon at a 3% crew budget. The gap runs +0.6 (1 day, n.s.) to +14.3 (5 days), and +6.8 (1% budget) to +16.9 (5%). The headline table is the same data as the 3-day row of the horizon ablation, not a separate experiment | **done 2026-09-30** — operating point now in §0.3 |
 | A3 | the three z-values in §3.2 | **one not reproducible** (+3.68 against a recomputed +2.13), and the unit was evaluations rather than runs | done — §3.2's provenance audit; run-level test now reported |
 | A4 | §3.2's margin claim at 5 seeds | **unsupported as stated**; real at 20 | done — §3.2b |
