@@ -1356,9 +1356,15 @@ conformalisation is the wrong recipe here — than as a **diagnostic** to choose
 between recipes, with the per-instance case noted as the exception that
 explains the CBF literature.
 
-**Pending:** a rerun at `eval_every 5` giving ~41 evaluations per run and 615
-pooled per arm, enough to resolve a 3-point difference and settle whether the
-violation ordering is real; and the stage-2 wildfire arms (§5.5).
+**Still outstanding, and stated as such.** A rerun at `eval_every 5` giving ~41
+evaluations per run and 615 pooled per arm would resolve the 3-point difference
+and settle whether the violation ordering among the three excluded-class methods
+is real. It has **not** been run: no `eval_every 5` configuration exists in
+`scripts/tacc/`, and the ordering therefore remains unresolved. Nothing in Part
+3 depends on it — the claim is that none of the three separates from no margin,
+which the intervals already support — but the ordering between them is not a
+result and is not quoted as one. The stage-2 wildfire arms (§5.5) are likewise
+unrun.
 
 ### 3.6 A separation theorem, and the transition in closed form (2026-09-28)
 
@@ -4743,6 +4749,80 @@ gives it the baselines to beat — including the uncomfortable one, which is tha
 the margin this project is built around contributes nothing to this particular
 decision.
 
+### 5.14b The interface could only model the flood its terrain implied (2026-10-01)
+
+This section exists because chasing one figure found a capability gap, and
+because the figure itself was nearly got wrong three times. Both are about the
+same thing: a screenshot is a claim.
+
+**The gap.** §5.14's numbers — the 3h30 deadline, the 359 km of cut network —
+came from a `curl` passing `river_q_m3s=3000`. The trip view had no such
+control, so it inherited whatever bankfull the DEM implied. On the Wilsons River
+at Lismore that is **234 m³/s**, which the Extreme preset takes to under a
+thousand, against a 2022 flood of record of order **3,000–4,000**. Every trip
+the interface could model was therefore a flood nobody is asked about: the
+measured case was 585 m³/s applied, **17.8 km of a 1,309 km network impassable
+(1.4%)**, no deadline, a dry route, and a brief that scored 1.000 faithfulness
+because it correctly described a non-event.
+
+The view now takes a discharge, empty meaning "estimate from the terrain", with
+the interface stating that the estimate is a 30 m elevation inference and not a
+gauged rating. Stating 3,000 gives 7,500 m³/s applied, **157 km cut (12%)**.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 40 | Interface could not state a design discharge, only inherit one from DEM geometry | every trip modelled a 1.4%-of-network event where the flood of record is an order of magnitude larger; the paper's own numbers came from a command line the interface could not reproduce | trying to capture a figure of the paper's own result | 5.14b |
+| 41 | Figures cited as current had been captured before the interface was rebuilt | three screenshots in two documents predated the per-option water, the route card and the methodology pages — including the figure the workshop paper calls its most important — and one document asserted they were current | listing the files with their capture dates | 5.14b |
+
+**Rule 46: a cited screenshot is a claim about the tool's present state, and
+carries a date.** Both documents now print a capture column and say why it is
+not bookkeeping. Nine figures were re-shot; `figA5` and `figA6` remain excluded
+because they embed a superseded interface.
+
+**Rule 47: do not select the scenario that flatters the figure.** A deadline —
+the thing §5.14's caption promises — was available on the captured box at 8,000
+m³/s (7h00, 28% cut) and at 20,000 (3h30, 42%). Both were rejected: the service
+applies 2.5× the stated peak, so those figures show 20,000 and 50,000 m³/s on a
+river whose flood of record is 3,000–4,000. The published figure shows the
+honest event, states that it contains **no deadline**, and names the two
+discharges that would have produced one. Choosing the larger flood would have
+been the same error as every defect in Part 7, committed deliberately.
+
+**Three of my own errors in the attempt, recorded because the sequence is
+instructive.**
+
+1. I probed the **channel detector** offline to pick a working origin and
+   destination, found it fires on hospital→Coraki, and treated that as
+   sufficient. It is necessary only: the detector firing says a through-channel
+   crosses the box, not that the flood reaches a road. Two captures were spent
+   before the distinction was measured.
+2. I asserted a **confidence slider** existed in the interface. It does not:
+   `lib/margin.ts`, which carries the 96.8% ceiling, is imported by the plan API
+   route and by no component. The interactive control that does exist is `f` on
+   `/methodology/margin`, a different parameter.
+3. Acting on (2) I captured the panel's single range input as `51_certainty.png`.
+   It is the **budget** slider. That overwrote the previous file, and `runs/`
+   being gitignored makes it unrecoverable. Neither document cited it; it is
+   deleted.
+
+**And a reproducibility note that belongs with §5.14.** The channel detector's
+verdict moves with the box. Geocoding "Lismore NSW" returns coordinates 0.6 km
+from those §5.14 used and "Coraki NSW" about 1 km, which shifts the derived box
+enough that `river_inflow` finds no through-channel and the driver falls back to
+rainfall. §5.14's deadline is therefore reproducible from the stated
+coordinates and **not** from the place names, on a 130 m grid. That is a property
+of the detector, not of the method, and it is stated rather than left for someone
+to rediscover.
+
+**The capture script was also wrong in a way worth fixing rather than working
+around.** Its first verdict was "NOT USABLE" with every field null and no
+evidence attached, because it printed extracted fields and never the panel. It
+now dumps the panel on failure, and judges usability on the flood being a flood
+— more than 5% of the network cut at peak — rather than on the driver merely not
+having fallen back to rainfall. Under the old test the 1.4% run would have
+passed. `portal/scripts/refresh-shots.mjs`, `shoot-methodology.mjs` and
+`shoot-trip.mjs` make all of it repeatable.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
@@ -4922,12 +5002,14 @@ they are harder, because the code is correct and the output looks right.
 | 37 | Headline reduction read from a surrogate extrapolated at the point the greedy search chose | 111.7% displayed against a solved 99.81%, past the physical maximum, margin unattainable so nothing caught it | solving the recommended plan to answer a question about a road | 5.13 |
 | 38 | Stated storm multiple formatted with `:.0f` | the forcing note read "2x the forecast peak of 3,000 m3/s" beside the 7,500 it applied | reading the note beside the number it describes | 5.14 |
 | 39 | Coverage averaged over seeds where the margin consumed the entire limit | swe read 16.8% against δ = 0.1 and was written up as missing the level; the feasible pool is 12.1%, interval containing it | reading `effective_limit` per seed after the aggregate looked bad | 3.4b |
+| 40 | Interface could not state a design discharge, only inherit one from DEM geometry | every trip modelled a 1.4%-of-network event where the flood of record is 10x larger | trying to capture a figure of our own published result | 5.14b |
+| 41 | Figures cited as current predated the interface rebuild | three screenshots in two documents, including the one called most important, showed a superseded tool | listing the files with their capture dates | 5.14b |
 
 **Defect 25 is the one to remember.** It degrades data continuously rather than
 breaking it, affects only some fires, and leaves every downstream number
 plausible. Nothing short of a conservation check finds it.
 
-### Rules 16–45
+### Rules 16–47
 
 16. A scheme that cannot violate the constrained quantity cannot be used to
     study violating it; verify conservation before trusting a solver.
@@ -4984,6 +5066,12 @@ plausible. Nothing short of a conservation check finds it.
     action, so the realised violation measures the task's feasibility and not
     the method's calibration; averaging the two moves the headline by whatever
     the infeasible cases happen to do.
+46. A cited screenshot is a claim about the tool's present state, and carries a
+    date. An interface is rebuilt more often than a paper is, so a figure
+    without a capture date is an unfalsifiable claim about software.
+47. Do not select the scenario that flatters the figure. Where a more
+    impressive caption is available at a less plausible operating point, publish
+    the plausible one and name what was rejected.
 
 ---
 
