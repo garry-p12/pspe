@@ -880,7 +880,7 @@ against the prevalence floor 0.011–0.013.
   `run_alpha_rule.py`, `run_joint.py`, `run_lipschitz.py`, `run_conformal.py`,
   `run_explain_baselines.py`, `run_perception_baselines.py`, `run_transfer.py`,
   `run_resolution.py`, `run_pdebench.py`, `run_ndws.py`.
-* **Tests.** 139 test functions across 17 files (7 parametrised; the docs quote
+* **Tests.** 166 test functions across 20 files as of 2026-10-02, 188 collected (the docs quote
   156 collected), including regression tests for each measurement bug below, the
   closed-form CMDP checks, gradient-checkpoint identity, the Lipschitz estimator
   on a known map, conformal coverage on skewed distributions, eval-schedule
@@ -1272,7 +1272,7 @@ scripts/      train_{simulate,plan,perceive,explain,e2e}.py (Hydra), generate_da
               calibrate_constraints.py, download_{pdebench,ndws}.py, make_*_figure(s).py,
               tacc/ (SLURM: vista_*.slurm, vista_packed.slurm, driver.sh, fetch/watch scripts)
 configs/      Hydra yaml per phase
-tests/        17 files, 139 tests (canary and slow markers)
+tests/        20 files, 166 test functions / 188 collected (canary and slow markers)
 docs/         technical_report.md, proposal_deltas.md, paper_gap_and_plan.md, slides_*.md,
               figures/ (architecture, per-module, applications, digital twin; svg/pdf/png)
 runs/         per-experiment results (gitignored raw; results_seeds.{md,json} are the record)
@@ -1371,6 +1371,12 @@ the trained-in-vs-post-hoc claim should be stated as trained-vs-untrained.
 
 ### 12.2 Qwen briefs are truncated at 96 tokens; the reference needs ~136
 
+> **PARTLY CLOSED 2026-10-02.** `run_ablations.py` now passes `max_len=160`
+> (defect 47, Rule 54, §3.4d of THESIS_AND_RESULTS). Four runners still take the
+> default and need the rerun: `run_conformal.py`, `run_ndws_explain.py`,
+> `run_explain_baselines.py`, `scripts/train_e2e.py`. No Explain number is
+> quotable until they run.
+
 `ExplainConfig.max_len` defaults to 96 and the Vista runners construct
 `ExplainConfig(backbone=...)` without overriding it (the Colab notebook sets 160
 for exactly this reason). In `runs/conformal_real/seed_*/train/briefs.jsonl` every
@@ -1397,6 +1403,13 @@ enough to flip tokens, and when it does it flips them for the worse. The sweep i
 non-monotone in $w_f$; 3 seeds are not enough to characterise it.
 
 ### 12.3 The headline 5-seed planner sweep did not pass the seed to the planner or baselines
+
+> **CLOSED IN CODE 2026-10-02, rerun pending** (defect 46, Rule 53, §3.4c).
+> Worse than recorded here: **six** configs accept a `seed` and the runner passed
+> it to none. Now threaded to all six plus the three `run_simulate`/`run_plan`
+> call sites. Verified: eval ICs for two sweep seeds were `allclose`-identical
+> before and differ by 0.791 max abs after. §8.3's ± is footnoted as
+> initialisation variance until the sweep reruns.
 
 `eval/run_ablations.py` builds `PlannerConfig(iterations=..., adaptive_alpha=...)`
 and `SafeRLConfig(iterations=...)` without `seed=`, so in `runs/seeds_v3/` (and
@@ -1425,6 +1438,10 @@ Fix: pass `seed=seed` into both configs in `run_ablations.py` and rerun
 
 ### 12.4 Dataset size and sample counts
 
+> **CLOSED 2026-10-02.** Stated in §3.1 of THESIS_AND_RESULTS: the column counts
+> **transitions** throughout (128 × 24 = 3,072), and `constraint_fix`'s 3,200 is
+> the same data counted as states (128 × 25).
+
 The cached `dar_64.npz` has 128 trajectories (Section 3.2); `--full` requests 256
 but does not regenerate. State this in the paper (128 × 24 = 3,072 transitions,
 102 train / 26 val trajectories), and use one convention (transitions) for the
@@ -1432,12 +1449,15 @@ real-sample column — `constraint_fix` reports 3,200 (states) for the same data
 
 ### 12.5 Provenance gaps
 
+> **CLOSED 2026-10-02** as §3.4e of THESIS_AND_RESULTS, with the test counts
+> recounted (188 collected / 166 functions, not 156 / 139).
+
 * PDEBench results (§8.1) are single-seed and their raw run directory is not in
   the local `runs/`; only the committed tables exist.
 * `runs/seeds_v2/` and `runs/seeds/` are superseded sweeps; do not mix.
 * The Sauté baseline's 0.49 on the toy CMDP is a known conservative bias of the
   method, not a bug; say so if the table is reproduced.
-* The "156 tests" figure is the collected count with parametrisation; 139 test
+* RECOUNTED 2026-10-02: 188 collected from 166 test functions. The "156 tests" figure was the collected count with parametrisation; 139 test
   functions exist.
 
 ### 12.6 Smaller points a reviewer will ask

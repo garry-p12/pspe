@@ -414,6 +414,15 @@ safe in-model and unsafe in reality, and nothing in the loop notices.
 
 dar, 5 seeds, `d = 0.936`:
 
+**The real-sample column counts transitions**, and does so everywhere in this
+document. The cached `dar_64.npz` holds **128 trajectories × 24 steps = 3,072
+transitions** (102 train / 26 val trajectories); `--full` requests 256 but does
+not regenerate, so 128 is what every number here was computed on. §3.4's
+`constraint_fix` table reports **3,200 for the same data** because it counts
+*states* (128 × 25 endpoints). Two conventions for one dataset is a defect in
+the reporting, not in the runs — the figures are consistent once the unit is
+named, and transitions is the unit this document uses.
+
 | method | return | cost | violating evals | worst | real samples |
 |---|---|---|---|---|---|
 | **PSPE (adaptive α)** | **−2.448 ± 0.029**<sup>†</sup> | 0.412 ± 0.37 | **7.3%** | 1.109 | 3,072 |
@@ -1281,6 +1290,25 @@ the metric, and it was invisible because the briefs that hit it were still
 well-formed for their first 96 tokens. Compare the generated length against the
 reference length before reading any score computed from parsed output.
 
+
+#### 3.4e Provenance, stated rather than implied
+
+Audit item 12.5, recorded here so a reviewer does not have to ask.
+
+* **PDEBench results (§8.1) are single-seed** and their raw run directory is not
+  in the local `runs/`; only the committed tables exist. They are reported as a
+  single-seed reference point and no interval is attached to them.
+* **`runs/seeds_v2/` and `runs/seeds/` are superseded sweeps.** Do not pool them
+  with `seeds_v3`; they differ in configuration, not only in seed.
+* **Sauté RL's 0.49 on the toy CMDP is a known conservative bias of the method**,
+  not a bug in our implementation. Anyone reproducing that table should be told
+  so, because the number looks like a broken baseline and is not.
+* **The test count has two values and the audit's pair is stale.** Recounted
+  2026-10-02: **188 tests collected** across 20 files with parametrisation,
+  from **166 test functions**. The audit recorded 156 and 139, both of which
+  predate work since. Quote the function count for "how much is tested"; the
+  collected count is larger only because parametrised cases are counted
+  separately.
 
 `runs/margin_synthetic/`, `pspe/plan/margins.py`, `tests/test_margins.py`
 
@@ -6636,11 +6664,14 @@ is statistically indistinguishable from no margin.
 
 | method | return | violating evals | real transitions |
 |---|---|---|---|
-| **PSPE (adaptive α)** | **−2.448 ± 0.029** | 7.3% | **3,072** |
+| **PSPE (adaptive α)** | **−2.448 ± 0.029**<sup>†</sup> | 7.3% | **3,072** |
 | PPO-Lagrangian | −2.558 ± 0.039 | 0% | 38,400 |
 | CPO | −2.541 ± 0.035 | 0% | 38,400 |
 | Sauté RL | −2.537 ± 0.024 | 0% | 38,400 |
 | primal-dual NPG | −2.544 ± 0.026 | 0% | 38,400 |
+
+> <sup>†</sup> Initialisation variance on a fixed evaluation IC set, not seed
+> variance — defect 46, §3.4c. Do not quote the ± until the sweep is rerun.
 
 Best return at 12.5× fewer real transitions, and the only method that violates.
 Both halves belong in the abstract.
