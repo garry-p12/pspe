@@ -5,11 +5,20 @@
 #SBATCH -p gh
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH -t 02:30:00
+#SBATCH -t 01:15:00
 #
 # Audit A1, stage 2: the margin comparison on revived swe, 5 seeds per job.
-# Submitted as four short jobs rather than one 7 h job, because gh backfills
-# short work into gaps -- the whole point of splitting. SEEDS is passed in.
+# Submitted as short jobs rather than one long one, because gh backfills short
+# work into gaps -- the whole point of splitting. SEEDS is passed in.
+#
+# The walltime has to match that intent. It was 02:30:00 against a measured
+# 57:32-58:13 for five parallel seeds, which is 2.6x the runtime: a request
+# that large cannot be backfilled into a one-hour gap, so the splitting bought
+# nothing and twelve jobs sat PENDING on a fully allocated partition behind a
+# limit they did not need. 01:15:00 is 29% headroom over the slowest observed
+# seed. Splitting a job for backfill and then asking for more wall time than it
+# uses is the same mistake as bounding one resource and assuming the other
+# follows (section 5.14's dx floor).
 set -euo pipefail
 VENV="${VENV:-$WORK/pspe-venv}"; REPO="${REPO:-$WORK/pspe}"
 module purge && module load gcc/13.2.0 cuda/12.6 python3/3.11.8
