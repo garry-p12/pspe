@@ -416,12 +416,21 @@ dar, 5 seeds, `d = 0.936`:
 
 | method | return | cost | violating evals | worst | real samples |
 |---|---|---|---|---|---|
-| **PSPE (adaptive α)** | **−2.448 ± 0.029** | 0.412 ± 0.37 | **7.3%** | 1.109 | 3,072 |
+| **PSPE (adaptive α)** | **−2.448 ± 0.029**<sup>†</sup> | 0.412 ± 0.37 | **7.3%** | 1.109 | 3,072 |
 | PSPE (fixed α) | −2.738 ± 0.365 | 2.752 ± 3.6 | 12.7% | 2.758 | 3,072 |
 | PPO-Lagrangian | −2.558 ± 0.039 | 0.266 ± 0.009 | 0% | 0.297 | 38,400 |
 | CPO | −2.541 ± 0.035 | 0.263 ± 0.011 | 0% | 0.277 | 38,400 |
 | Sauté RL | −2.537 ± 0.024 | 0.264 ± 0.008 | 0% | 0.275 | 38,400 |
 | Primal-dual NPG | −2.544 ± 0.026 | 0.263 ± 0.008 | 0% | 0.275 | 38,400 |
+
+> <sup>†</sup> **The ± on this row is not seed variance** and must not be quoted
+> as such. `run_ablations.py` passed `--seed` only to the global RNG, so all five
+> seeds were evaluated on an identical initial-condition set and this interval
+> measures initialisation variance alone (defect 46, §3.4c). Runners that do pass
+> the seed report 0.16–0.17 on comparable quantities. The *contrast* on this row
+> stands — all arms share the fixed IC set, so the pairing is intact — the
+> *dispersion* does not. The sweep is pending a rerun; until then report the mean
+> without the ±.
 
 Beats every baseline on return (t = +3.84 to +17.95) at **12.5× fewer real
 transitions** — but violates a limit they all respect. Part of the advantage
@@ -1191,6 +1200,87 @@ level. Failing to reject is a statement about power, and the way to find out
 which it is, is to add data and watch the estimate rather than the interval.
 
 ### 3.5 What the margin should bound: the derived answer
+
+### 3.4c The five-seed sweep had one seed (2026-10-02)
+
+Closing §12.3 of the audit, which turned out to understate the problem.
+`eval/run_ablations.py` parses `--seed` and passes it to `seed_everything` and
+to nothing else. **Six of the eight configs it constructs accept a `seed`
+field** — `PlannerConfig`, `SafeRLConfig`, `SimulateTrainConfig`,
+`ExplainTrainConfig`, `PerceiveTrainConfig`, `PerceptionDataConfig` — and it
+passed the seed to none of them. The audit named two.
+
+What varied across the "five seeds" was network initialisation, surrogate
+training order and minibatch order, via the global RNG. What did **not** vary
+was anything drawn from `cfg.seed`: the training-rollout generator
+(`torch.Generator().manual_seed(self.cfg.seed)`) and the evaluation initial
+conditions (`cfg.seed + 10_000` for the baselines, `+ 20_000` for the planner's
+real-environment probe). **Every seed of the sweep was evaluated on an identical
+set of initial conditions.**
+
+Verified both directions on a 16-grid `dar` environment before and after the
+fix:
+
+| | evaluation ICs across two sweep seeds |
+|---|---|
+| before (both resolve to `cfg.seed = 0`) | **identical**, `allclose` true |
+| after (`seed=args.seed` threaded) | differ, max abs difference **0.791** |
+
+**What this invalidates.** The ± std in §8.3 — 0.029 for the planner — is a
+measure of initialisation variance on a fixed evaluation set, not of seed
+variance. Runners that do pass the seed (`run_constraint_fix.py`,
+`run_joint.py`, `run_alpha_rule.py`) report 0.16–0.17 on comparable quantities,
+**five to six times larger**. Every interval derived from `runs/seeds_v3/`,
+`seeds_full` and `seeds_rest` is therefore too narrow, in the direction that
+flatters us.
+
+**What survives.** The paired *t*-tests against baselines remain valid: all arms
+share the same fixed IC set, so the pairing is intact and the comparison is
+still a comparison. It is the *dispersion* that is wrong, not the *contrast*.
+This is the same shape as §5.14c's defect 42 — a number that reads as stronger
+than the runs support, with the point estimate unaffected.
+
+The sweep needs rerunning before any ± from it is quoted. The contrasts can
+stand in the meantime if the ± is removed rather than reported.
+
+### 3.4d The Qwen briefs were cut before the footer (2026-10-02)
+
+Closing §12.2. `ExplainConfig.max_len` defaults to **96** and every runner
+constructed `ExplainConfig()` without overriding it, while the reference briefs
+average **136 tokens**. Consequences, from
+`runs/conformal_real/seed_*/train/briefs.jsonl`: every generated brief is
+exactly 96 tokens, names 7 of 9 actuators, and **never reaches the
+cost/reward/confidence footer**, so the parsed std falls back to the 0.4 default
+and two actuators default to 0.
+
+So the `F ≈ 0.57` plateau on seeds 1 and 2 is a **truncation ceiling, not a
+learning limit**, and `F_ref = 0.90` is computed on the untruncated reference —
+the comparison was between a model allowed to finish its sentence and one that
+was not. The weight sweep and the conformal floors inherit the ceiling.
+
+`run_ablations.py` now passes `max_len=160`. The other four runners
+(`run_conformal.py`, `run_ndws_explain.py`, `run_explain_baselines.py`,
+`scripts/train_e2e.py`) still construct `ExplainConfig` without it and are
+listed below as the rerun this unblocks. **No Explain number should be quoted
+until those are rerun.**
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 46 | `run_ablations.py` passed `--seed` only to `seed_everything`, never to the six configs that accept one | the five-seed sweep evaluated every seed on identical initial conditions; §8.3's ±0.029 measures initialisation variance, against 0.16–0.17 from runners that do pass the seed | tracing `--seed` through the file while closing audit item 12.3, which named two configs of the six | 3.4c |
+| 47 | Every runner took `ExplainConfig.max_len`'s default of 96 against reference briefs averaging 136 tokens | generated briefs cut before the cost/reward/confidence footer; parsed std fell back to 0.4, two actuators to 0, and the F ≈ 0.57 plateau is a truncation ceiling read as a learning limit | reading the stored briefs and finding every one exactly 96 tokens | 3.4d |
+
+**Rule 53: a sweep parameter that reaches only the global RNG is not a sweep
+parameter.** `--seed` was threaded to `seed_everything` and looked threaded. The
+check is not whether the flag exists but whether every stochastic component
+downstream reads it — here six configs each with their own `seed` field, and a
+grep for `seed=` at the construction sites answers it in one line.
+
+**Rule 54: a generation length default is an experimental condition.** 96 tokens
+against a 136-token reference is not a hyperparameter choice, it is a ceiling on
+the metric, and it was invisible because the briefs that hit it were still
+well-formed for their first 96 tokens. Compare the generated length against the
+reference length before reading any score computed from parsed output.
+
 
 `runs/margin_synthetic/`, `pspe/plan/margins.py`, `tests/test_margins.py`
 
@@ -6509,7 +6599,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 45 defects, 51 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 47 defects, 54 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative

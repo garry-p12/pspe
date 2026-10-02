@@ -61,7 +61,8 @@ def ensure_data(testbed: str, grid: int, n_trajectories: int) -> dict:
 
 
 def run_simulate(testbed: str, grid: int, budget: dict, device, root: Path,
-                 use_physics: bool, surrogate: str = "fno") -> tuple[dict, torch.nn.Module]:
+                 use_physics: bool, surrogate: str = "fno",
+                 seed: int = 0) -> tuple[dict, torch.nn.Module]:
     data = ensure_data(testbed, grid, budget["n_trajectories"])
     spec = make_testbed(testbed, grid=grid)
     model = make_surrogate(surrogate, spec.n_channels, grid=grid)
@@ -70,7 +71,7 @@ def run_simulate(testbed: str, grid: int, budget: dict, device, root: Path,
         model,
         SimulateTrainConfig(
             testbed=testbed, surrogate=surrogate, epochs=budget["simulate_epochs"],
-            grid=grid, use_physics=use_physics,
+            grid=grid, use_physics=use_physics, seed=seed,
         ),
         data, RunLogger(root / tag), device,
     )
@@ -78,7 +79,7 @@ def run_simulate(testbed: str, grid: int, budget: dict, device, root: Path,
 
 
 def run_plan(testbed: str, grid: int, budget: dict, device, root: Path,
-             surrogate: torch.nn.Module, adaptive: bool) -> dict:
+             surrogate: torch.nn.Module, adaptive: bool, seed: int = 0) -> dict:
     env_kwargs = dict(testbed=testbed, grid=grid, horizon=12, n_actuators=9,
                       device=device, batched=True)
     train_env = make_env(dynamics="surrogate", surrogate=surrogate, **env_kwargs)
@@ -87,7 +88,12 @@ def run_plan(testbed: str, grid: int, budget: dict, device, root: Path,
     tag = f"plan/{testbed}_alpha-{'adaptive' if adaptive else 'fixed'}"
     trainer = HybridPlannerTrainer(
         train_env, policy,
-        cfg=PlannerConfig(iterations=budget["plan_iterations"], adaptive_alpha=adaptive),
+        # `seed_everything` alone varies only network init and batch order. The
+        # training-rollout generator and the evaluation IC set are drawn from
+        # `cfg.seed`, so without this every "seed" of the sweep evaluated on an
+        # identical set of initial conditions (defect 46).
+        cfg=PlannerConfig(iterations=budget["plan_iterations"], adaptive_alpha=adaptive,
+                          seed=seed),
         eval_env=eval_env, logger=RunLogger(root / tag), device=device,
     )
     return trainer.train()
@@ -127,7 +133,8 @@ def main() -> int:
             if "physics" not in selected and not use_physics:
                 continue
             summary, model = run_simulate(
-                args.testbed, args.grid, budget, device, root, use_physics
+                args.testbed, args.grid, budget, device, root, use_physics,
+                seed=args.seed,
             )
             if use_physics:
                 surrogate_for_plan = model
@@ -138,7 +145,8 @@ def main() -> int:
     if "operators" in selected:
         for name in ("deeponet", "gnot"):
             summary, _ = run_simulate(
-                args.testbed, args.grid, budget, device, root, True, surrogate=name
+                args.testbed, args.grid, budget, device, root, True, surrogate=name,
+                seed=args.seed,
             )
             rows.append({"run": f"simulate {name}",
                          **{k: v for k, v in summary.items() if isinstance(v, (int, float))}})
@@ -148,7 +156,7 @@ def main() -> int:
         assert surrogate_for_plan is not None
         for adaptive in (True, False):
             summary = run_plan(args.testbed, args.grid, budget, device, root,
-                               surrogate_for_plan, adaptive)
+                               surrogate_for_plan, adaptive, seed=args.seed)
             rows.append({"run": f"plan alpha={'adaptive' if adaptive else 'fixed'}",
                          **{k: v for k, v in summary.items() if isinstance(v, (int, float))}})
 
@@ -161,6 +169,7 @@ def main() -> int:
                 name, env,
                 cfg=SafeRLConfig(iterations=budget["baseline_iterations"],
                                  lagrangian_ki=args.baseline_ki,
+                                 seed=args.seed,
                                  log_dir=str(root / "baselines")),
                 device=device,
             )
@@ -174,8 +183,9 @@ def main() -> int:
             trainer = PerceiveTrainer(
                 PerceiveConfig(image_size=args.grid, out_grid=args.grid),
                 PerceptionDataConfig(testbed=args.testbed, grid=args.grid,
-                                     image_size=args.grid),
-                PerceiveTrainConfig(epochs=budget["perceive_epochs"], freeze_encoder=frozen),
+                                     image_size=args.grid, seed=args.seed),
+                PerceiveTrainConfig(epochs=budget["perceive_epochs"], freeze_encoder=frozen,
+                                    seed=args.seed),
                 RunLogger(root / f"perceive/{'frozen' if frozen else 'finetuned'}"),
                 device,
             )
@@ -190,9 +200,13 @@ def main() -> int:
                            n_actuators=9, device=device, batched=True, dynamics="truth")
             policy = GaussianFieldPolicy(env.obs_shape[0], env.action_dim)
             trainer = ExplainTrainer(
-                env, policy, ExplainConfig(),
+                # max_len 160, not the default 96: the reference briefs average
+                # 136 tokens, so at 96 every generated brief is cut before the
+                # cost/reward/confidence footer and the parsed std falls back to
+                # 0.4. The F plateau at 96 is a truncation ceiling (defect 47).
+                env, policy, ExplainConfig(max_len=160),
                 ExplainTrainConfig(iterations=budget["explain_iterations"],
-                                   use_faithfulness=use_faith),
+                                   use_faithfulness=use_faith, seed=args.seed),
                 RunLogger(root / f"explain/{'on' if use_faith else 'off'}"),
                 device,
             )
