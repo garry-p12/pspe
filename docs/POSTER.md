@@ -286,17 +286,18 @@ exceeds what the vehicle can cross while you're on it.**
 | **re-plan on what is observed** | **56.2%** |
 | oracle (plans on the storm that happens) | 85.4% |
 
-**FIGURE 11** — ⚠️ **NEEDS RE-CAPTURE.** `runs/portal_shots/95_trip.png` exists
-but shows the wrong case: that box had no detected through-channel, so the driver
-fell back to rainfall and nothing flooded. Shoot it from a river-driven run:
+**FIGURE 11** — `runs/portal_shots/96_trip_river.png`
+*Caption: hospital to Coraki, discharge **stated** at 3,000 m³/s (applied at
+7,500). 157 km of the 1,309 km network impassable at peak; the trip is 22 min
+and meets no water, so there is **no deadline** — this route is on ground the
+flood does not reach.*
 
-```
-curl -X POST http://127.0.0.1:8000/route -H 'Content-Type: application/json' -d '{
-  "origin":      {"lat": -28.8135, "lon": 153.2773, "name": "Lismore"},
-  "destination": {"lat": -28.9956, "lon": 153.2906, "name": "Coraki"},
-  "driver": "river", "river_q_m3s": 3000, "rain_mm_h": 50,
-  "storm_hours": 6, "run_hours": 12, "vehicle_depth_m": 0.25}'
-```
+> **Why this figure and not a bigger flood.** A deadline was available at 8,000
+> m³/s (7h00) or 20,000 (3h30) — but the service applies 2.5× the stated peak,
+> so those show 20,000 and 50,000 m³/s on a river whose flood of record is
+> ~3,000–4,000. Picking a larger flood for a better caption is the failure this
+> poster is otherwise about. The 3h30 deadline in Column 4's table is measured
+> on a different pair, stated as such.
 
 ## Two results that argue against us, printed at the same size
 
@@ -404,9 +405,11 @@ OpenStreetMap/Overpass · FloodCastBench (reference hydrodynamics).
   forecast panels. The versions in earlier drafts predated the per-option water,
   the route card and the methodology pages. A poster showing a superseded
   interface is advertising a tool that no longer exists.
-- **Figure 11 must still be re-captured** (command in Column 4): the file that
-  exists shows a box with no detected through-channel, so that run fell back to
-  rainfall and flooded nothing.
+- **Figure 11 is captured** (`96_trip_river.png`, 2026-10-01) from a run whose
+  discharge is stated rather than inherited from the DEM. It shows no deadline,
+  and the caption says so; a deadline was reachable only at discharges above the
+  flood of record. `95_trip.png` is retained but unused — it is the rainfall
+  fallback.
 - `51_certainty.png` was deleted. It was captured on the assumption that the
   panel's single range input was a confidence control; it is the budget slider.
   The margin's interactive page is `/methodology/margin` and figure 8 is the

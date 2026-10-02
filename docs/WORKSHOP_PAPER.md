@@ -459,10 +459,30 @@ PSPE stages do the work: Simulate supplies the schedule, Plan solves the search,
 Explain emits the brief. **Perceive is not in the single-trip loop**, and
 claiming "all four stages" would be a claim about a diagram.
 
-**Figure 10** ⚠️ *needs capture* — a trip, its route and its deadline, from a
-river-driven run at the stated discharge. `runs/portal_shots/95_trip.png` shows
-a box with no detected through-channel, so that run fell back to rainfall and
-nothing flooded: the wrong case for this figure.
+**Figure 10** `runs/portal_shots/96_trip_river.png` — Lismore Base Hospital to
+Coraki, river driver at a **stated** 3,000 m³/s (the service applies the severe
+preset's 2.5×, so 7,500 m³/s held as a 4.0 m stage on the north edge). **157 km
+of the 1,309 km network is impassable at the worst of this flood (12%)**, and
+the trip is 22 minutes over 23.8 km meeting no standing water, with **no
+deadline** — this route runs on ground the flood does not reach.
+
+Three things about this figure are deliberate, and the third is the reason the
+earlier attempts were discarded. The discharge is **stated rather than
+estimated**, because bankfull from a 30 m DEM on this reach is 234 m³/s and the
+flood it implies is not the one anyone plans against. The caption says *no
+deadline*, because there is none: the route is clear at every departure in the
+window. And **a deadline would have been available at 8,000 m³/s** (7h00, 28% of
+the network cut) or at 20,000 (3h30, 42%) — but the service multiplies the
+stated peak by 2.5, so those figures show 20,000 and 50,000 m³/s on a river
+whose flood of record is of order 3,000–4,000. Choosing a larger flood to
+obtain a more impressive caption is the failure mode this project is otherwise
+about, so the figure shows the honest event and says what it does not contain.
+
+§5.4's 3h30 deadline is measured on a different pair — Lismore town centre to
+Coraki at the same stated discharge — whose box the channel detector only
+reaches from coordinates the geocoder does not return for "Lismore NSW". That
+asymmetry is a property of the detector on a 130 m grid, not of the method, and
+is recorded here rather than hidden by a screenshot of a bigger flood.
 
 ### 5.5 An explanation the service will not ship unless it matches the plan
 
@@ -570,7 +590,7 @@ conservation check finds it.
 | 7 | `runs/portal_shots/50_budget_trace.png` | the greedy allocation, step by step | **2026-10-01** |
 | 8 | `runs/portal_shots/53_margin_f_low.png` + `53_margin_f_high.png` | `f` as a control, and the crossing moving with it | **2026-10-01** |
 | 9 | `runs/portal_shots/54_limits.png` | what the tool cannot show, written into the interface | **2026-10-01** |
-| 10 | ⚠️ **to capture** | a trip, its route and its deadline, river-driven | — |
+| 10 | `runs/portal_shots/96_trip_river.png` | a trip across a flood cutting 157 km of 1,309; route clear, **no deadline**, discharge stated not estimated | **2026-10-01** |
 | 11 | `runs/portal_shots/52_refusal.png` | the margin refusing a level it cannot support | 2026-10-01 |
 | 12 | `runs/portal_shots/44_roads.png` | live OpenStreetMap road network | **2026-10-01** |
 | 13 | `runs/portal_shots/40_forecast.png` | live forecast panel (Open-Meteo) | **2026-10-01** |
@@ -584,9 +604,11 @@ superseded interface is making a claim about a tool that no longer exists.
 `figA5_portal_appraisal` and `figA6_portal_anywhere` are **not** used here for
 the same reason.
 
-Figure 10 is the one outstanding asset: `95_trip.png` exists but shows a box
-with no detected through-channel, so that run fell back to rainfall and flooded
-nothing — the wrong case for the caption it would carry.
+`95_trip.png` is retained but unused: it shows a box with no detected
+through-channel, so that run fell back to rainfall and flooded nothing. Figure
+10 replaces it from a run whose discharge is stated. No figure in this paper is
+now a screenshot of an interface or a scenario other than the one its caption
+describes.
 
 ## Data and reproducibility
 
