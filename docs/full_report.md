@@ -1356,6 +1356,22 @@ mentioned in `docs/technical_report.md`.
 
 ### 12.1 The "post-hoc" explanation control is an untrained generator
 
+> **CLOSED IN CODE 2026-10-02, rerun pending** (defects 48-49, Rules 55-56,
+> §3.4f of THESIS_AND_RESULTS). Both controls suggested here are now
+> implemented: `post-hoc-transfer` trains the same generator on a different
+> policy's briefs and explains this one untouched, and `post-hoc-prompted`
+> prompts the instruction-tuned backbone in its own tokens with no training.
+> The old arm is renamed `post-hoc-untrained` so its name states what it is.
+>
+> **And a larger finding while fixing it.** On every trained path the HF
+> backbone's input embedding and output head are *both* bypassed —
+> `ExplainModule._embed_tokens` feeds a randomly initialised embedding over our
+> ~100-token brief vocabulary, and `_logits` reads hidden states through our own
+> head. So the instruction-tuned model has never been used as a language model
+> anywhere in this project, and "Qwen beats the tiny stub" means "frozen
+> pretrained weights as a fixed nonlinear map beat random weights of the same
+> shape". `post-hoc-prompted` is the first arm that uses it natively.
+
 `ExplainTrainConfig(posthoc=True)` sets `iterations = 0`
 (`pspe/explain/trainer.py`). The arm therefore evaluates a *randomly initialised*
 prefix MLP, brief embedding and output head over the frozen LM — it has never

@@ -1291,6 +1291,100 @@ well-formed for their first 96 tokens. Compare the generated length against the
 reference length before reading any score computed from parsed output.
 
 
+### 3.4f The post-hoc control was an untrained generator, and the backbone was never a language model (2026-10-02)
+
+Closing audit item 12.1, the last of the four. Two findings: the one the audit
+named, and a larger one found while fixing it.
+
+**The arm.** `ExplainTrainConfig(posthoc=True)` sets `iterations = 0`. The arm
+therefore evaluates a **randomly initialised** prefix MLP, brief embedding and
+output head over the frozen backbone — it has never been trained on any policy
+or any brief. Its briefs do not parse, so its faithfulness is the parser's
+fallback `exp(−KL(π ‖ N(0, 0.4·1)))`, which is why the per-seed post-hoc `F`
+(0.0035 / 0.245 / 0.297) tracks how close each seed's policy sits to zero action
+and nothing else. **"Trained-in beats post-hoc, t = +21" is therefore "a
+supervised generator beats an untrained generator"** — true, and not the claim
+the Explain stage rests on.
+
+Note that `use_faithfulness=False` is *not* the missing control either: that arm
+still trains on the brief templates, so it has already seen the policy's
+behaviour through the supervised NLL.
+
+**The larger finding: on every trained path the backbone is not used as a
+language model.** Reading `ExplainModule` to build the prompted control:
+
+| | what the LM gets / gives |
+|---|---|
+| input | `self.brief_embed`, a **randomly initialised** `nn.Embedding` over our ~100-token brief vocabulary — *not* the LM's embedding, which is over a 150k vocabulary |
+| body | frozen transformer layers (LoRA on `q_proj`/`v_proj`) |
+| output | `self.brief_head`, our own linear map from final hidden states to the brief vocabulary — *not* the LM head |
+
+So **the instruction-tuned model's entire interface to language — its input
+embedding and its output head — is bypassed**, and it contributes frozen middle
+layers applied to vectors in a space it was never trained on. "Qwen 1.5B beats
+the tiny stub" is therefore not "pretrained language helps" in the usual sense;
+it is "frozen pretrained weights as a fixed nonlinear map beat random weights of
+the same shape". That may well be a real effect, and it is a different claim.
+
+**Four arms now, with the two that were missing.**
+
+| arm | trained? | on whose briefs? | what it isolates |
+|---|---|---|---|
+| `trained-in` | yes | this policy | the method |
+| `no-faithful` | yes | this policy | the faithfulness term's contribution |
+| `post-hoc-untrained` | **no** | — | trained vs untrained (the old arm, renamed so the name states what it is) |
+| **`post-hoc-transfer`** | **yes** | **a different policy** | whether training on *the policy being explained* is what matters |
+| **`post-hoc-prompted`** | **no** | — | whether the pretrained LM can do this at all, used natively |
+
+`post-hoc-transfer` trains the same generator on a second policy's briefs and
+then scores it against the target policy with no further training. Verified that
+the two policies' briefs genuinely differ — the source saturates at −1.00 where
+the target sits at +0.05 — because a transfer control whose source behaves like
+its target is ordinary training wearing a label, and the trainer now raises
+rather than accept `posthoc_transfer` without a `source_policy`.
+
+`post-hoc-prompted` is the only path on which the backbone tokenises, generates
+and detokenises in its **own** tokens. The prompt states exactly the facts
+`render_brief` is given and asks for the same format, so both arms answer the
+same question; the same frozen regex parser reads both answers, which is what
+makes the comparison fair. It refuses on the `tiny` stub rather than prompt a
+randomly initialised transformer and report the result as a baseline.
+
+**What this run will tell us that the old arm could not.** If `transfer` scores
+near `trained-in`, the generator is learning the brief *format* and not this
+policy, and the Explain contribution is weaker than claimed. If `prompted`
+scores well, the prefix-tuning apparatus is not carrying the result. Either
+outcome is more informative than beating an untrained network, and neither is
+knowable from the runs as they stand.
+
+**An order-dependent test, caught on the way in.** The regression test asserting
+that reference briefs exceed the old 96-token cap passed alone and failed inside
+the suite: brief length is a property of the policy's action magnitudes, and a
+policy left near zero by whatever ran before emits the short "no actuator
+exceeds the deadband, hold all settings" brief. Pinned with an explicit seed.
+A length assertion over an unseeded policy measures the previous test's RNG.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 48 | The post-hoc control set `iterations = 0`, so it scored a randomly initialised generator whose briefs do not parse | "trained-in beats post-hoc, t = +21" measured trained-vs-untrained; the arm's per-seed F tracked how close each policy sat to zero action, via the parser's fallback | audit item 12.1, tracing the arm's F to the parser's default branch | 3.4f |
+| 49 | On every trained path the HF backbone's input embedding and output head are both bypassed, so the instruction-tuned model is used as a frozen feature map over a random ~100-token vocabulary | "Qwen beats the tiny stub" cannot be read as "pretrained language helps"; no arm had ever used the LM as a language model | reading `_embed_tokens` and `_logits` while building the prompted control | 3.4f |
+| 50 | A regression test asserted reference-brief length against an unseeded policy | passed alone, failed in the suite; the assertion measured whatever RNG state the previous test left | running the new tests three times and then as part of the suite | 3.4f |
+
+**Rule 55: a control that was never trained is not a control for training.** The
+post-hoc arm answered "is a trained generator better than a random one", which
+nothing in the paper doubts, and the name "post-hoc" made it read as the
+literature's post-hoc explanation baseline. Name an arm by what it does, and
+when a baseline wins by a wide margin ask what it would have scored by accident
+— here, the parser's fallback on unparseable text.
+
+**Rule 56: know which part of a pretrained model you are actually using.** The
+backbone was loaded, quantised, LoRA-adapted and reported as an
+instruction-tuned LM, with its embedding and head replaced. Everything about the
+plumbing was deliberate and documented in comments; what was missing was the
+sentence saying the consequence out loud. For any frozen pretrained component,
+state which of its parts are on the path.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -6627,7 +6721,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 47 defects, 54 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 50 defects, 56 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative

@@ -38,7 +38,18 @@ from pspe.utils import RunLogger, get_device, project_path, seed_everything  # n
 ARMS = {
     "trained-in":  dict(use_faithfulness=True, posthoc=False),
     "no-faithful": dict(use_faithfulness=False, posthoc=False),
-    "post-hoc":    dict(use_faithfulness=False, posthoc=True),
+    # Kept, but it is a trained-vs-UNTRAINED comparison and the name hid that:
+    # `posthoc=True` sets iterations = 0, so this arm scores a randomly
+    # initialised prefix, embedding and head. Its briefs do not parse and its
+    # score is the parser's fallback. The two arms below are the controls that
+    # make "trained-in wins" mean something (audit item 12.1).
+    "post-hoc-untrained": dict(use_faithfulness=False, posthoc=True),
+    # Trained on a DIFFERENT policy's briefs, then asked to explain this one.
+    # Isolates "training on the policy being explained is what matters".
+    "post-hoc-transfer":  dict(use_faithfulness=True, posthoc_transfer=True),
+    # The instruction-tuned backbone prompted in its own tokens, no training.
+    # The only arm that uses the LM as a language model; needs a real backbone.
+    "post-hoc-prompted":  dict(posthoc_prompted=True),
 }
 
 
@@ -65,6 +76,9 @@ def main() -> int:
                              "'contrastive@w' arm on top of the selected arms")
     parser.add_argument("--arms", nargs="+", default=None,
                         help="subset of arms, so each job fits a short backfill slot")
+    parser.add_argument("--max-len", type=int, default=160,
+                        help="brief length cap; the reference averages 136 tokens, "
+                             "so the old default of 96 truncated every brief")
     parser.add_argument("--n-permutation", type=int, default=128,
                         help="briefs scored aligned and shuffled, for the state-specificity gap")
     parser.add_argument("--out", default="runs/explain_baselines")
@@ -95,13 +109,25 @@ def main() -> int:
     rows = []
     for name, overrides in arms.items():
         seed_everything(args.seed)
+        # The transfer arm needs a second, different policy to learn from. A
+        # freshly initialised one is a legitimate source -- the control asks
+        # whether training on THIS policy matters, not whether the source is
+        # any good -- and it is reproducible from the arm's own seed.
+        src = None
+        if overrides.get("posthoc_transfer"):
+            torch.manual_seed(args.seed + 7_000)
+            src = GaussianFieldPolicy(env.obs_shape[0], env.action_dim).to(device)
+            seed_everything(args.seed)
         trainer = ExplainTrainer(
             env, policy,
-            ExplainConfig(backbone=args.backbone),
+            # max_len 160: the reference briefs run past the default 96 and were
+            # being cut before the cost/reward/confidence footer (defect 47).
+            ExplainConfig(backbone=args.backbone, max_len=args.max_len),
             ExplainTrainConfig(iterations=args.iterations, batch=args.batch,
                                seed=args.seed, **overrides),
             RunLogger(root / name, use_tensorboard=False),
             device,
+            source_policy=src,
         )
         summary = trainer.train()
         # Permutation control: the same briefs scored against another state's

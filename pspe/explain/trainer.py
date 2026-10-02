@@ -80,6 +80,27 @@ class ExplainTrainConfig:
     # that arm still trains the generator on the brief templates, so it has
     # already seen the policy's behaviour through supervised NLL.
     posthoc: bool = False
+    # Two defensible post-hoc controls, because `posthoc=True` alone is not one:
+    # it sets iterations = 0 and therefore scores a RANDOMLY INITIALISED prefix,
+    # brief embedding and output head. Its briefs do not parse, so its score is
+    # the parser's fallback `exp(-KL(pi || N(0, 0.4)))`, which tracks how close
+    # the policy sits to zero action rather than anything about explanation.
+    # "Trained-in beats post-hoc" computed against it reads "a supervised
+    # generator beats an untrained one" (audit item 12.1).
+    #
+    # `posthoc_transfer`: train the same generator on briefs from a DIFFERENT
+    # policy, then explain this one with no further training. Isolates the claim
+    # that is actually at issue -- whether training on the policy being
+    # explained is what matters -- and needs `source_policy` to be passed.
+    posthoc_transfer: bool = False
+    # `posthoc_prompted`: no training at all; prompt the instruction-tuned
+    # backbone in its OWN tokens and parse whatever it writes. This is the only
+    # arm in which the backbone is used as a language model: on every other path
+    # its input embedding and output head are both bypassed (see
+    # `ExplainModule._embed_tokens` / `_logits`), so it contributes frozen
+    # middle layers applied to a vocabulary it never saw.
+    posthoc_prompted: bool = False
+    posthoc_prompt_max_new: int = 220
     eval_every: int = 25
     seed: int = 0
     log_dir: str = "runs/explain"
@@ -121,6 +142,7 @@ class ExplainTrainer:
         train_cfg: ExplainTrainConfig | None = None,
         logger: RunLogger | None = None,
         device: torch.device | str = "cpu",
+        source_policy: GaussianFieldPolicy | None = None,
     ) -> None:
         self.cfg = train_cfg or ExplainTrainConfig()
         self.device = torch.device(device)
@@ -128,6 +150,20 @@ class ExplainTrainer:
         self.policy = policy.to(self.device).eval()
         for p in self.policy.parameters():  # the planner is fixed in Phase 4
             p.requires_grad_(False)
+
+        # The transfer control trains on this policy's briefs and is evaluated
+        # against `policy`. Default: the same policy, i.e. ordinary training.
+        self.source_policy = self.policy
+        if source_policy is not None:
+            self.source_policy = source_policy.to(self.device).eval()
+            for p in self.source_policy.parameters():
+                p.requires_grad_(False)
+        if self.cfg.posthoc_transfer and source_policy is None:
+            raise ValueError(
+                "posthoc_transfer needs source_policy: the control is 'trained on "
+                "a different policy', and without one it is ordinary training "
+                "wearing the label."
+            )
 
         n_actuators = env.action_dim
         self.tokenizer = WordTokenizer(build_vocabulary(n_actuators, env.basis.centers.cpu()))
@@ -163,18 +199,25 @@ class ExplainTrainer:
             torch.arange(b, device=nll.device), reduction="none")
     # -- data ---------------------------------------------------------------- #
     @torch.no_grad()
-    def sample_batch(self, batch: int) -> tuple[Tensor, list[str], torch.distributions.Normal]:
-        """Roll the planner one step and build (condition, reference brief, pi)."""
+    def sample_batch(self, batch: int, policy: GaussianFieldPolicy | None = None
+                     ) -> tuple[Tensor, list[str], torch.distributions.Normal]:
+        """Roll the planner one step and build (condition, reference brief, pi).
+
+        `policy` defaults to the one under explanation. `train` passes
+        `source_policy` so the transfer control can be trained on another
+        policy's briefs while `evaluate` still scores against this one.
+        """
+        policy = policy or self.policy
         state = self.env.reset(batch, self.generator)
         # Advance a random number of steps so briefs cover the whole episode,
         # not only the initial condition.
         for _ in range(int(torch.randint(0, 4, (1,), generator=self.generator))):
-            action, _ = self.policy.sample(state, deterministic=False)
+            action, _ = policy.sample(state, deterministic=False)
             state, _, _, _ = self.env.step(action)
             state = state.detach()
             self.env.state = state
 
-        dist = self.policy.distribution(state)
+        dist = policy.distribution(state)
         mean, log_std = dist.mean, dist.stddev.log()
         action = torch.tanh(mean)
         next_state, reward, cost, _ = self.env.step(action)
@@ -215,10 +258,14 @@ class ExplainTrainer:
                 "params/trainable_fraction": trainable / max(total, 1),
             },
         )
-        iterations = 0 if self.cfg.posthoc else self.cfg.iterations
+        # `posthoc` and `posthoc_prompted` are both untrained by construction.
+        # `posthoc_transfer` DOES train -- on another policy's briefs.
+        untrained = self.cfg.posthoc or self.cfg.posthoc_prompted
+        iterations = 0 if untrained else self.cfg.iterations
         with timer() as clock:
             for it in range(1, iterations + 1):
-                condition, briefs, reference = self.sample_batch(self.cfg.batch)
+                condition, briefs, reference = self.sample_batch(
+                    self.cfg.batch, policy=self.source_policy)
                 token_ids, mask = self.tokenizer.batch_encode(
                     briefs, max_len=self.model.cfg.max_len
                 )
@@ -350,10 +397,84 @@ class ExplainTrainer:
         return np.concatenate(scores)[:n]
 
     @torch.no_grad()
+    # -- the prompted control ------------------------------------------------ #
+    def _prompted_briefs(self, condition: Tensor) -> list[str]:
+        """Brief per row by prompting the backbone in its own tokens.
+
+        The one path where the instruction-tuned model is used as a language
+        model. Everywhere else `ExplainModule` feeds it a randomly initialised
+        embedding over our ~100-token brief vocabulary and reads its hidden
+        states through our own head, so its input embedding and output head --
+        its whole interface to language -- are bypassed. Here it tokenises,
+        generates and detokenises natively, and the same frozen regex parser
+        reads the result. No training, no prefix, no LoRA.
+
+        The prompt states exactly the facts `render_brief` is given, so the two
+        arms are asked the same question and differ only in who answers.
+        """
+        if self.model.is_stub_backbone:
+            raise RuntimeError(
+                "posthoc_prompted needs a real backbone; the tiny stub has no "
+                "pretrained language to prompt."
+            )
+        from transformers import AutoTokenizer  # type: ignore[import-not-found]
+
+        if not hasattr(self, "_native_tok"):
+            self._native_tok = AutoTokenizer.from_pretrained(
+                self.model.cfg.backbone, trust_remote_code=True
+            )
+            if self._native_tok.pad_token_id is None:
+                self._native_tok.pad_token = self._native_tok.eos_token
+
+        k = self.env.action_dim
+        centers = self.env.basis.centers.cpu()
+        mean, log_std = condition[:, :k], condition[:, k:2 * k]
+        stats = condition[:, 2 * k:]              # mean, max, cost, limit, reward
+        out: list[str] = []
+        base = self.model.backbone
+        base = getattr(base, "base_model", base)  # unwrap PEFT for generation
+
+        for i in range(condition.shape[0]):
+            sites = "\n".join(
+                f"- actuator {j} at {float(centers[j, 0]):.2f} {float(centers[j, 1]):.2f}"
+                for j in range(k)
+            )
+            msg = (
+                "You are explaining a controller's action to an operator.\n"
+                f"There are {k} actuators:\n{sites}\n"
+                f"Field mean {float(stats[i, 0]):.2f}, field max {float(stats[i, 1]):.2f}. "
+                f"Predicted cost {float(stats[i, 2]):.1f} against a limit of "
+                f"{float(stats[i, 3]):.1f}. Expected reward {float(stats[i, 4]):.1f}.\n"
+                "The controller set these amplitudes: "
+                + ", ".join(f"actuator {j} = {float(mean[i, j]):+.1f}" for j in range(k))
+                + ".\nWrite the brief using exactly this format, one line per "
+                "actuator you mention:\n"
+                "actuator <i> at <x> <y> set to <amplitude> to increase|reduce the field .\n"
+                "predicted cost <c> is within|above the limit <l> .\n"
+                "expected reward <r> .\n"
+                "confidence low|medium|high .\n"
+            )
+            ids = self._native_tok.apply_chat_template(
+                [{"role": "user", "content": msg}],
+                add_generation_prompt=True, return_tensors="pt",
+            ).to(self.device)
+            with torch.no_grad():
+                gen = base.generate(
+                    ids, max_new_tokens=self.cfg.posthoc_prompt_max_new,
+                    do_sample=False,
+                    pad_token_id=self._native_tok.pad_token_id,
+                )
+            out.append(self._native_tok.decode(
+                gen[0, ids.shape[1]:], skip_special_tokens=True))
+        return out
+
     def evaluate(self, batch: int = 16, dump: str | Path | None = None) -> dict[str, float]:
         """Faithfulness of greedily generated briefs, plus a brief dump for raters."""
         condition, references, reference_dist = self.sample_batch(batch)
-        generated, _ = self.model.generate(condition, greedy=True)
+        if self.cfg.posthoc_prompted:
+            generated = self._prompted_briefs(condition)
+        else:
+            generated, _ = self.model.generate(condition, greedy=True)
         parsed, extras = self.parser.batch_distribution(generated, self.device)
         score, kl = faithfulness_score(reference_dist, parsed, self.cfg.per_dim_kl)
 
@@ -381,10 +502,14 @@ class ExplainTrainer:
                     + "\n"
                 )
 
+        arm = ("posthoc_untrained" if self.cfg.posthoc else
+               "posthoc_prompted" if self.cfg.posthoc_prompted else
+               "posthoc_transfer" if self.cfg.posthoc_transfer else "trained_in")
         return {
             "eval/faithfulness": float(score.mean()),
             "eval/faithfulness_reference": float(ref_score.mean()),
             "eval/kl": float(kl.mean()),
+            "eval/arm": arm,                 # which control this is, not a number
             "eval/briefs_path": str(path),  # kept as a string in summary.json
         }
 
