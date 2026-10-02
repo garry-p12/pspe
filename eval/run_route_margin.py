@@ -369,7 +369,7 @@ def main() -> None:
             if not parts:
                 return float(m[0])
             lead = max(parts)
-            return float(m[0]) - (lead + S * math.tanh((sum(parts) - lead) / S))
+            return float(m[0]) - surrogate.saturating(lead, sum(parts) - lead, S)
 
         multi = list(multi_all)
         rng.shuffle(multi)

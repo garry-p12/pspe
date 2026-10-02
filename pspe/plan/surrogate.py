@@ -29,6 +29,25 @@ from collections.abc import Sequence
 from . import margins
 
 
+def saturating(lead: float, rest: float, S: float) -> float:
+    """The surrogate's functional form, in one place.
+
+    `lead` is the largest single-measure contribution and `rest` is everything
+    stacked on top of it; only `rest` saturates, which keeps single measures
+    exact and the model continuous across the boundary between one active
+    measure and two (defect 28 was that boundary being discontinuous, so adding
+    a levee that helps could lower the prediction and the greedy search refused
+    to spend half of every budget).
+
+    Written once because it was written four times -- twice here, in `effect`
+    and inside `fit`'s residual loop, and three times in the portal. Four copies
+    of a formula that produces a displayed guarantee is four chances to disagree,
+    and `portal/scripts/verify-margin-parity.mjs` can only check one of them
+    against one of these.
+    """
+    return lead + S * math.tanh(rest / S)
+
+
 def effect(alpha: Sequence[float], heights: Sequence[float], max_h: float,
            S: float) -> float:
     """Predicted effect of a height vector. Exact for a single measure."""
@@ -36,7 +55,7 @@ def effect(alpha: Sequence[float], heights: Sequence[float], max_h: float,
     if not parts:
         return 0.0
     lead = max(parts)
-    return lead + S * math.tanh((sum(parts) - lead) / S)
+    return saturating(lead, sum(parts) - lead, S)
 
 
 def fit(alpha: Sequence[float], plans: Sequence[Sequence[float]],
@@ -61,22 +80,26 @@ def fit(alpha: Sequence[float], plans: Sequence[Sequence[float]],
     best_S, best_err = 100.0, float("inf")
     grid = list(range(2, 400, 2)) + [500, 1000, 5000, 20000]
     for S in grid:
-        err = math.sqrt(sum((r["lead"] + S * math.tanh(r["rest"] / S) - r["measured"]) ** 2
+        err = math.sqrt(sum((saturating(r["lead"], r["rest"], S) - r["measured"]) ** 2
                             for r in rows) / max(len(rows), 1))
         if err < best_err:
             best_S, best_err = float(S), err
-    saturating = best_S < grid[-1]
+    # Named `saturated`, not `saturating`: the local used to shadow the shared
+    # function below it, and `resid` then called a bool.
+    saturated = best_S < grid[-1]
 
-    resid = [abs(r["measured"] - (r["lead"] + best_S * math.tanh(r["rest"] / best_S)))
+    resid = [abs(r["measured"] - saturating(r["lead"], r["rest"], best_S))
              for r in rows]
     n = len(rows)
-    need = max(2, int(round(1.0 / delta)) - 1)
+    # The rank condition, searched rather than rearranged (defect 42). This was
+    # a fourth copy of `round(1/delta) - 1` and had the same off-by-one.
+    need = margins.min_calibration(delta)
     attainable = n >= need
     band = margins.margin("residual", delta, residuals=resid) if attainable else 0.0
 
     return {
         "saturation_S": best_S,
-        "saturating": saturating,
+        "saturating": saturated,
         "fit_rmse": best_err,
         "band": band,
         "delta": delta,

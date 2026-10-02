@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { bandAt, maxConfidencePct, runsNeeded, type CalibrationPoint } from "@/lib/margin";
+import { bandAt, maxConfidencePct, runsNeeded, saturating, type CalibrationPoint } from "@/lib/margin";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -45,11 +45,10 @@ async function load() {
 }
 
 function surrogate(fit: Fit, heights: number[]): { effect: number; linear: number; active: number } {
-  // lead + S*tanh(rest/S). Saturating the WHOLE sum makes the model jump at the
-  // boundary between one measure and two, so adding a levee that helps could
-  // lower the prediction -- measured at -1.3 points for site 5 beside site 3.
-  // Only what is stacked on top of the largest single contribution saturates,
-  // which keeps single measures exact and the model continuous.
+  // The form itself is `saturating` in lib/margin.ts, shared with the route
+  // margin and parity-checked against pspe.plan.surrogate.saturating. This
+  // function was a third copy of it, which meant the district tab's displayed
+  // estimate came from code no test could reach.
   const parts: number[] = [];
   for (let i = 0; i < heights.length; i++) {
     const a = fit.alpha_km[String(i)];
@@ -60,7 +59,7 @@ function surrogate(fit: Fit, heights: number[]): { effect: number; linear: numbe
   if (parts.length === 0) return { effect: 0, linear: 0, active: 0 };
   const lead = Math.max(...parts);
   const S = fit.saturation_S || 100;
-  return { effect: lead + S * Math.tanh((linear - lead) / S), linear, active: parts.length };
+  return { effect: saturating(lead, linear - lead, S), linear, active: parts.length };
 }
 
 export async function POST(req: Request) {

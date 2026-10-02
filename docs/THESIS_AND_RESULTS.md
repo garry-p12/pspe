@@ -4884,15 +4884,55 @@ already agreed on 9, at sample sizes of 165, 400 and 600 — far above any
 threshold in the table. The affected δ values appear only in the §9.2a sweep, at
 n = 600.
 
-**The parity check now passes on all three quantities**
+**Ten copies of one formula, now one per language.** Grepping for `tanh` after
+fixing the threshold found the saturating surrogate `lead + S·tanh(rest/S)`
+written out **six times in Python** — `surrogate.effect`, both residual sites
+inside `surrogate.fit`, both inside `scripts/fit_surrogate.py`, and
+`run_route_margin.predict` — and **four times in TypeScript**:
+`margin.predicted`, `routemargin.predictedReduction`, and inline copies in
+`/api/plan` and `/api/estimate`. All ten agreed, which is luck rather than
+design: the continuity of this form at the one-measure/two-measure boundary is
+defect 28, and a divergence among ten copies would have resurfaced as a
+discontinuity in exactly the scalar the margin is calibrated on.
+
+Two of the copies were in `scripts/fit_surrogate.py`, **the script that produces
+the `surrogate.json` the portal reads**. It fits `S` by minimising residuals of
+its own copy of the form and then computes the conformal band from residuals of
+that same copy — so had it drifted from `surrogate.effect`, the portal would
+have displayed an `S` optimal for one formula and a band calibrated on it, while
+the framework predicted with another. That file also carried **a third and
+fourth copy of the rearranged threshold** (defect 42's `round(1/δ) − 1`), once
+deciding attainability and once printing the refusal message, so it could have
+refused and explained the refusal with two different numbers.
+
+There is now one statement per language — `surrogate.saturating(lead, rest, S)`
+and `margin.saturating(lead, rest, S)` — and every site calls it: one
+`math.tanh` across `pspe/`, `scripts/` and `eval/`, one `Math.tanh` across the
+portal. The threshold is `margins.min_calibration` and `margin.runsNeeded`,
+nowhere else.
+
+**The check's first version could not fail on the formula it was named for.** I
+built its calibration points with `lead = 0, rest = 0`, so `predicted()`
+evaluated to zero and each residual was just the sample: the 108/108 proved the
+rank selection and the refusal threshold agreed, and never touched the
+saturating form. The points now carry non-zero `lead` and `rest`, putting
+`predicted()` on the path, and the form is swept directly over the regimes that
+matter — `rest = 0` (a single measure, which must be exact), `rest ≫ S`
+(saturated), and `S` down to 10⁻³.
+
+**The parity check now passes on all four quantities**
 (`portal/scripts/verify-margin-parity.mjs`): the conformal band **108/108**
-across nine δ and twelve sample sizes, the refusal threshold **108/108**, and the
-saturating surrogate **5/5**.
+across nine δ and twelve sample sizes, the refusal threshold **108/108**, the
+saturating form **6/6**, and `effect(alpha, h, max, S)` end-to-end **5/5**. The
+stated ceiling the portal shows, `maxConfidencePct(30) = 96.77%`, and
+`runsNeeded(90) = 9 = min_calibration(0.1)` both agree across the boundary.
 
 | # | defect | effect | how it was caught | § |
 |---|---|---|---|---|
 | 42 | `conformal_quantile`'s guard rearranged the rank condition with `round`, under-counting whenever `1/δ` is not an integer | at δ = 0.30, 0.12, 0.08 the clamp returned the sample maximum — a band with no guarantee, from the function whose purpose is to refuse exactly that | writing a parity check between the framework and the portal's mirror | 5.14c |
 | 43 | The portal's mirror computed δ as `1 − conf/100` and rearranged the same condition | 0.09999999999999998 made it demand ten calibration runs where nine suffice, declining the 90% band at n = 9 | the same check, from the other side | 5.14c |
+| 44 | `scripts/fit_surrogate.py`, which produces the `surrogate.json` the portal displays, held its own copy of the saturating form (twice) and of the rearranged threshold (twice) | the fitted `S` and the band shown in the district tab came from a formula no test compared with `surrogate.effect`; the refusal message quoted a threshold the refusal test did not use | grepping `tanh` and `round(1/δ)` after fixing defects 42–43 | 5.14c |
+| 45 | De-duplicating the form introduced a shadowed name: `fit`'s local `saturating = best_S < grid[-1]` (a bool) sat above the call to the new shared `saturating`, so `fit` raised `TypeError: 'bool' object is not callable` | every caller of `surrogate.fit` would have crashed — the route margin, the ablations, the fit script | running `fit` after the edit; the parity check does not reach it, and still reported PASS | 5.14c |
 
 **Rule 48: implement a threshold by searching its defining condition, not by
 rearranging it.** Both sides of this project rearranged `⌈(n+1)(1−δ)⌉ ≤ n` into
@@ -4905,6 +4945,22 @@ one guarantee and one rumour.** The router had one and agreed 14/14. The margin
 did not, and did not agree. A mirror is a reasonable engineering choice — the
 browser cannot call Python — but it is only honest with a test holding it against
 the original.
+
+**Rule 51: a refactor that removes duplication is a change, and needs the thing
+it changed to be run.** Collapsing ten copies of the formula to two was the
+right move and it broke `surrogate.fit` on the first attempt, by shadowing the
+new shared name with an existing bool local. The parity check still printed
+PASS, because it calls `effect` and `saturating` and never `fit`. A test suite
+that reports green while the function at the centre of the change raises on
+every call is measuring the wrong surface: run the caller, not only the callee.
+
+**Rule 50: a parity check has to be able to fail on the quantity it names.**
+The first version of this one reported 108/108 on a formula it never evaluated,
+because the inputs I chose made the predicted term identically zero. A passing
+test over a degenerate input is indistinguishable from a passing test, and reads
+as stronger evidence than no test at all. Pick inputs that make each term of
+the expression carry weight, and include the regime boundaries — here `rest = 0`
+and `rest ≫ S`, where a wrong form is most likely to still look plausible.
 
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
@@ -5089,6 +5145,8 @@ they are harder, because the code is correct and the output looks right.
 | 41 | Figures cited as current predated the interface rebuild | three screenshots in two documents, including the one called most important, showed a superseded tool | listing the files with their capture dates | 5.14b |
 | 42 | `conformal_quantile`'s guard used `round(1/δ)−1`, under-counting when `1/δ` is not an integer | at δ = 0.30, 0.12, 0.08 the rank clamp returned the sample maximum: a band with no guarantee | a parity check between framework and portal mirror | 5.14c |
 | 43 | The portal's margin mirror derived δ as `1 − conf/100` | floating point made it demand 10 runs where 9 suffice, declining 90% at n = 9 | the same check | 5.14c |
+| 44 | The script producing the portal's `surrogate.json` held private copies of the saturating form and of the rearranged threshold | the displayed `S` and band came from unchecked code; the refusal message and the refusal test disagreed | grepping `tanh` after 42–43 | 5.14c |
+| 45 | My own de-duplication shadowed the new shared `saturating` with a bool local in `fit` | `TypeError: 'bool' object is not callable` for every caller of `surrogate.fit` | running `fit`; the parity check passes without it | 5.14c |
 
 **Defect 25 is the one to remember.** It degrades data continuously rather than
 breaking it, affects only some fires, and leaves every downstream number
@@ -6333,7 +6391,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 26 defects, 30 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 45 defects, 51 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative

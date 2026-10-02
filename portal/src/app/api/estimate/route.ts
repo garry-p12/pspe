@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { saturating } from "@/lib/margin";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -73,8 +74,8 @@ export async function POST(req: Request) {
 
   const heights = body.heights ?? [];
 
-  // lead + S*tanh(rest/S): saturating the whole sum made the model jump between
-  // one measure and two, so adding a levee that helps could lower the answer.
+  // The form lives in lib/margin.ts and is parity-checked against
+  // pspe.plan.surrogate.saturating. This endpoint had its own copy.
   const parts: number[] = [];
   for (let i = 0; i < heights.length; i++) {
     const a = fit.alpha_km[String(i)];
@@ -84,7 +85,8 @@ export async function POST(req: Request) {
   const active = parts.length;
   const linear = parts.reduce((s, v) => s + v, 0);
   const S = fit.saturation_S || 100;
-  const effect = active ? Math.max(...parts) + S * Math.tanh((linear - Math.max(...parts)) / S) : 0;
+  const lead = active ? Math.max(...parts) : 0;
+  const effect = active ? saturating(lead, linear - lead, S) : 0;
   const attainable = fit.band_attainable !== false;
   const band = active > 1 && attainable ? fit.band_km : 0;
   const conf = fit.delta ? Math.round(100 * (1 - fit.delta)) : null;

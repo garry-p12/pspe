@@ -1,4 +1,4 @@
-import { bandAt, type Band, type CalibrationPoint } from "./margin";
+import { bandAt, saturating, type Band, type CalibrationPoint } from "./margin";
 import type { Route, RouteGraph } from "./routes";
 
 /**
@@ -108,7 +108,7 @@ export function predictedReduction(
     .filter((v): v is number => v !== null);
   if (!parts.length) return 0;
   const lead = Math.max(...parts);
-  return lead + S * Math.tanh((parts.reduce((s, v) => s + v, 0) - lead) / S);
+  return saturating(lead, parts.reduce((s, v) => s + v, 0) - lead, S);
 }
 
 export interface RouteVerdict {

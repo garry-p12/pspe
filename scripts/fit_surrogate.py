@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pspe.plan import margins  # noqa: E402
+from pspe.plan import margins, surrogate  # noqa: E402
 
 
 def fit_for_scale(opts: list[dict], max_h: float, metric: str = "road_cut_km",
@@ -86,7 +86,7 @@ def fit_for_scale(opts: list[dict], max_h: float, metric: str = "road_cut_km",
     for S in range(2, 500, 2):
         err = 0.0
         for r in rows:
-            pred = r["lead"] + S * math.tanh(r["rest"] / S)
+            pred = surrogate.saturating(r["lead"], r["rest"], S)
             err += (pred - r["measured"]) ** 2
         err = math.sqrt(err / max(len(rows), 1))
         if err < best_err:
@@ -104,10 +104,10 @@ def fit_for_scale(opts: list[dict], max_h: float, metric: str = "road_cut_km",
     # Conformal refuses instead, which is the behaviour an operational tool
     # should have.
     n = len(rows)
-    resid = [r["measured"] - (r["lead"] + best_S * math.tanh(r["rest"] / best_S))
+    resid = [r["measured"] - surrogate.saturating(r["lead"], r["rest"], best_S)
              for r in rows]
     band = margins.margin("residual", delta, residuals=[abs(e) for e in resid])
-    attainable = n >= max(2, int(round(1.0 / delta)) - 1)
+    attainable = n >= margins.min_calibration(delta)
 
     return {
         "delta": delta,
@@ -116,7 +116,7 @@ def fit_for_scale(opts: list[dict], max_h: float, metric: str = "road_cut_km",
                       f"{n} held-out combinations"
                       if attainable else
                       f"NOT ATTAINABLE: {n} calibration runs, "
-                      f"{max(2, int(round(1.0/delta)) - 1)} needed for "
+                      f"{margins.min_calibration(delta)} needed for "
                       f"delta = {delta}; no margin is applied"),
         "base_road_cut_km": base_cut,
         "base_area_km2": base["area_flooded_km2"],
@@ -138,7 +138,7 @@ def main() -> None:
     ap.add_argument("--metric", default="core_reduction_pct",
                     help="quantity to fit; core reduction is what a scheme buys")
     ap.add_argument("--delta", type=float, default=0.1,
-                    help="conformal level; needs >= 1/delta - 1 combination runs")
+                    help="conformal level; needs ceil((n+1)(1-delta)) <= n, see margins.min_calibration")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 

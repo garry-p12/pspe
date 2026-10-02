@@ -36,7 +36,7 @@ for (const f of ["margin.js", "routemargin.js", "routes.js", "inspect.js"]) {
   const at = join(outDir, f);
   writeFileSync(at, readFileSync(at, "utf8").replace(/from "\.\/([a-z]+)"/g, 'from "./$1.js"'));
 }
-const { bandAt, runsNeeded, maxConfidencePct } = await import(join(outDir, "margin.js"));
+const { bandAt, runsNeeded, maxConfidencePct, saturating } = await import(join(outDir, "margin.js"));
 const { predictedReduction } = await import(join(outDir, "routemargin.js"));
 
 // One sample, generated once here and HANDED to the Python side.
@@ -63,12 +63,32 @@ for (const d of DELTAS) {
   const conf = (1 - d) * 100;
   for (const n of NS) {
     const r = residuals(n);
-    const pts = r.map((v) => ({ n_active: 2, lead: 0, rest: 0, measured: v }));
+    // lead and rest are NON-ZERO on purpose. The first version of this test set
+    // both to zero, so `predicted` evaluated to zero and the residual was just
+    // the sample: it proved the rank selection agreed and never touched the
+    // saturating formula, which is the part that produces the displayed
+    // estimate. A parity check that cannot fail on the thing it is named for is
+    // not a parity check.
+    const pts = r.map((v, i) => ({
+      n_active: 2, lead: 1 + (i % 5) * 0.7, rest: 0.3 + (i % 3) * 1.1, measured: v,
+    }));
     const b = bandAt(pts, 100, conf);
     tsRows.push({ delta: d, n, band: b.attainable ? +b.band.toFixed(10) : null,
                   needed: Number.isFinite(b.needed) ? b.needed : null });
   }
 }
+// The saturating form itself, including the regimes that matter: rest = 0
+// (a single measure, which must be exact), rest >> S (saturated), and a small S.
+const SAT = [
+  { lead: 12, rest: 0, S: 100 },
+  { lead: 12, rest: 7, S: 100 },
+  { lead: 12, rest: 40, S: 12 },
+  { lead: 0.5, rest: 0.25, S: 0.3 },
+  { lead: 30, rest: 300, S: 20 },
+  { lead: 1e-6, rest: 1e-6, S: 1e-3 },
+];
+const satTs = SAT.map((c) => +saturating(c.lead, c.rest, c.S).toFixed(10));
+
 const surr = [
   { alpha: [12, 7, 3], h: [3, 0, 0], max: 3, S: 100 },
   { alpha: [12, 7, 3], h: [3, 3, 0], max: 3, S: 100 },
@@ -87,14 +107,20 @@ def resid(n):
 rows=[]
 for d in ${JSON.stringify(DELTAS)}:
     for n in ${JSON.stringify(NS)}:
-        q = margins.conformal_quantile(resid(n), d)
+        rr = resid(n)
+        pred = [surrogate.saturating(1 + (i % 5) * 0.7, 0.3 + (i % 3) * 1.1, 100.0)
+                for i in range(n)]
+        q = margins.conformal_quantile([abs(rr[i] - pred[i]) for i in range(n)], d)
         rows.append({"delta": d, "n": n,
                      "band": None if q is None else round(q, 10),
                      "needed": margins.min_calibration(d)})
+sat=[]
+for c in ${JSON.stringify(SAT)}:
+    sat.append(round(surrogate.saturating(c["lead"], c["rest"], c["S"]), 10))
 surr=[]
 for c in ${JSON.stringify(surr.map(({ alpha, h, max, S }) => ({ alpha, h, max, S })))}:
     surr.append(round(surrogate.effect(c["alpha"], c["h"], c["max"], c["S"]), 10))
-print(json.dumps({"rows": rows, "surr": surr}))
+print(json.dumps({"rows": rows, "surr": surr, "sat": sat}))
 `;
 const pf = join(outDir, "p.py");
 writeFileSync(pf, py);
@@ -111,6 +137,13 @@ ref.rows.forEach((p, i) => {
   if (!bandSame) { bandBad++; disagree.push(`band  delta=${p.delta} n=${p.n}: py=${p.band} ts=${t.band}`); }
   if (!needSame) { needBad++; disagree.push(`needed delta=${p.delta}: py=${p.needed} ts=${t.needed}`); }
 });
+let satBad = 0;
+ref.sat.forEach((v, i) => {
+  if (Math.abs(v - satTs[i]) > 1e-9) {
+    satBad++;
+    disagree.push(`saturating lead=${SAT[i].lead} rest=${SAT[i].rest} S=${SAT[i].S}: py=${v} ts=${satTs[i]}`);
+  }
+});
 ref.surr.forEach((v, i) => {
   if (Math.abs(v - surr[i].ts) > 1e-9) {
     surrBad++;
@@ -120,13 +153,14 @@ ref.surr.forEach((v, i) => {
 
 console.log(`conformal band:      ${ref.rows.length - bandBad}/${ref.rows.length} agree`);
 console.log(`refusal threshold:   ${ref.rows.length - needBad}/${ref.rows.length} agree`);
-console.log(`saturating surrogate: ${surr.length - surrBad}/${surr.length} agree`);
+console.log(`saturating form:     ${SAT.length - satBad}/${SAT.length} agree  (rest=0, saturated, tiny S)`);
+console.log(`effect(alpha,h,max,S): ${surr.length - surrBad}/${surr.length} agree`);
 console.log(`maxConfidencePct(30) = ${maxConfidencePct(30).toFixed(2)}%  (the portal's stated ceiling)`);
 console.log(`runsNeeded(90) = ${runsNeeded(90)} (TS) vs min_calibration(0.1) = ${ref.rows.find(r => r.delta === 0.10).needed} (python)`);
 if (disagree.length) {
   console.log("\n--- disagreements ---");
   [...new Set(disagree)].slice(0, 20).forEach((d) => console.log("  " + d));
 }
-const ok = bandBad === 0 && needBad === 0 && surrBad === 0;
+const ok = bandBad === 0 && needBad === 0 && surrBad === 0 && satBad === 0;
 console.log(ok ? "\nPASS — one guarantee, two implementations" : `\nFAIL — ${disagree.length} disagreements`);
 process.exit(ok ? 0 : 1);

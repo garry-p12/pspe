@@ -22,9 +22,23 @@ export interface CalibrationPoint {
   measured: number;
 }
 
+/**
+ * The surrogate's functional form, in one place.
+ *
+ * Mirrors `pspe.plan.surrogate.saturating`. Only what is stacked on top of the
+ * largest single contribution saturates, which keeps single measures exact and
+ * the model continuous where it used to jump. This had three copies in the
+ * portal and three in the framework; six copies of a formula behind a displayed
+ * guarantee is six chances to disagree, and a parity check can only hold one
+ * against one. Checked by `portal/scripts/verify-margin-parity.mjs`.
+ */
+export function saturating(lead: number, rest: number, S: number): number {
+  return lead + S * Math.tanh(rest / S);
+}
+
 /** The surrogate's prediction for a stored calibration combination. */
 export function predicted(p: CalibrationPoint, S: number): number {
-  return p.lead + S * Math.tanh(p.rest / S);
+  return saturating(p.lead, p.rest, S);
 }
 
 /**
