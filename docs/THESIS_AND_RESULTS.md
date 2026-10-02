@@ -1559,6 +1559,118 @@ here refuse, and that refusal is the result — it says the calibration set cove
 two-site plans at 90% and does not cover six-site ones.
 
 
+### 3.4i A learned departure policy adds nothing, and the bound says why (2026-10-02)
+
+§3.4h put the framework's planning *principle* into the portal but not a learned
+policy, on the grounds that the levee task is a one-shot deterministic
+allocation. The evacuation task is the opposite and the runner's own docstring
+calls it "the one place in this project where a policy earns its keep rather
+than decorating a shortest path": the network degrades while you drive, the
+schedule depends on a forcing nobody knows exactly, and observed depths rule
+ensemble members out as the flood arrives. So that is where a policy was tried.
+
+**The headroom looked large and the failure modes said where it was.** `filtered`
+— re-plan each slot on the members still consistent with what has been seen —
+gets **56.2%** against the oracle's **85.4%**, and `filtered` is **caught by
+water 14 times in 96 where the oracle is caught none**. Its rule is "depart at
+the first slot where a margin-feasible route exists", which is myopic by
+construction. Waiting narrows the belief; roads close while you wait. That is a
+timing decision.
+
+**Two arms were added.** `learned` is a two-parameter rule — go when a
+margin-feasible route exists *and* either the surviving fraction of the ensemble
+has fallen to θ or τ of the window has elapsed — fitted by exhaustive search
+under **nested leave-one-out**, so the member a fold is scored against never
+enters its training set. Two parameters because 96 decisions leave ~84 per fold;
+capacity chosen from the sample size, not from ambition. τ = 0 reproduces
+`filtered` exactly, so the family *contains* the baseline and the fit cannot lose
+to it in sample — which is what makes an out-of-sample gain meaningful.
+
+`best-timing` is **not an arm but an upper bound**: the earliest departure slot
+that actually arrives, chosen in hindsight from the arrival label. No causal
+policy can reach it. It exists to separate *"`filtered` departs at the wrong
+time"* from *"no departure time was any good"* — a distinction the oracle cannot
+make, because the oracle also gets a better **route**.
+
+| arm | got through | caught | no plan | median drive |
+|---|---|---|---|---|
+| leave now, on the mean forecast | 41.7% | 7 | 49 | 12.0 min |
+| route on the peak field | 0.0% | 0 | 96 | — |
+| time-dependent on the mean | 41.7% | 7 | 49 | 12.0 min |
+| + conformal margin | 41.7% | 7 | 49 | 12.0 min |
+| re-plan on consistent members (`filtered`) | **56.2%** | 14 | 28 | 11.8 min |
+| **`learned` timing policy** | **56.2%** | 14 | 28 | 11.8 min |
+| **`best-timing` (hindsight bound)** | **56.2%** | **0** | 42 | 11.8 min |
+| oracle: plan on the member that happens | 85.4% | 0 | 14 | 8.3 min |
+
+**The learned policy converged to the baseline on all eight folds** — θ = 0.00,
+τ = 0.00, one distinct rule across eight folds, i.e. *depart immediately*. That
+is the search working, not failing: the family contained every patient rule and
+the training data preferred the impatient one every time.
+
+**And the hindsight bound is also 56.2%.** A policy allowed to read the future
+cannot beat departing at the first feasible slot. So **the 29.2-point gap to the
+oracle is not a timing gap at all**, and no amount of policy capacity would have
+closed it.
+
+**The decomposition is the useful part.** The bound has the same arrival count as
+`filtered` but **0 caught against 14**, converting every catch into a refusal to
+depart: on those 14 decisions no feasible slot arrives, so hindsight declines the
+trip while the myopic rule tries it and is caught. Equal arrival counts then
+force a sharp statement — **whenever some feasible departure arrives, the
+earliest feasible departure also arrives.**
+
+**Measured, not assumed.** That property follows if the hazard only ever decays,
+so it was checked rather than asserted:
+
+| | |
+|---|---|
+| decisions with at least one feasible slot | 68 of 96 |
+| of those, feasibility is a **contiguous window** | **68/68** |
+| windows that reopen after closing | **0** |
+| decisions where a later departure arrives but the earliest feasible one does not | **0** |
+
+The flood rises monotonically across the modelled window, so roads close and none
+reopen, and the earliest feasible departure is optimal by construction. The
+counts reconcile exactly: 28 of 96 decisions never have a feasible slot
+(`filtered`'s 28 refusals), 68 do, and the bound's 42 refusals are those 28 plus
+the 14 on which no feasible slot arrives.
+
+**What this is worth.** A null result from a learned arm is ordinarily
+uninformative — it could be the policy, the features, the sample size, or the
+task. Here the bound converts it into a statement about the **task**: departure
+timing carries no value on a monotonically rising flood, and the remaining gap
+to the oracle is entirely about *which route*, meaning information about which
+member is being lived in. That also explains §5.3's inert margin from a third
+side: what varies between members is which roads exist, not how deep the chosen
+road gets, and neither a depth margin nor a departure time can express it.
+
+**Where a timing policy would earn its keep**, stated so it is falsifiable: a
+hazard whose feasibility is **non-monotone** — a flood that recedes within the
+window, a second peak, or a forecast that sharpens faster than the network
+degrades. The `--run-hours` window here ends near the peak; extending it past
+recession is the experiment that would make the arm non-trivial, and the
+diagnostic above is the test for whether it had.
+
+**The three instruments, and where each bites.** With this the picture is
+complete across the project's three decision types:
+
+| decision | instrument | verdict |
+|---|---|---|
+| discrete route choice (§5.3) | conformal depth margin | **inert** — 0.000 m on 96/96; the uncertainty is which roads exist |
+| continuous allocation (§3.4h) | conformal margin on the objective | **decision-relevant once conditioned** on the plan's stratum; changes the recommendation at 3 of 4 budgets |
+| sequential departure timing (§3.4i) | learned policy | **no value available**, proved by a hindsight bound, because the hazard is monotone |
+
+**Rule 60: ship a hindsight bound with every learned arm.** `learned` scoring
+exactly what `filtered` scores is, on its own, worthless information — the
+policy, the features, the 96 samples and the task are all candidate
+explanations, and the honest write-up would have been a shrug. The bound costs
+one extra pass over a trajectory that was already computed and it converts the
+null into a proof that no policy of any capacity could have done better. Compute
+the best achievable in hindsight before concluding anything from a learned arm's
+failure to improve, and before concluding anything from its success.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -6901,7 +7013,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 52 defects, 59 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 52 defects, 60 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative

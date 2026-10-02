@@ -555,6 +555,35 @@ def main() -> None:
                          "arm": "learned", "depart_min": dp, **res,
                          "theta": best[0], "tau": best[1]})
 
+    # Why the learned arm and the hindsight bound coincide. If feasibility only
+    # ever decays -- a flood that rises through the window closes roads and
+    # reopens none -- then the earliest feasible departure is the best one and
+    # no timing rule can help. That is a claim about the hazard, so it is
+    # measured rather than asserted.
+    mono = gap = n_dec = 0
+    later_only = 0
+    for rec in traces:
+        tr = rec["trace"]
+        feas = [i for i, sl in enumerate(tr) if sl["feasible"]]
+        arr = [i for i, sl in enumerate(tr) if sl["feasible"] and sl["arrives"]]
+        n_dec += 1
+        if feas:
+            # Monotone decay: once infeasible, never feasible again.
+            last = feas[-1]
+            if all(tr[i]["feasible"] for i in range(feas[0], last + 1)):
+                mono += 1
+            else:
+                gap += 1
+        if arr and feas and arr[0] > feas[0]:
+            later_only += 1
+    print(f"\n=== is waiting ever worth it? ({n_dec} decisions) ===", flush=True)
+    print(f"  feasibility is a contiguous window: {mono}/{mono + gap}"
+          f"  (reopens after closing: {gap})", flush=True)
+    print(f"  decisions where a LATER departure arrives but the earliest "
+          f"feasible one does not: {later_only}", flush=True)
+    print("  zero means the earliest feasible departure is always optimal, so "
+          "no timing policy can improve on it.", flush=True)
+
     print("\n=== learned timing policy, nested leave-one-out ===", flush=True)
     for k in sorted(fitted):
         th, ta = fitted[k]
