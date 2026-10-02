@@ -1472,7 +1472,12 @@ real-sample column — `constraint_fix` reports 3,200 (states) for the same data
   the local `runs/`; only the committed tables exist.
 * `runs/seeds_v2/` and `runs/seeds/` are superseded sweeps; do not mix.
 * The Sauté baseline's 0.49 on the toy CMDP is a known conservative bias of the
-  method, not a bug; say so if the table is reproduced.
+  method, not a bug; say so if the table is reproduced. **AMENDED 2026-10-02
+  (defect 51, Rule 57, §3.4g):** that 0.49 is seeds 1-2. The canary *fails* on
+  seed 0, where the policy collapses to `a = -1` for reward -3.24 against -0.16
+  achievable. The cost assertion passes there because `relu(-1) = 0`, so only
+  the closed-form action check sees it. Report Sauté as validated on 2 of 3
+  canary seeds. §8.3's row stands -- Sauté is not collapsed on `dar`.
 * RECOUNTED 2026-10-02: 188 collected from 166 test functions. The "156 tests" figure was the collected count with parametrisation; 139 test
   functions exist.
 

@@ -290,7 +290,7 @@ number from a collapsed loss, a baseline comparison invalidated by an
 extrapolation bias 4× the effect it tested, and a statistical claim whose
 interval spanned its own effect size. **All three initially favoured us.**
 
-**50 defects catalogued, 56 rules derived.** And one we chose not to exploit: a
+**51 defects catalogued, 57 rules derived.** And one we chose not to exploit: a
 deadline was available for Figure 6 at 8,000 m³/s or 20,000, but the service
 applies 2.5× the stated peak, so those show 20,000 and 50,000 on a river whose
 record is 3,000–4,000. **Picking the larger flood for a better caption would have

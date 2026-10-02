@@ -1385,6 +1385,61 @@ sentence saying the consequence out loud. For any frozen pretrained component,
 state which of its parts are on the path.
 
 
+### 3.4g The Sauté canary fails on one seed in three (2026-10-02)
+
+Found by running the full suite after the Explain work, **not** caused by it:
+the failure reproduces at `1b0054f`, before any of this session's commits.
+
+`tests/test_safe_rl_correctness.py::test_algorithm_converges_to_the_closed_form_constrained_optimum[saute]`
+fails. The canary is a one-step CMDP with `reward(a) = −(a − 0.8)²`,
+`cost(a) = relu(a)`, limit `d = 0.4`, so the constrained optimum is `a* = 0.4`
+in closed form. Across three seeds:
+
+| seed | mean action | cost | reward | verdict |
+|---|---|---|---|---|
+| 0 | **−1.0000** | 0.000 | **−3.240** | collapse to the negative boundary |
+| 1 | +0.473 | 0.327 | −0.107 | correct |
+| 2 | +0.481 | 0.319 | −0.102 | correct |
+
+Seeds 1 and 2 land at ≈0.475, which is the 0.49 the audit recorded and called a
+known conservative bias. Seed 0 is not a bias: the policy saturates the tanh at
+`a = −1`, taking reward −3.24 where −0.16 was available. **This is the exact
+failure mode the canary's docstring was written to catch** — *"one whose dual
+update is mis-signed collapses to a ≤ 0"*.
+
+**The second assertion does not catch it.** The test also asserts
+`episode_cost ≤ limit + 0.1`, and the collapsed policy has `cost = relu(−1) = 0`,
+so it passes that check comfortably. A policy that has abandoned the task
+entirely reads as perfectly constraint-satisfying on the cost metric alone; only
+the action-error assertion against the closed form sees it. That is the argument
+for having a closed-form canary at all, and it is worth stating because the same
+blind spot exists in the reported tables: **a violation rate of 0% is also what
+total collapse looks like.**
+
+**What it does and does not affect.** §8.3 reports Sauté at −2.537 ± 0.024 on
+`dar`, in line with the other three baselines (−2.541 to −2.558), so Sauté is
+*not* collapsed there and that row stands. What weakens is the claim the
+implementation is validated: it is validated on two seeds in three, and
+`SafeRLConfig`'s comment saying the dual gains are "validated against a
+closed-form CMDP" is true of PPO-Lagrangian and not reliably true of Sauté.
+
+**Not fixed here.** Diagnosing a 1-in-3 collapse in a reimplemented safe-RL
+algorithm is its own piece of work, and the honest interim position is to report
+the baseline as validated on 2/3 canary seeds rather than to quietly widen the
+tolerance until it passes. The audit's §12.5 note is amended to say so.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 51 | The Sauté baseline collapses to the tanh boundary `a = −1` on 1 of 3 canary seeds, and the cost assertion passes for the collapsed policy because `relu(−1) = 0` | "validated against a closed-form CMDP" overstates the Sauté arm; the audit recorded only the two passing seeds and read 0.49 as a mild conservative bias | running the full suite; pre-existing, reproduces before this session's first commit | 3.4g |
+
+**Rule 57: a zero violation rate and a collapsed policy are the same
+measurement.** Sauté at `a = −1` scores 0% violation, 0.000 cost and a reward
+3.2× worse than achievable, and every constraint-side metric calls it safe. Any
+table reporting a violation rate of 0% needs the objective value beside it, and
+a canary with a closed-form optimum needs to assert the *action*, not only the
+cost — the cost assertion is satisfied by doing nothing at all.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -6721,7 +6776,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 50 defects, 56 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 51 defects, 57 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
