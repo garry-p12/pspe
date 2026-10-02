@@ -78,6 +78,38 @@ def adaptive_quantile(sequence: Sequence[float], delta: float,
     return q, (sum(used) / len(used) if used else delta)
 
 
+def min_calibration(delta: float) -> int:
+    """Smallest n for which some order statistic carries level `delta`.
+
+    Solved by searching the rank condition `ceil((n+1)(1-delta)) <= n` rather
+    than by rearranging it to `n >= 1/delta - 1`, because both sides of this
+    project got the rearrangement wrong in opposite directions and a parity
+    check between them is what found it:
+
+      * here it was `round(1/delta) - 1`, which under-counts whenever `1/delta`
+        is not an integer -- at delta = 0.30, 0.12, 0.08 it admits an `n` whose
+        rank exceeds `n`, where the old `min(n, rank)` clamp then returned the
+        SAMPLE MAXIMUM. That is exactly the theatre this function exists to
+        refuse, and it refused it everywhere except the values where it
+        mattered.
+      * the portal's mirror used `ceil(1/delta - 1)` on a delta obtained as
+        `1 - confidence/100`, which in binary floating point makes delta =
+        0.09999999999999998 and the expression overshoot by one -- so it
+        declined delta = 0.1 at n = 9, where 9 is sufficient.
+
+    Searching the condition is exact, needs no algebra, and cannot drift: it is
+    the definition. delta = 0.1 gives 9, 0.05 gives 19, 0.3 gives 3.
+    """
+    if not 0.0 < delta < 1.0:
+        raise ValueError(f"delta must be in (0, 1), got {delta}")
+    n = 2
+    while n < 10_000:
+        if math.ceil((n + 1) * (1.0 - delta)) <= n:
+            return n
+        n += 1
+    raise ValueError(f"no attainable calibration size for delta = {delta}")
+
+
 def conformal_quantile(sample: Sequence[float], delta: float) -> float | None:
     """Upper (1-delta) order statistic, or None if the level is unattainable.
 
@@ -86,9 +118,12 @@ def conformal_quantile(sample: Sequence[float], delta: float) -> float | None:
     theatre, so the caller is told to apply no margin instead.
     """
     n = len(sample)
-    if n < max(2, int(round(1.0 / delta)) - 1):
+    if n < min_calibration(delta):
         return None
-    rank = min(n, math.ceil((n + 1) * (1.0 - delta)))
+    rank = math.ceil((n + 1) * (1.0 - delta))
+    # The guard above guarantees rank <= n, so no clamp is needed. The clamp
+    # that used to be here was load-bearing precisely when the guard was wrong,
+    # and silently returned the sample maximum -- see `min_calibration`.
     return sorted(sample)[rank - 1]
 
 

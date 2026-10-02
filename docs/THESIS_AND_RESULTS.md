@@ -4823,6 +4823,89 @@ having fallen back to rainfall. Under the old test the 1.4% run would have
 passed. `portal/scripts/refresh-shots.mjs`, `shoot-methodology.mjs` and
 `shoot-trip.mjs` make all of it repeatable.
 
+### 5.14c The portal's guarantee and the framework's were two implementations (2026-10-02)
+
+Asked whether the framework is actually used in the portal. Auditing it properly
+produced a better answer than expected, and then a defect in the thing the whole
+project rests on.
+
+**The audit.** Five portal views call endpoints that import and execute `pspe/`:
+`/observe` (`observe.sar`), `/analyse` and `/roads` (`simulate.real.forcing`,
+`anywhere.build_domain`, `simulate.flood.FloodSolver`), `/plan` (those plus
+`plan.surrogate`, which reaches **`plan.margins`** transitively through
+`surrogate.fit`), and `/route` (plus `plan.routes` and `explain.route_brief`).
+So Simulate, Plan and Explain are live framework calls, and the **Anywhere
+tab's guaranteed floor is computed by `margins.py`**.
+
+**What is not used at all**: `pspe.perceive`, `pspe.envs`, `pspe.pipeline`,
+`plan/trainer.py`, `plan/joint.py`, `plan/policy.py`, `explain/model.py`,
+`explain/trainer.py`. None is imported by the service. The Observe panel uses
+`observe.sar` — SAR retrieval — and **not** the `perceive` encoder, so the
+Perceive stage as a learned module is absent from the portal entirely. The
+learned-policy stack and the trained `ExplainModule` never run there either;
+`route_brief` is templated.
+
+**And the district tab is a reimplementation.** `/api/plan` is local to the
+portal: it loads a precomputed `surrogate.json`, reimplements
+`surrogate.effect()` in TypeScript, and takes its band from `lib/margin.ts`'s
+own conformal rank. **The headline "estimated 52%, at least 39%" was therefore
+produced by code that had never been checked against `margins.py`** — against
+§3's rule 13, that a guarantee meaning one thing in one place and another
+elsewhere is worse than no guarantee. Only the router had a parity check.
+
+**Writing that check found an error on each side, both at the refusal
+boundary.**
+
+| δ | old framework | old portal | correct |
+|---|---|---|---|
+| 0.30 | 2 | 3 | **3** |
+| 0.12 | 7 | 8 | **8** |
+| 0.10 | 9 | **10** | **9** |
+| 0.08 | 11 | 12 | **12** |
+
+- **The framework under-counted.** `max(2, round(1/δ) − 1)` admits an `n` whose
+  conformal rank exceeds `n` whenever `1/δ` is not an integer, and the
+  `min(n, rank)` clamp then returned the **sample maximum** — precisely the
+  theatre the function's docstring says it refuses. It refused it at every δ
+  except the ones where it mattered.
+- **The portal over-counted, by floating point.** `1 − 90/100` is
+  0.09999999999999998 in binary, so `ceil(1/δ − 1)` gave 10 where 9 suffices,
+  and the rank computed from the same drifted δ clamped at `n = 9` — declining a
+  90% band on exactly nine calibration runs, which is the case §3.2's results
+  sit on.
+
+Both are fixed by **searching the rank condition `⌈(n+1)p⌉ ≤ n`** instead of
+rearranging it, and by working from the coverage level `p` rather than from
+`1 − p`: the search is the definition, needs no algebra, and cannot drift.
+`margins.min_calibration(δ)` is now the single statement of the threshold.
+
+**No published number changes.** Every result uses δ = 0.1, where both sides
+already agreed on 9, at sample sizes of 165, 400 and 600 — far above any
+threshold in the table. The affected δ values appear only in the §9.2a sweep, at
+n = 600.
+
+**The parity check now passes on all three quantities**
+(`portal/scripts/verify-margin-parity.mjs`): the conformal band **108/108**
+across nine δ and twelve sample sizes, the refusal threshold **108/108**, and the
+saturating surrogate **5/5**.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 42 | `conformal_quantile`'s guard rearranged the rank condition with `round`, under-counting whenever `1/δ` is not an integer | at δ = 0.30, 0.12, 0.08 the clamp returned the sample maximum — a band with no guarantee, from the function whose purpose is to refuse exactly that | writing a parity check between the framework and the portal's mirror | 5.14c |
+| 43 | The portal's mirror computed δ as `1 − conf/100` and rearranged the same condition | 0.09999999999999998 made it demand ten calibration runs where nine suffice, declining the 90% band at n = 9 | the same check, from the other side | 5.14c |
+
+**Rule 48: implement a threshold by searching its defining condition, not by
+rearranging it.** Both sides of this project rearranged `⌈(n+1)(1−δ)⌉ ≤ n` into
+`n ≥ 1/δ − 1` and both got it wrong, in opposite directions, at the boundary the
+entire refusal argument depends on. The search is three lines and cannot be
+wrong.
+
+**Rule 49: two implementations of one guarantee need a parity check, or there is
+one guarantee and one rumour.** The router had one and agreed 14/14. The margin
+did not, and did not agree. A mirror is a reasonable engineering choice — the
+browser cannot call Python — but it is only honest with a test holding it against
+the original.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
@@ -5004,12 +5087,14 @@ they are harder, because the code is correct and the output looks right.
 | 39 | Coverage averaged over seeds where the margin consumed the entire limit | swe read 16.8% against δ = 0.1 and was written up as missing the level; the feasible pool is 12.1%, interval containing it | reading `effective_limit` per seed after the aggregate looked bad | 3.4b |
 | 40 | Interface could not state a design discharge, only inherit one from DEM geometry | every trip modelled a 1.4%-of-network event where the flood of record is 10x larger | trying to capture a figure of our own published result | 5.14b |
 | 41 | Figures cited as current predated the interface rebuild | three screenshots in two documents, including the one called most important, showed a superseded tool | listing the files with their capture dates | 5.14b |
+| 42 | `conformal_quantile`'s guard used `round(1/δ)−1`, under-counting when `1/δ` is not an integer | at δ = 0.30, 0.12, 0.08 the rank clamp returned the sample maximum: a band with no guarantee | a parity check between framework and portal mirror | 5.14c |
+| 43 | The portal's margin mirror derived δ as `1 − conf/100` | floating point made it demand 10 runs where 9 suffice, declining 90% at n = 9 | the same check | 5.14c |
 
 **Defect 25 is the one to remember.** It degrades data continuously rather than
 breaking it, affects only some fires, and leaves every downstream number
 plausible. Nothing short of a conservation check finds it.
 
-### Rules 16–47
+### Rules 16–49
 
 16. A scheme that cannot violate the constrained quantity cannot be used to
     study violating it; verify conservation before trusting a solver.
@@ -5072,6 +5157,13 @@ plausible. Nothing short of a conservation check finds it.
 47. Do not select the scenario that flatters the figure. Where a more
     impressive caption is available at a less plausible operating point, publish
     the plausible one and name what was rejected.
+48. Implement a threshold by searching its defining condition, not by
+    rearranging it. Both sides of this project rearranged the conformal rank
+    condition and both got it wrong in opposite directions, at the boundary the
+    refusal argument depends on.
+49. Two implementations of one guarantee need a parity check, or there is one
+    guarantee and one rumour. A mirror is a reasonable engineering choice; it is
+    only honest with a test holding it against the original.
 
 ---
 

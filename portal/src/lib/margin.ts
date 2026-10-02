@@ -27,11 +27,26 @@ export function predicted(p: CalibrationPoint, S: number): number {
   return p.lead + S * Math.tanh(p.rest / S);
 }
 
-/** Smallest number of held-out runs that supports a given confidence. */
+/**
+ * Smallest number of held-out runs that supports a given confidence.
+ *
+ * Searches the rank condition `ceil((n+1)·p) <= n` rather than rearranging it
+ * to `n >= 1/delta - 1`, and works from the coverage level `p = conf/100`
+ * rather than from `delta = 1 - conf/100`. Both changes are load-bearing, and a
+ * parity check against `pspe/plan/margins.py` is what found it: `1 - 90/100`
+ * is 0.09999999999999998 in binary floating point, so `ceil(1/delta - 1)`
+ * returned 10 where 9 is sufficient, and the rank computed from the same
+ * drifted delta clamped at n = 9. The portal therefore declined a 90% band on
+ * exactly nine calibration runs — the case the published results sit on.
+ *
+ * Refusing too often is the benign direction, but it is still wrong, and the
+ * framework had the opposite error at the same boundary.
+ */
 export function runsNeeded(confidencePct: number): number {
-  const delta = 1 - confidencePct / 100;
-  if (delta <= 0) return Infinity;
-  return Math.max(2, Math.ceil(1 / delta - 1));
+  const p = confidencePct / 100;
+  if (!(p > 0) || p >= 1) return Infinity;
+  for (let n = 2; n < 10000; n++) if (Math.ceil((n + 1) * p) <= n) return n;
+  return Infinity;
 }
 
 /** Highest confidence the stored runs can honestly support. */
@@ -65,8 +80,11 @@ export function bandAt(
   const residuals = calibration
     .map((p) => Math.abs(p.measured - predicted(p, S)))
     .sort((a, b) => a - b);
-  const delta = 1 - confidencePct / 100;
-  // ceil((n+1)(1-delta)) is the conformal rank; clamp to the sample.
-  const rank = Math.min(have, Math.ceil((have + 1) * (1 - delta)));
+  // The conformal rank, computed from the coverage level directly. The guard
+  // above already guarantees rank <= have, so there is no clamp: a clamp here
+  // would mean returning the sample maximum, which is what the guarantee is
+  // not. Working from `conf/100` rather than `1 - delta` avoids the rounding
+  // that made this overshoot by one at 90% (see `runsNeeded`).
+  const rank = Math.ceil((have + 1) * (confidencePct / 100));
   return { band: residuals[rank - 1], attainable: true, needed, have };
 }
