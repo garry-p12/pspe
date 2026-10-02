@@ -1,8 +1,9 @@
 # Planning Inside a Digital Twin, With a Safety Margin You Can State
 
 *Workshop paper. ~45% method, the rest two working twins and a portal. The
-structural result and its proof live in `ICML_PAPER.md`; this paper states it
-and spends its space on what it enables.*
+structural result is stated here and **derived in full** in
+`THESIS_AND_RESULTS.md` Part 10, which also carries every number's provenance;
+this paper spends its space on what the result enables.*
 
 ---
 
@@ -98,7 +99,8 @@ when margin `q` meets realised-cost spread `σ`.
 > for every `σ > (Q − b)/z_δ`. Hence **no margin measurable with respect to
 > model error alone attains level δ uniformly in σ.**
 
-The proof is three lines (`ICML_PAPER.md` §3). For Gaussian error it closes to
+The proof is three lines (§10.3 of `THESIS_AND_RESULTS.md`, which derives
+every result in this paper from one setup). For Gaussian error it closes to
 `R(ρ) = 1 − Φ(z_δ/ρ)` with `ρ = σ/ε`, which predicts measured violation to
 within **0.003** across two orders of magnitude in ρ — and predicts that
 requesting a *stricter* guarantee from the wrong distribution makes matters

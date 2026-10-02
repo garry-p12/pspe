@@ -1,7 +1,8 @@
 # POSTER — Digital Twins That Decide, Not Just Forecast
 
 *A0 portrait, four columns. ~15% method, the rest the two twins and the portal.
-Numbers here must match `WORKSHOP_PAPER.md`; the proof lives in `ICML_PAPER.md`.*
+Numbers here must match `WORKSHOP_PAPER.md`; the proofs and the full derivation
+are `THESIS_AND_RESULTS.md` Part 10.*
 
 ---
 
@@ -349,7 +350,8 @@ plausible. Nothing short of a conservation check finds it.
 
 Margin: `s_i = c_i − ĝ`, `ĝ` the quantity the dual controls; split-conformal
 quantile at rank `ceil((n+1)(1−δ))`, refusing below `n ≥ 1/δ − 1`.
-Separation: `R` strictly increasing in σ, → ½ for symmetric error, `> δ` for
+Separation (proof and all corollaries: `THESIS_AND_RESULTS.md` Part 10):
+`R` strictly increasing in σ, → ½ for symmetric error, `> δ` for
 `σ > (q − b)/z_δ`. Routing: label-setting on arrival time with waiting
 permitted — required for exactness, because edge availability is non-monotone
 once the flood recedes. Solver: local-inertial shallow water, `dt` by CFL,
@@ -373,7 +375,9 @@ OpenStreetMap/Overpass · FloodCastBench (reference hydrodynamics).
   **0 of 96**. Do not let the method number dominate the applications.
 - Figures 1–6 and 8 exist. **Figure 7 must be re-captured** (see the command in
   Column 4) — the current file shows the rainfall fallback, not the flood.
-- Every number here appears in `WORKSHOP_PAPER.md`; the separation result and its
-  proof are in `ICML_PAPER.md` §3. If a number is edited, edit it in all three.
+- Every number here appears in `WORKSHOP_PAPER.md`; the separation result, its
+  proof, and the provenance of each number are `THESIS_AND_RESULTS.md` Part 10
+  (§10.14 is the number-to-script table). If a number changes, change it in all
+  three.
 - The "NOT claiming" block is not padding. It is why a visitor believes the
   5.0%.

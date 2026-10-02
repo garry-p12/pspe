@@ -1362,6 +1362,11 @@ violation ordering is real; and the stage-2 wildfire arms (§5.5).
 
 ### 3.6 A separation theorem, and the transition in closed form (2026-09-28)
 
+> **Part 10 derives all of this from one setup**, with the hypotheses each step
+> needs, the proofs in full, and a table mapping every headline number in this
+> document to the script that produced it. This section records what was found
+> and when; §10.3–§10.8 are the mathematics.
+
 §8.5 lists T1.1 (a separation result) and T1.2 (closed-form coverage) as the two
 theory items that answer the reviewer's "Proposition 1 is essentially standard
 conformal coverage after redefining the residual". Both are derived here, and
@@ -6157,6 +6162,680 @@ quantity that breaks the constraint.** Model error, ensemble disagreement and
 reconstruction accuracy are all defensible things to measure and improve, and
 all three were measured here to be ineffective or actively harmful for the
 decision. That is the paper.
+
+## Part 10 — Complete mathematical development
+
+This part is self-contained and derivational. Everything stated as a result
+elsewhere in this document is derived here from the setup in §10.1, with the
+hypotheses each step actually needs. Where a derivation is three lines, it is
+three lines; the content of this work is which object to bound, not the
+difficulty of bounding it.
+
+### 10.1 Setup and notation
+
+A field `u(x,t)` on `Ω ⊂ ℝ²` evolves under `∂u/∂t = 𝒩[u] + ℬ(a(t))` (§1.1),
+discretised to `u_{t+1} = F(u_t, a_t)` with learned surrogate `G_θ ≈ F`. An
+episode of horizon `H` under policy `π_φ` has
+
+```
+return   J(φ)  =  E[ Σ_{t<H} r(u_t, a_t) ]
+cost     C(φ)  =  E[ Σ_{t<H} κ(u_t, a_t) ]        constraint:  C(φ) ≤ d
+```
+
+The constraint is on an **expectation**, which is the hinge of everything below:
+a bound on `E[c]` is not a bound on `c`.
+
+Write the realised episode cost of a trained policy as
+
+```
+c_i  =  μ + b + σ ξ_i ,       ξ_i ~ F ,   E ξ = 0 ,   scale 1          (10.1)
+```
+
+- `μ` — the quantity the dual holds, i.e. the surrogate's own estimate of `E[c]`;
+- `b` — the surrogate's **bias** on episode cost, `b = E[c] − μ`;
+- `σ` — the policy's **episode-to-episode spread** of realised cost;
+- `F` — the shape of that spread, standardised.
+
+The surrogate's per-instance estimate satisfies
+
+```
+c_i − g_i  =  b − e_i ,       e_i ~ G ,   E e = 0 ,   scale ε           (10.2)
+```
+
+so `G` is the **model-error** distribution with bias `b` and scale `ε`. Define
+
+```
+ρ  =  σ / ε                                                            (10.3)
+```
+
+the only dimensionless quantity that appears in the results. Write
+`z^F_δ = F⁻¹(1−δ)` and `z^G_δ = G⁻¹(1−δ)`; where `F` and `G` share a shape we
+write `z_δ` for both. A margin `q ≥ 0` lowers the effective limit to
+`d_eff = d − q`, so the planner targets `d_eff` and
+
+```
+violation_i  ⟺  c_i > d  ⟺  σ ξ_i  >  q − b
+```
+
+giving the **realised violation rate of a margin** `q`:
+
+```
+R(q; σ)  =  1 − F( (q − b) / σ )                                       (10.4)
+```
+
+and
+
+```
+coverage at level δ   ⟺   R(q; σ) ≤ δ   ⟺   q  ≥  b + z^F_δ σ          (10.5)
+```
+
+Equation (10.5) is the whole problem in one line: **the margin must scale with
+`σ`.** Every result in Part 3 is a statement about which estimators can do that.
+
+**A margin rule is *model-error measurable*** if `q = Q(b, G)` — a function of
+how wrong the model is, with no dependence on `F` or `σ`. Every correction of
+the form "inflate by model uncertainty" is of this type however the uncertainty
+is summarised: an error bound, an ensemble spread, a learned variance, a
+pessimism bonus, a cost critic.
+
+### 10.2 The silent failure, formally
+
+Set `q = 0` in (10.4). For symmetric `F`,
+
+```
+R(0; σ)  =  1 − F( −b/σ )  =  F( b/σ )                                 (10.6)
+```
+
+So with no margin the violation rate is **the bias measured in units of
+spread**, and nothing else. Three consequences, each measured in §3.1–§3.2.
+
+1. A surrogate can be arbitrarily accurate in relative `L2` and still produce
+   any violation rate, because (10.6) depends on `b/σ` and not on `‖G_θ − F‖`.
+   This is why §3.3's surrogate-quality sweep finds violation uncorrelated with
+   rollout error.
+2. The dual converges on `μ`, and `μ` is defined to satisfy `μ ≤ d`. Its own
+   diagnostics are therefore correct and uninformative: the dual cannot see `b`
+   because `b` is the difference between its measurement and the truth.
+3. Detection requires a statistic the surrogate does not supply. Probing the
+   true environment every `k` iterations gives matched pairs `(c_i, g_i)` and
+   hence `b` and `σ`; nothing internal to the loop does.
+
+### 10.3 The separation theorem
+
+**Proposition 10.1 (separation).** Let `Q` be model-error measurable, `q = Q(b, G)`,
+and let `F` have full support on `ℝ` with positive density. Then
+
+1. `σ ↦ R(q; σ)` is strictly increasing on `σ > 0` whenever `q > b`;
+2. `R(q; σ) → 1 − F(0)` as `σ → ∞`, which is `½` for symmetric `F`;
+3. `R(q; σ) > δ` for every `σ > (q − b) / z^F_δ`.
+
+Consequently, for any `δ < 1 − F(0)`,
+
+```
+sup_{σ > 0}  R(Q(b,G); σ)  =  1 − F(0)  >  δ
+```
+
+so **no model-error-measurable margin attains level δ uniformly in σ.**
+
+*Proof.* Put `t(σ) = (q − b)/σ`. If `q > b` then `t > 0` and `t` is strictly
+decreasing in `σ`; `F` is strictly increasing by positive density; so
+`R = 1 − F(t)` is strictly increasing. This is (1). As `σ → ∞`, `t → 0⁺`, and
+continuity of `F` gives `R → 1 − F(0)`, which is (2); symmetry about zero makes
+`F(0) = ½`. For (3), `R > δ ⟺ F(t) < 1 − δ ⟺ t < z^F_δ ⟺ σ > (q − b)/z^F_δ`,
+the last step using `z^F_δ > 0`, valid for `δ < 1 − F(0)`. The supremum follows
+from (1) and (2), and exceeds `δ` by the same condition on `δ`. ∎
+
+**Which hypotheses do work.** Full support and positive density give
+*strictness* in (1); without them `R` is non-decreasing, which is enough for the
+conclusion. Symmetry is used only to evaluate the limit as `½`; for asymmetric
+`F` the limit is `1 − F(0)` and the theorem holds whenever `δ < 1 − F(0)`. The
+restriction `δ < 1 − F(0)` is not a technicality to be removed: a user asking
+for `δ ≥ ½` on a symmetric cost is asking for something a zero margin already
+provides.
+
+**What the result is and is not.** It is not a tightness statement about a
+particular estimator, and not an asymptotic one. It says the *class* of margins
+measurable with respect to model error has a coverage ceiling independent of how
+the margin is computed inside that class, and gives the exact `σ` at which each
+member breaks. The choice of distribution to conformalise is therefore a
+**feasibility constraint**, not a modelling preference. Corollary 10.5 draws the
+positive consequence.
+
+### 10.4 Corollary: the matched-pair recipe, and where ρ = 1 comes from
+
+**Corollary 10.2.** The matched-pair conformal margin
+`q_mp = Q_{1−δ}(c − g)` over calibration pairs satisfies
+
+```
+q_mp  =  b + z^G_δ ε                                                   (10.7)
+```
+
+and therefore
+
+```
+coverage fails   ⟺   σ  >  (z^G_δ / z^F_δ) · ε                         (10.8)
+```
+
+which for `F`, `G` of shared shape is exactly `ρ > 1`.
+
+*Proof.* By (10.2), `c − g = b − e` with `e` of mean zero and scale `ε`, so the
+`(1−δ)` quantile of `c − g` is `b + ε · Q_{1−δ}(−e/ε) = b + z^G_δ ε`, giving
+(10.7). Note `q_mp` depends on `b`, `G`, `ε` and **not** on `F` or `σ`, so it is
+model-error measurable and Proposition 10.1 applies. Substituting (10.7) into
+the coverage condition (10.5): `b + z^G_δ ε ≥ b + z^F_δ σ ⟺ σ ≤ (z^G_δ/z^F_δ) ε`.
+Negating gives (10.8); shared shape sets `z^G_δ = z^F_δ`. ∎
+
+This is §3.5's threshold, which was first obtained there by matching quantiles
+directly. Corollary 10.2 identifies it as the instance of Proposition 10.1 in
+which the offending margin happens to be a conformal one — i.e. the earlier
+result was a special case of a feasibility statement, not a property of
+conformal prediction.
+
+**The measured regime.** On `rdf`, `ρ` ranges **1.20 to 96.24** across 15
+surrogate-quality settings, and every one exceeds 1 — including a surrogate at
+relative `L2` 0.82, worse than predicting zero (§3.5). The region where the
+matched-pair recipe is correct is **not reachable on this testbed**. The
+contribution is therefore better stated as a correction than as a diagnostic for
+choosing between recipes.
+
+### 10.5 Corollary: closed-form coverage
+
+**Corollary 10.3.** For Gaussian `F` and `G`, the matched-pair recipe's realised
+violation rate is
+
+```
+R(ρ)  =  1 − Φ( z_δ / ρ ) ,        z_δ = Φ⁻¹(1 − δ)                    (10.9)
+```
+
+*Proof.* Substitute `q = q_mp` from (10.7) into (10.4):
+`R = 1 − F((b + z^G_δ ε − b)/σ) = 1 − F(z_δ ε / σ) = 1 − Φ(z_δ / ρ)`. ∎
+
+Two properties are worth extracting because both are testable.
+
+**Exact calibration at the crossover.** `R(1) = 1 − Φ(z_δ) = δ` identically, for
+every `δ`. The recipe is not merely "about right" at `ρ = 1`; it is exact there,
+and (10.9) describes the entire departure from exactness as a function of one
+ratio.
+
+**A stricter guarantee from the wrong distribution is worse.** The absolute rate
+`R(ρ)` falls as `δ` falls, which is unsurprising; the *relative* error `R/δ`
+rises, which is not. From (10.9):
+
+| `ρ` | δ = 0.30 | δ = 0.20 | δ = 0.10 | δ = 0.05 | δ = 0.02 |
+|---|---|---|---|---|---|
+| 1.0 | 1.00× | 1.00× | 1.00× | 1.00× | 1.00× |
+| 1.2 | 1.10× | 1.21× | 1.43× | 1.70× | 2.17× |
+| **1.4** | **1.18×** | 1.37× | 1.80× | 2.40× | **3.56×** |
+| 1.5 | 1.21× | 1.44× | 1.96× | 2.73× | 4.27× |
+| 2.0 | 1.32× | 1.68× | 2.61× | 4.11× | 7.61× |
+| 4.0 | 1.49× | 2.08× | 3.74× | 6.81× | 15.19× |
+
+(entries are `R/δ`, the factor by which the stated level is exceeded.)
+
+§9.2a's measured sweep gives **1.2× at δ = 0.30 growing to 3.7× at δ = 0.02**,
+which (10.9) reproduces at `ρ ≈ 1.4`–`1.5` — the low end of the measured `ρ`
+range, as expected for the configuration used there. The mechanism: the margin
+scales with `z^G_δ ε` while the requirement scales with `z^F_δ σ`; tightening
+`δ` raises both by the same factor, so the *ratio* of what is supplied to what
+is needed is fixed at `1/ρ` while the tolerance `δ` shrinks.
+
+**Validation against simulation.** `eval/run_margin_coverage.py`, δ = 0.1, 600
+calibration draws per point:
+
+| `ρ = σ/ε` | measured | predicted by (10.9) | error |
+|---|---|---|---|
+| 0.10 | 0.000 | 0.000 | 0.0000 |
+| 0.50 | 0.004 | 0.005 | 0.0012 |
+| 0.80 | 0.054 | 0.055 | 0.0006 |
+| **1.00** | **0.099** | **0.100** | 0.0010 |
+| 1.25 | 0.153 | 0.153 | 0.0004 |
+| 2.00 | 0.258 | 0.261 | 0.0028 |
+| 10.0 | 0.449 | 0.449 | 0.0000 |
+
+Maximum error **0.003** over two orders of magnitude in `ρ`, which is within
+Monte-Carlo error at 600 draws.
+
+### 10.6 Corollary: what a valid margin must use, and the recipe that does
+
+**Corollary 10.4 (necessity).** Any margin attaining `δ` uniformly in `σ` must
+depend on `F` and `σ`.
+
+*Proof.* Immediate from Proposition 10.1: a margin not depending on them is
+model-error measurable and has coverage ceiling `1 − F(0)`. ∎
+
+**Corollary 10.5 (sufficiency of the realised-cost score).** Let `μ̂` be the
+quantity the dual controls and define the score `s_i = c_i − μ̂`. Then
+`Q_{1−δ}(s)` attains `δ`.
+
+*Proof.* With `μ̂ = μ` (the dual's fixed point), (10.1) gives
+`s_i = b + σ ξ_i`, so
+
+```
+Q_{1−δ}(s)  =  b + z^F_δ σ                                             (10.10)
+```
+
+which is exactly the right-hand side of the coverage condition (10.5), met with
+equality. ∎
+
+So the admissible recipe is not a cleverer score; it is **the score whose
+quantile is the coverage threshold**. (10.10) is why the margin needs no
+assumption about the surrogate's error structure: `G` does not appear.
+
+**What the dual controls, precisely.** `μ̂` must be the *same* quantity the
+Lagrangian balances against, or (10.10) picks up the difference. In
+`run_constraint_fix.py` this is the surrogate's estimate of episode cost at the
+dual's operating point; using the per-episode surrogate estimate `g_i` instead
+returns `s_i = b − e_i` and recovers the matched-pair recipe of Corollary 10.2,
+which fails. **The distinction between subtracting a per-episode estimate and
+subtracting the controlled scalar is the whole difference between an
+inadmissible margin and an admissible one**, and it is one line of code.
+
+### 10.7 Finite-sample construction, and the refusal
+
+Given `n` calibration scores `s_1..s_n` and a test score `s_{n+1}`, all
+exchangeable, split conformal takes
+
+```
+k  =  ⌈ (n+1)(1 − δ) ⌉ ,        q̂  =  s_(k)   (the k-th order statistic)
+```
+
+and gives `P[ s_{n+1} ≤ q̂ ] ≥ 1 − δ`. The construction requires `k ≤ n`:
+
+```
+⌈(n+1)(1−δ)⌉ ≤ n   ⟸   (n+1)(1−δ) ≤ n
+                   ⟺   n + 1 − δn − δ ≤ n
+                   ⟺   1 − δ ≤ δ n
+                   ⟺   n  ≥  1/δ − 1                                   (10.11)
+```
+
+Below (10.11) **no order statistic of the sample carries the guarantee**, and
+`margins.conformal_quantile` returns `None` rather than the sample maximum.
+Three consequences used in this document:
+
+- δ = 0.1 needs `n ≥ 9`; δ = 0.05 needs `n ≥ 19`; δ = 0.01 needs `n ≥ 99`.
+- With `n` fixed, the highest attainable confidence is `1 − 1/(n+1)`: at
+  `n = 30` held-out runs, **96.8%**, which is what the portal's confidence
+  control enforces (§5.11).
+- Defect 27 was exactly a violation of (10.11): a displayed 90% band fitted on
+  `n = 6` where 9 are required, compounded with a Gaussian 1.645·RMSE in place
+  of an order statistic. A normal-approximation interval always returns a
+  number; (10.11) is the reason to prefer a method that does not.
+
+### 10.8 Beyond exchangeability
+
+(10.11) assumes exchangeable scores, and ours are collected *during* a learning
+run. The relevant generalisation (Barber et al., 2023) replaces exchangeability
+with a total-variation budget: if `Z` is the score sequence and `Z^{(i)}` its
+`i`-th swap,
+
+```
+coverage  ≥  1 − δ − Δ ,        Δ  =  (1/n) Σ_i d_TV( Z, Z^{(i)} )     (10.12)
+```
+
+**What we measured** (§5.10, §5.10a; 3 seeds per testbed, 320 scores each,
+160/160 split):
+
+| testbed | drift (Spearman) | shift (KS) | lag-1 dependence | miscoverage | shuffled | adaptive |
+|---|---|---|---|---|---|---|
+| dar | p 0.47–0.74 | p 0.40–0.98 | p 0.47–0.60 | 0.0771 | 0.0875 | 0.1000 |
+| rdf | p 0.16–0.90 | p 0.51–0.93 | **p ≈ 0, all seeds** | 0.0854 | 0.0729 | 0.0959 |
+
+On `rdf` exchangeability is **violated** — significant serial dependence with
+drift and distribution-shift tests both non-rejections, i.e. *dependent but not
+drifting* — and miscoverage is nonetheless 0.0854 ≤ δ = 0.1.
+
+**What that does and does not establish.** It does not bound `Δ`: measured
+miscoverage below `δ` is consistent with any `Δ ≥ 0`, so (10.12) is not tight
+here and we do not claim a value for it. What it establishes is the empirical
+statement that matters operationally — the realised rate meets the level on a
+testbed where the assumption fails — together with the mechanism for why one
+would expect that: dependence of this kind inflates the *variance* of the
+empirical quantile without biasing it, and the quantile is then noisy rather
+than wrong. Adaptive conformal inference (Gibbs & Candès) is available and
+unnecessary on both testbeds; §9.3a withdrew an earlier promotion of it on the
+grounds that better *calibration* is not better *safety*.
+
+### 10.9 The plan surrogate, and why continuity is a requirement
+
+The flood planner searches height vectors `h ∈ [0, h_max]^K` over `K` candidate
+sites. Enumerating all of them is impossible; solving a library and fitting is
+cheap. Let `α_i` be the measured effect of site `i` **alone** at full height,
+exact from the single-measure solves. For a vector `h` define the per-site
+contributions and their decomposition
+
+```
+p_i(h)  =  α_i · h_i / h_max ,      lead(h) = max_i p_i ,
+rest(h) =  Σ_i p_i  −  lead(h)
+```
+
+and the surrogate effect
+
+```
+Ê(h)  =  lead(h)  +  S · tanh( rest(h) / S )                          (10.13)
+```
+
+with a single fitted parameter `S` chosen on a grid by least squares against the
+multi-measure solves. `S → ∞` recovers additivity; small `S` saturates.
+
+**Why this form.** Three requirements, each from a measurement:
+
+1. **Exactness on single measures.** If only site `i` is built, `rest = 0`,
+   `tanh(0) = 0`, and `Ê = α_i h_i/h_max` exactly. The library's own rows are
+   reproduced rather than fitted.
+2. **Saturation.** Measures overlap — two levees on the same flow path do not
+   add — and `tanh` bounds the total while leaving the leading term intact.
+3. **Continuity in `h`, everywhere.** This is Defect 28, and it is the one that
+   is easy to miss. The earlier form was discontinuous between one active
+   measure and two, so adding a levee that *helps* could lower the prediction,
+   and the greedy search consequently refused to spend half of every budget. A
+   fixed menu of options never walks that seam; only a search does, which is why
+   the defect stayed latent until something searched.
+
+**Calibration and the margin on `Ê`.** Residuals are taken on multi-measure rows
+only — single-measure rows carry no interaction error by construction — giving
+`n` calibration points and a band by (10.11). Reporting `Ê − q̂` as the
+guaranteed floor is the portal's displayed claim.
+
+**The boundary-value trap.** `S` is fitted on a grid ending at 20000. A fit
+landing on the last grid point is not a fit; it is "no saturation needed", and
+§5.11a reports it as the boundary it is rather than as a measured value
+(Defect 30, Rule 33).
+
+**Where `Ê` must not be used.** §3.4b and §5.13 both measure the same wall. The
+surrogate predicts a *smooth scalar*; where the reported quantity is a
+`max` over a discrete set — deepest water over the edges of a route — its error
+is the size of the decision threshold, and §5.13 measures a median of
+0.16–0.33 m against a 0.25 m passability threshold. The conclusion drawn there,
+**solve the recommended plan rather than predicting it**, follows from this and
+costs one extra bed through the same timestep loop.
+
+### 10.10 Flood forcing: the equations, and the two that were wrong
+
+**Bankfull discharge from DEM geometry.** Manning's equation for a channel of
+cross-sectional area `A`, hydraulic radius `R`, bed slope `S_0`, roughness `n`:
+
+```
+Q  =  (1/n) · A · R^(2/3) · √S_0
+```
+
+With a wide rectangular approximation `A ≈ W d`, `R ≈ d`:
+
+```
+Q_bank  =  (1/n) · W d · d^(2/3) · √S_0  =  (1/n) · W · d^(5/3) · √S_0  (10.14)
+```
+
+`W` from the detected channel width, `d` from bank level minus bed level, `n`
+= 0.035. Bank level is taken at the **20th percentile** of box elevation: the
+60th put it on the hillside, pinned `d` to its cap, and returned 4,863 m³/s for
+Lismore — more than the Wilsons River carried in the 2022 flood of record
+(§5.12). `d` is capped at 6 m because a 60 m DEM cannot resolve a channel.
+
+**The design event.** `q_design = max(q_forecast, Q_bank) · s` with `s` the storm
+multiplier (`s = max(1, rain_mm_h / 20)`, giving 1×, 2.5×, 4× for the three
+presets). Taking the max rather than the product is Defect-driven: `q_forecast ·
+s` is multiplicative on a quantity near zero most of the time, and Lismore —
+one of the most flood-prone towns in Australia — returned 0 km² flooded on a dry
+week because its gauge read 1 m³/s and `2.5 × 1 ≈ 0`.
+
+**The boundary sets a stage, not a volume.** Injecting `Q` as a source into the
+few cells of a channel makes water arrive faster than the grid can spread it;
+the first attempt reached **112 m** depth at Cedar Rapids, a number with no
+physical meaning (Defect 32). The correct boundary condition sets the water
+*level* that `Q` corresponds to. Inverting (10.14) for normal depth:
+
+```
+Q  =  (1/n) · W · h^(5/3) · √S_0
+⟹   h^(5/3)  =  Q n / (W √S_0)
+⟹   h  =  ( Q n / (W √S_0) )^(3/5)                                    (10.15)
+```
+
+with no free parameters beyond `n`. The boundary then holds the free surface at
+`z_bed + h`, raising depth where needed and never lowering it, so the boundary
+cannot drain the land. `h` is capped at 15 m — a river, not a reservoir.
+
+**Nodata is not a value.** DEM nodata filled with sea level produced a 247 m
+trench ringing every inland domain: 3.6% of cells at 0 m across 84–100% of each
+boundary, draining the catchment into it (Defect 31, Rule 34). Nodata is unknown
+ground; substituting a plausible number for it is a modelling decision disguised
+as a cleanup.
+
+### 10.11 Routing: the time-dependent problem, and when earliest arrival is optimal
+
+**The graph.** Road ways become a graph `(V, E)` with junctions recovered from
+coincident vertices and ways split at every shared vertex. Verified on the
+district network: 310 junctions, 347 edges, **287.4 km against the 288.0 km**
+the published metadata reports, 98% of junctions in one connected component,
+every one of 21 edge boundaries on a drawn route continuous to 0.0 m.
+
+Each edge carries a free-flow traversal time `τ_e = (ℓ_e / 1000) / v_class · 60`
+minutes. Speeds are by OSM class; this is not a traffic model and is stated as
+such.
+
+**The schedule.** The solver emits instantaneous depth at times
+`t_0 < … < t_m`, and `d_e(t_k)` is edge `e`'s **deepest** point at `t_k` —
+deepest, not mean, because a road is cut where it goes under and averaging a
+1.2 m dip over 3 km of dry bitumen reports a passable road. Between samples the
+depth is taken as the maximum of the two bracketing values, and **at** a sample
+as that sample's value:
+
+```
+d_e(t)  =  d_e(t_k)                        if t = t_k
+        =  max( d_e(t_k), d_e(t_{k+1}) )   if t_k < t < t_{k+1}       (10.16)
+```
+
+The second line is conservative in the only safe direction — it never claims a
+road passable during an interval it did not sample. The first line matters too:
+applying the interval maximum *at* a sample reported a road flooded at the
+moment the sample says it is dry, which pushed one crossing into the next hour
+and made a test trip arrive at 187 minutes where 127.5 is correct (§5.14).
+
+A crossing of `e` occupying `[a, b]` meets
+
+```
+W_e(a,b)  =  max( d_e(a), d_e(b), max{ d_e(t_k) : a ≤ t_k ≤ b } )     (10.17)
+```
+
+and is **admissible for a vehicle of depth tolerance `L`** iff `W_e(a,b) ≤ L`.
+
+**The problem.** Given `s, z ∈ V` and departure `t_dep`, find a walk minimising
+arrival time subject to every crossing being admissible at the time it is made.
+Edges over `L` are **removed, not penalised**: a road under 40 cm is not a slow
+road, and a cost penalty would let the search buy its way through standing water
+if the detour were long enough.
+
+**Proposition 10.6 (exactness with waiting).** If holding at a node is
+permitted, label-setting on earliest arrival is optimal.
+
+*Proof.* Let `A(v)` be the earliest arrival time at `v`. Claim: the set of
+outcomes reachable from state `(v, t)` contains those reachable from `(v, t')`
+for any `t' ≥ t`. Indeed, any admissible continuation from `(v, t')` is
+replicated from `(v, t)` by waiting `t' − t` at `v` and then following it; the
+crossings occur at identical absolute times, so admissibility is unchanged.
+Hence arriving earlier is never worse, Dijkstra's exchange argument applies to
+the arrival-time labels, and the first label settled at a node is optimal. ∎
+
+**Why the qualifier is load-bearing.** Edge availability is **not monotone**: our
+runs include the recession, so a crossing shut at two hours can be open at six.
+With holding forbidden, the claim in Proposition 10.6 is false — arriving at a
+junction earlier can leave only a slow road open where a later arrival would
+have found a fast one drained — and earliest-arrival labelling is then a
+heuristic. On a constructed two-road case where the fast road drains at two
+hours and the detour is slower than the wait, the two differ by more than a
+factor of two: **300 minutes without holding, 127.5 with**, the latter correct.
+An earlier version of §5.14 asserted optimality without the qualifier and was
+wrong.
+
+The admissible-start time used in the implementation is
+
+```
+start_e(t)  =  min{ u ≥ t  :  u ∈ {t} ∪ {t_k}  and  W_e(u, u + τ_e) ≤ L }   (10.18)
+```
+
+exhaustive over candidates because (10.16) is piecewise constant between
+samples.
+
+**The deadline.** The operationally decisive quantity is not the route but
+
+```
+T*  =  max{ t ∈ grid  :  an admissible walk from s to z departing at t exists }
+```
+
+computed by scanning the departure grid and keeping the last success. Scanned
+rather than solved backwards because the per-edge admissible windows are
+non-convex — water rises and recedes — and a backward recursion would need them
+convex. **`T*` is returned as "no deadline" when the trip is still possible at
+the end of the modelled window**: reporting the horizon there told an operator
+"leave within 12 hours, after that every route is cut" about a scenario in which
+nothing floods, a statement the run supports in neither direction.
+
+Two resolutions bound how sharp `T*` can be: the departure grid (30 min) and the
+schedule sampling (hourly, with (10.16)'s interval maximum). A departure at 3h30
+is therefore judged partly on the 4h state. Both errors point the same way — the
+reported deadline is **no later** than the true one — which is the only direction
+worth being wrong in.
+
+### 10.12 The evacuation decision under forecast uncertainty, and why the margin degenerates
+
+**The decision.** An ensemble `{P_1..P_M}` of forcings gives schedules
+`{D^{(1)}..D^{(M)}}`. Reality is one unknown member. The operator chooses a
+departure time and a walk; the realised outcome is evaluated against the true
+member. Leave-one-out: each member in turn is reality, the other `M−1` are the
+forecast, and the forecast schedule is the elementwise mean `D̄`.
+
+**The reported scalar.** For a fixed walk `r` and schedule `D`,
+
+```
+m(r, D)  =  max_{e ∈ r}  W_e( a_e, b_e )                              (10.19)
+```
+
+the deepest water the trip meets, with `[a_e, b_e]` the crossing interval
+induced by the departure time. This is the quantity the interface reports and
+therefore, by §10.6, the quantity a margin must be calibrated on:
+
+```
+q̂  =  Q_{1−δ} { | m(r, D^{(j)}) − m(r, D̄) |  :  j ≠ true }            (10.20)
+```
+
+**Proposition 10.7 (degeneracy of the route margin).** If the forecast-optimal
+walk `r*` satisfies `m(r*, D^{(j)}) = 0` for every member `j`, then `q̂ = 0`.
+
+*Proof.* Immediate from (10.20): every residual is `|0 − 0| = 0`. ∎
+
+That is not a vacuous corner case; it is what happens. Measured over 96
+decisions, `q̂` is **exactly 0.000 m on all of them** (§5.14a). The forecast's
+chosen route is dry under every member, because a route planner *avoids* water —
+so the scalar it reports carries no ensemble variance at all.
+
+**What the uncertainty is in, formally.** The members differ in the **feasible
+set**
+
+```
+𝓡(D)  =  { r  :  m(r, D) ≤ L }
+```
+
+not in the value of `m` on a fixed element of it. `𝓡` is a set of discrete
+objects, and (10.20) is a quantile of a continuous scalar. **A margin on a
+continuous scalar cannot represent variation in a discrete feasible set**, which
+is why the correct report here is not a band but the statement that no band
+applies. §10.6 says which distribution a margin must use; it does not say a
+margin exists for every decision, and for route choice under forecast
+uncertainty it does not.
+
+**The admissible alternative, and its price.** Filtering uses the Perceive stage:
+members inconsistent with the depths already observed are dropped,
+
+```
+keep(t)  =  { j  :  (1/|{k : t_k ≤ t}|) Σ_{t_k ≤ t} mean_e | D^{(j)}_e(t_k) − D^{true}_e(t_k) |  ≤  η }
+```
+
+with `η = 0.02 m` **stated, not tuned**, and the survivors' mean re-planned each
+slot. Per-decision against believing the central forecast:
+
+| central forecast → filtered | count |
+|---|---|
+| arrived → arrived | 40 |
+| no plan → no plan | 28 |
+| **no plan → arrived** | **14** |
+| **no plan → caught** | **7** |
+| caught → caught | 7 |
+
+Nobody who was arriving stops arriving and nobody who was caught is saved:
+filtering converts **21 of 49 refusals into departures, 14 of which get through
+and 7 of which are caught**. Reporting this as "+14.5 points of arrivals" would
+hide the seven, and being trapped on a flooding road is not the same outcome as
+having stayed home. The honest statement is that observation converts a refusal
+into a 2:1 bet, and that taking it is the operator's call.
+
+**Stratification, and the degeneracy guard.** A trip is scored only if the
+members disagree about it — `min_j m(r, D^{(j)}) ≤ L < max_j m(r, D^{(j)})` on
+the water-free geometry — which is **12 of 523** candidate destinations. The
+first version of this experiment chose destinations on ground the mean member
+leaves dry, which selected the question away: no trip met water, every arm
+scored 87.5% **including the oracle**, and six identical rows looked like a
+result.
+
+### 10.13 Statistical procedures, stated exactly
+
+**The unit of analysis.** Every rate in this document is a fraction of
+**evaluations**, and every interval is computed over the unit the claim is
+about. §3.2's original `z = +3.68` recomputed to `+2.13` because the unit was
+evaluations where the claim was about runs (Defect 17-class). Where `n_seed`
+seeds each contribute `n_ev` evaluations, a pooled rate is
+
+```
+p̂  =  (Σ_s v_s) / (n_seed · n_ev) ,    se(p̂) = √( p̂(1−p̂) / (n_seed n_ev) )
+```
+
+and a paired comparison across seeds uses the per-seed differences
+`d_s = v_s^{(A)} − v_s^{(B)}` with `se = sd(d)/√n_seed`. The two answer
+different questions and are reported separately; §3.4b gives both.
+
+**Feasibility, before pooling.** A seed may only enter a coverage pool if an
+admissible action exists, i.e. `d_eff = d − q̂ > 0`. On `swe` the margin consumes
+the entire limit on 5 of 20 seeds, and pooling them with the rest moved the
+headline by **four points** — 16.82% [11.88, 21.76] over all seeds against
+12.12% [7.14, 17.10] over the feasible ones (Defect 39, Rule 45).
+
+**Tests used.** Paired *t* on per-seed differences with a normal interval;
+binomial normal-approximation intervals on pooled evaluation counts; Fisher
+exact for the real-order versus shuffled coverage comparison (§5.10);
+Spearman rank correlation of `|score|` against collection index for drift;
+two-sample Kolmogorov–Smirnov on early versus late halves for distribution
+shift; a lag-1 autocorrelation test for serial dependence. Non-rejection is
+reported as non-rejection and never as absence of effect.
+
+**Pre-registration.** §9.2a's prediction for SafeDreamer (≈12%) was recorded
+before the run, which returned 13.17%. A prediction derived from Proposition
+10.1 and confirmed on a method we had not implemented is stronger evidence than
+a baseline table, and is the reason that arm exists.
+
+### 10.14 Where each headline number comes from
+
+| number | meaning | script | § |
+|---|---|---|---|
+| 14.1% → 5.0% | rdf violations, 20 seeds, δ = 0.1 | `eval/run_constraint_fix.py` | 3.2b |
+| −9.1 pts, CI [−11.8, −5.5] | paired difference, same | same | 3.2b |
+| 18.2% | model-error margin, worse than none | same, `--margin-mode model_error` | 3.2 |
+| 11.99 / 12.20 / 13.17% | CAP / SMBPO / SafeDreamer | `run_cap_baseline.py`, `run_smbpo_baseline.py`, `run_safedreamer_baseline.py` | 3.5, 9.2a |
+| max error 0.003 | `R(ρ)` against simulation | `run_margin_coverage.py` | 10.5 |
+| ρ ∈ [1.20, 96.24] | measured spread-to-error ratio | `run_constraint_fix.py` sweep | 3.5 |
+| 1.1437 | swe cost limit, trained anchor | `vista_swe_anchor.slurm` | 3.4b |
+| 33.2% → 16.8%; 12.12% [7.14, 17.10] feasible | swe, 20 seeds | `vista_swe_margin.slurm` | 3.4b |
+| 0.0771 / 0.0854 | dar / rdf miscoverage, real order | `run_exchangeability.py` | 5.10, 5.10a |
+| lag-1 p ≈ 0 (rdf) | exchangeability violated | same | 5.10a |
+| CSI 0.979 / 0.535 | ours vs reference / reference vs SAR | `run_sar_validation.py` | 5.7a |
+| 12 pts, half the crews | wildfire planning gain at 3 d / 3% | `run_ndws_plan.py` | 5.1 |
+| 39.0 / 18.3 / 10.4% | planner / distilled / scratch | `run_ndws_distill.py` | 5.1a |
+| 21.3%, guaranteed 20.8% | flood plan under river stage | `run_flood_margin.py` | 5.12 |
+| 0 of 96 | peak-field routing failures | `run_evac_policy.py` | 5.14a |
+| `q̂` = 0.000 m on 96/96 | route margin degenerate | same | 5.14a, 10.12 |
+| 14 arrive / 7 caught of 21 | filtering's conversion | same | 5.14a, 10.12 |
+| 14 of 14 | router parity, Python vs browser | `portal/scripts/verify-route-parity.mjs` | 5.13 |
+
+Every row is produced by a script with seeds, limits and `δ` as command-line
+arguments. No number in this document comes from a default that is not stated.
+
+---
 
 ## References
 
