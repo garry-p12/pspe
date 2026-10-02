@@ -122,7 +122,7 @@ P[ realised cost > limit ] ≤ δ
 with **δ chosen and stated**, not tuned. Two properties matter operationally.
 The quantile **refuses** to return a value when calibration data is insufficient
 (`n ≥ 1/δ − 1`) rather than extrapolating — this caught a real bug in our own
-portal (§5.5). And it is computed from outcomes, so it assumes nothing about the
+portal (§5.6). And it is computed from outcomes, so it assumes nothing about the
 surrogate's error structure.
 
 ### 2.3 Does it work
@@ -344,9 +344,45 @@ reporting a **111.7%** reduction where the solve gives **99.81%**: past the
 physical maximum, at a configuration where the margin was unattainable so nothing
 flagged it.
 
-**Figure 6** `runs/portal_shots/81_option_picked.png`.
+**Figure 5b** `runs/portal_shots/81_option_picked.png`.
 
-### 5.3 The question an operator actually asks: can we get out, and by when
+### 5.3 What else the interface does, because the honesty is in the detail
+
+Four things in the portal exist specifically because a number without them
+misleads, and they are worth listing because each is a design consequence of
+§2.1–§2.2 rather than decoration.
+
+**The flood is drawn as a body of water, not a blue picture.** The terrain has
+220 m of relief over 32 km (1:146, flatter than it sounds once projected) while
+the water reaches 19 m deep: the water is the three-dimensional object in the
+scene, and painting it flat hides the one quantity with genuine vertical extent.
+Each cell becomes a column standing on its own ground at its own depth, so a
+levee reads as a wall holding a volume back rather than a marker beside a blue
+shape. The flat paint remains available, which is what makes the comparison
+legible.
+
+**Figure 6** `runs/portal_shots/60_water_solid.png` against
+`runs/portal_shots/62_water_flat.png` — the same event, drawn as a volume and as
+paint.
+
+**The allocation is shown as a trace, not a verdict.** The greedy search spends
+the budget in 0.5 m steps and the interface shows each step and what it bought,
+so an engineer can see where the marginal return fell off rather than being
+handed a height vector. **Figure 7** `runs/portal_shots/50_budget_trace.png`.
+
+**The margin has its own page, with the trade-off as a control.**
+`/methodology/margin` makes `f` — the fraction of the achievable gain you are
+willing to give back for a guarantee — a slider, and shows the crossing move as
+you drag it. The point of exposing it is that `f` is a decision and not a
+constant. **Figure 8** `runs/portal_shots/53_margin_f_low.png` and
+`53_margin_f_high.png` at the two ends of the range.
+
+**And a page for what the tool cannot show.** `/methodology/limits` is written
+into the interface rather than left to the paper: one validated event, a marginal
+rather than per-step guarantee, an unvalidated intervention arm.
+**Figure 9** `runs/portal_shots/54_limits.png`.
+
+### 5.4 Can we get out of this town, and by when
 
 Levees are decided months ahead. On the night the question is a trip: *I am here,
 I need to get there, what do I do.*
@@ -423,12 +459,12 @@ PSPE stages do the work: Simulate supplies the schedule, Plan solves the search,
 Explain emits the brief. **Perceive is not in the single-trip loop**, and
 claiming "all four stages" would be a claim about a diagram.
 
-**Figure 7** ⚠️ *needs capture* — a trip, its route and its deadline, from a
+**Figure 10** ⚠️ *needs capture* — a trip, its route and its deadline, from a
 river-driven run at the stated discharge. `runs/portal_shots/95_trip.png` shows
 a box with no detected through-channel, so that run fell back to rainfall and
 nothing flooded: the wrong case for this figure.
 
-### 5.4 An explanation the service will not ship unless it matches the plan
+### 5.5 An explanation the service will not ship unless it matches the plan
 
 The route brief is generated from the same record the map is drawn from, and it
 is **parseable**, so faithfulness can be computed: the text is scored against
@@ -444,7 +480,7 @@ the cut length at t = 0, which is structurally zero because every run starts
 dry, and the check was only reading the departure call. Both fixed; the old
 sentence now scores 0.750 and is withheld.
 
-### 5.5 The bug that justifies the whole margin apparatus
+### 5.6 The bug that justifies the whole margin apparatus
 
 Our own portal displayed a confidence it had no data to support:
 `1.645 · RMSE · √(1 + 1/n)`, a normal-approximation interval described in its own
@@ -458,7 +494,7 @@ A normal-approximation interval always returns something. The conformal
 quantile **refuses**. That is not a detail of the method; it is the reason to
 prefer it.
 
-**Figure 8** `runs/portal_shots/52_refusal.png`.
+**Figure 11** `runs/portal_shots/52_refusal.png`.
 
 ---
 
@@ -496,9 +532,9 @@ filter with its error term swept and show where the optimum sits.
   conformal reviewer checks.
 - **The evacuation deadline is one realisation, not a forecast distribution.**
   "3h30" is conditional on the storm arriving as modelled, and the ensemble in
-  §5.3 spans *how big the flood is* and nothing else — not timing, not spatial
+  §5.4 spans *how big the flood is* and nothing else — not timing, not spatial
   pattern, not the solver's own error.
-- **The margin contributes nothing to route choice** (§5.3), and a trained
+- **The margin contributes nothing to route choice** (§5.4), and a trained
   policy over the same ensemble is an obvious arm we have not run.
 - The model-adaptation benefit is **small** (d = 0.20 at day +1).
 
@@ -522,22 +558,35 @@ conservation check finds it.
 
 ## Figures
 
-| # | file | shows |
-|---|---|---|
-| 1 | `docs/figures/paper/fig8_twin_loop.png` | the assimilate–forecast–plan loop |
-| 2 | `docs/figures/paper/fig4_wildfire.png` | budget Pareto and horizon ablation |
-| 3 | `docs/figures/paper/fig10_flood_precondition.png` | why rainfall recommends nothing |
-| 4 | `docs/figures/paper/figA1_sar_validation.png` | Sentinel-1 validation, permanent water separated |
-| 5 | `runs/portal_shots/45_plan_result.png` | the recommendation, its guaranteed floor, attribution |
-| 6 | `runs/portal_shots/81_option_picked.png` | selecting a ranked option redraws the water |
-| 7 | ⚠️ **to capture** | a trip, its route and its deadline, river-driven |
-| 8 | `runs/portal_shots/52_refusal.png` | the margin refusing a level it cannot support |
-| 9 | `runs/portal_shots/44_roads.png` | live OpenStreetMap road network |
-| 10 | `runs/portal_shots/40_forecast.png` | live forecast panel (Open-Meteo) |
+| # | file | shows | captured |
+|---|---|---|---|
+| 1 | `docs/figures/paper/fig8_twin_loop.png` | the assimilate–forecast–plan loop | 2026-09-25 |
+| 2 | `docs/figures/paper/fig4_wildfire.png` | budget Pareto and horizon ablation | 2026-09-25 |
+| 3 | `docs/figures/paper/fig10_flood_precondition.png` | why rainfall recommends nothing | 2026-09-25 |
+| 4 | `docs/figures/paper/figA1_sar_validation.png` | Sentinel-1 validation, permanent water separated | 2026-09-27 |
+| 5 | `runs/portal_shots/45_plan_result.png` | the recommendation, its guaranteed floor, attribution | **2026-10-01** |
+| 5b | `runs/portal_shots/81_option_picked.png` | selecting a ranked option redraws the water | 2026-10-01 |
+| 6 | `runs/portal_shots/60_water_solid.png` + `62_water_flat.png` | the flood as a volume against the flood as paint | **2026-10-01** |
+| 7 | `runs/portal_shots/50_budget_trace.png` | the greedy allocation, step by step | **2026-10-01** |
+| 8 | `runs/portal_shots/53_margin_f_low.png` + `53_margin_f_high.png` | `f` as a control, and the crossing moving with it | **2026-10-01** |
+| 9 | `runs/portal_shots/54_limits.png` | what the tool cannot show, written into the interface | **2026-10-01** |
+| 10 | ⚠️ **to capture** | a trip, its route and its deadline, river-driven | — |
+| 11 | `runs/portal_shots/52_refusal.png` | the margin refusing a level it cannot support | 2026-10-01 |
+| 12 | `runs/portal_shots/44_roads.png` | live OpenStreetMap road network | **2026-10-01** |
+| 13 | `runs/portal_shots/40_forecast.png` | live forecast panel (Open-Meteo) | **2026-10-01** |
+| 14 | `runs/portal_shots/91_route_district.png` | the route card: no way out at car depth, 213 km cut | 2026-10-01 |
 
-Figures 1–6 and 8–10 were captured against the current interface. `figA5` and
-`figA6` from earlier drafts are **not** used: they embed screenshots from before
-the interface was rebuilt.
+**The capture column is not bookkeeping.** Figures 5, 6, 7, 8, 9, 12 and 13
+were re-shot on 2026-10-01 because the versions cited in earlier drafts predated
+the per-option water, the route card and the methodology pages — and figure 5 is
+the one this paper calls its most important. A paper citing a screenshot of a
+superseded interface is making a claim about a tool that no longer exists.
+`figA5_portal_appraisal` and `figA6_portal_anywhere` are **not** used here for
+the same reason.
+
+Figure 10 is the one outstanding asset: `95_trip.png` exists but shows a box
+with no detected through-channel, so that run fell back to rainfall and flooded
+nothing — the wrong case for the caption it would carry.
 
 ## Data and reproducibility
 

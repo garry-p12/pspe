@@ -204,6 +204,32 @@ important figure on this poster**
 A boundary sets a **stage**, not a volume. Also fixed: DEM nodata filled with
 sea level put a **247 m trench** around every inland domain.
 
+## The interface, where the number has to survive contact
+
+**The flood is drawn as a body of water, not a blue picture.** This terrain has
+220 m of relief over 32 km; the water reaches 19 m deep. The *water* is the
+three-dimensional thing in the scene, and painting it flat hides the one
+quantity with real vertical extent — a levee then reads as a wall holding a
+volume back rather than a marker beside a blue shape.
+
+**FIGURE 6** — `runs/portal_shots/60_water_solid.png` beside
+`runs/portal_shots/62_water_flat.png`
+*Caption: same event, as a volume and as paint. Both are available in the tool;
+that is what makes the comparison legible.*
+
+**The allocation is a trace, not a verdict.** The budget is spent in 0.5 m steps
+and every step is shown with what it bought, so an engineer sees where the
+marginal return fell off instead of being handed a height vector.
+**FIGURE 7** — `runs/portal_shots/50_budget_trace.png`
+
+**The trade-off is a control, not a constant.** `/methodology/margin` makes `f` —
+how much of the achievable gain you will give back for a guarantee — a slider,
+and the crossing moves as you drag it.
+**FIGURE 8** — `runs/portal_shots/53_margin_f_low.png` and `53_margin_f_high.png`
+
+**And there is a page for what the tool cannot show**, inside the tool rather
+than only in the paper. **FIGURE 9** — `runs/portal_shots/54_limits.png`
+
 ## Validated against satellite — including the uncomfortable number
 
 - our solver vs the reference hydrodynamic model — **CSI 0.979**
@@ -215,7 +241,7 @@ sea level put a **247 m trench** around every inland domain.
 > is how decision-support tools acquire unearned authority. **One validated event
 > is also one event.**
 
-**FIGURE 6** — `docs/figures/paper/figA1_sar_validation.png`
+**FIGURE 10** — `docs/figures/paper/figA1_sar_validation.png`
 
 ---
 
@@ -260,7 +286,7 @@ exceeds what the vehicle can cross while you're on it.**
 | **re-plan on what is observed** | **56.2%** |
 | oracle (plans on the storm that happens) | 85.4% |
 
-**FIGURE 7** — ⚠️ **NEEDS RE-CAPTURE.** `runs/portal_shots/95_trip.png` exists
+**FIGURE 11** — ⚠️ **NEEDS RE-CAPTURE.** `runs/portal_shots/95_trip.png` exists
 but shows the wrong case: that box had no detected through-channel, so the driver
 fell back to rainfall and nothing flooded. Shoot it from a river-driven run:
 
@@ -305,7 +331,7 @@ the width it should have been.**
 > A normal-approximation interval always returns something. **The conformal
 > quantile refuses.** That is the reason to prefer it.
 
-**FIGURE 8** — `runs/portal_shots/52_refusal.png`
+**FIGURE 12** — `runs/portal_shots/52_refusal.png`
 
 ## And the explanation is checked before it ships
 
@@ -373,8 +399,18 @@ OpenStreetMap/Overpass · FloodCastBench (reference hydrodynamics).
   and the two results-against-us are the poster's credibility.
 - Set the three big numbers at the same weight: **5.0%**, **half the crews**,
   **0 of 96**. Do not let the method number dominate the applications.
-- Figures 1–6 and 8 exist. **Figure 7 must be re-captured** (see the command in
-  Column 4) — the current file shows the rainfall fallback, not the flood.
+- **Figures re-shot 2026-10-01** against the current interface: 2 (plan result),
+  6 (water), 7 (budget trace), 8 (margin explorer), 9 (limits), and the roads and
+  forecast panels. The versions in earlier drafts predated the per-option water,
+  the route card and the methodology pages. A poster showing a superseded
+  interface is advertising a tool that no longer exists.
+- **Figure 11 must still be re-captured** (command in Column 4): the file that
+  exists shows a box with no detected through-channel, so that run fell back to
+  rainfall and flooded nothing.
+- `51_certainty.png` was deleted. It was captured on the assumption that the
+  panel's single range input was a confidence control; it is the budget slider.
+  The margin's interactive page is `/methodology/margin` and figure 8 is the
+  honest version of what that figure was reaching for.
 - Every number here appears in `WORKSHOP_PAPER.md`; the separation result, its
   proof, and the provenance of each number are `THESIS_AND_RESULTS.md` Part 10
   (§10.14 is the number-to-script table). If a number changes, change it in all
