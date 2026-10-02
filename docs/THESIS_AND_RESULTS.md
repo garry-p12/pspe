@@ -3678,7 +3678,7 @@ reads. Minor as a bug and worth recording as a habit: **a figure of an interface
 is a review of that interface**, and this one had been on screen for a day
 without anyone noticing.
 
-### 5.10 Exchangeability of the calibration scores: tested, and it holds (2026-09-27)
+### 5.10 Exchangeability of the calibration scores on dar: tested, and it holds (2026-09-27)
 
 **The hole.** §9.3 states it plainly: split conformal guarantees its rate under
 exchangeability of the calibration scores, our margin calibrates on residuals
@@ -3751,6 +3751,46 @@ since §3.2, and its load-bearing assumption went untested for as long as it was
 convenient. The test cost five minutes of GPU time once the sequence was
 persisted; the reason it went unrun was that nothing in the pipeline recorded
 the order, and what is not recorded does not get questioned.
+
+### 5.10a Exchangeability on both testbeds: it fails on rdf, and coverage holds anyway (2026-10-01)
+
+§5.10 tested exchangeability on **dar** and concluded it was not violated. That
+conclusion was about one testbed, and the §9.3 hole it closes is about the
+method. Job 1038067 (`eval/run_exchangeability.py`, three seeds per testbed, one
+node each, 13 min) runs the same protocol on **rdf** as well, at the same sizing:
+320 scores per seed, split 160 calibration / 160 test, 480 pooled test points.
+
+| testbed | Spearman(index, \|score\|) | KS early vs late | **lag-1 autocorrelation** | coverage, real order | shuffled control | adaptive |
+|---|---|---|---|---|---|---|
+| dar | −0.04 to +0.04 (p 0.47–0.74) | p 0.40–0.98 | **p 0.47–0.60** | 0.0771 | 0.0875 | 0.1000 |
+| rdf | −0.08 to +0.01 (p 0.16–0.90) | p 0.51–0.93 | **p = 0 (all three seeds)** | 0.0854 | 0.0729 | 0.0959 |
+
+**dar reproduces §5.10 exactly** — real-order miscoverage 0.0771, the same figure
+to four places, on a different job and different seeds. That is the reproduction
+§5.10 did not have.
+
+**rdf does not.** Serial dependence at lag 1 is significant on every seed, with
+p indistinguishable from zero, while drift (Spearman) and distribution shift (KS)
+are both non-rejections. So the scores are **dependent but not drifting**, which
+is the same characterisation §3.3a reached from a different direction, and it
+means exchangeability is *violated* on rdf rather than merely untested.
+
+**And the margin covers anyway.** Real-order miscoverage on rdf is 0.0854
+against δ = 0.1, below the level, with the shuffled control at 0.0729 and
+adaptive at 0.0959 — all three inside the target. Dependence of this kind
+inflates the variance of the empirical quantile without biasing it, which is why
+the Barber et al. (2023) bound is the right frame: coverage ≥ 1 − δ − Δ, and the
+measured Δ here is not large enough to push miscoverage past δ.
+
+**What changes in the write-up.** §5.10's headline must say which testbed it
+holds on. The honest statement across both is: *exchangeability is violated on
+one of the two testbeds, through serial dependence rather than drift, and the
+fixed split-conformal margin attains its level on both.* That is a stronger
+claim than "not violated", because it is tested where it fails.
+
+One coincidence worth flagging so nobody conflates two numbers: rdf's real-order
+miscoverage (0.0854) is numerically identical to dar's *shuffled control* in
+§5.10. Different quantities, same digits.
 
 ### 5.11 The portal runs the loop, and building it found three more defects (2026-09-27)
 
@@ -4818,7 +4858,7 @@ knowledgeable reviewer and are cheap.
 | 5 | **Flood extent from Sentinel-1** — a dense field, sequential, free on GCS | 2–3 weeks | decides whether §5.3 is a sparse-field quirk or a property of budgeted intervention (§9.10). *Partly done*: `pspe/observe/sar.py` and one validated event (§5.7); the dense-field intervention study is not started |
 | 6 | Run the planner against **Cell2Fire** | ~1 week | one setting where the intervention counterfactual is evaluable (§9.6) |
 | 7 | ~~Test **distillation** from planner solutions into the amortised policy~~ | **done (2026-09-28)** | 3 seeds, job 1031950. Distillation recovers **46.9%** of the planner: 18.32% against the planner's 39.04% and the from-scratch arm's 10.4%. So §9.7's warning was half right — the recipe helps by +7.9 points — but 20.7 points survive it, and the claim gets *stronger* for having been tested (§5.1a) |
-| 8 | ~~Test exchangeability of episode-cost deviations; consider adaptive CP~~ | **done** | Not violated: real-order coverage 0.0771 against a shuffled control's 0.0854, Fisher p = 0.723; drift, KS and serial-dependence tests all non-rejections (§5.10). Adaptive CP unnecessary |
+| 8 | ~~Test exchangeability of episode-cost deviations; consider adaptive CP~~ | **done** | Measured on both testbeds. dar: not violated, real-order coverage 0.0771 vs a shuffled control's 0.0854, Fisher p = 0.723 (§5.10, reproduced in §5.10a). rdf: **violated** through lag-1 serial dependence, p = 0 on all three seeds, with drift and KS non-rejections — and coverage still attained at 0.0854 against δ = 0.1 (§5.10a). Adaptive CP unnecessary on either |
 | 9 | Re-report all results with stratified bootstrap CIs and IQM | **partly done (2026-09-28)** | meets the evaluation standard we ourselves cite (§9.11). `eval/metrics.py` provides `iqm`, `bootstrap_ci`, `seed_report`; `eval/run_bootstrap_report.py` applies them. Planning gap: IQM 11.50, 95% CI [9.97, 14.63]. Safety margin on rdf, 5 seeds: Δ −6.1 pts, CI [−21.2, +6.1], straddles zero (§3.2a) — **re-run at 20 seeds: Δ −9.1 pts, CI [−11.8, −5.5], p = 0.0002, and no return cost (§3.2b)**. Horizon mechanism survives at 5 seeds (§5.1). **Still to do:** every remaining 5-seed comparison in the document needs the same treatment |
 | 10 | **Live-incident loop** on current FIRMS plus meteorology | ~1 week | the one role FIRMS keeps that WSTS cannot fill (§9.9) |
 | 11 | **Explain redesign** — structured head over (patch, amplitude) | weeks | probably a separate paper (§9.12) |
@@ -5830,7 +5870,7 @@ the honest standing of our claim against that line, not a score.
 |---|---|---|---|---|---|---|
 | 9.3 | Conformal safety in control | Lindemann 2023; CBF+ACP (2503.17678); conformal policy control (2603.02196) | conformalise the **error of the learned dynamics model**, then plan inside the inflated tube | conformalise **realised episode cost against the quantity the dual controls** | the default raises rdf violations to 14.15% against 13.17% for no margin; ours reaches 7.80% (§3.2) | **Novel and falsifying.** We do not merely propose an alternative; we show the field's default is worse than nothing in a regime it is used in |
 | 9.3 | Behavioural-change conformal | Prinster et al. 2026 | calibrate permissible deviation from a safe reference policy; no dynamics model | calibrate realised cost against a Lagrangian's controlled quantity | not run head-to-head; different constraint object (behavioural budget vs CMDP cost budget) | **Closest prior art.** Must be cited as such, not lumped with the model-error line |
-| 9.3 | Adaptive conformal under shift | Gibbs & Candès 2021 | update δ online because a learning policy shifts the score distribution | fixed split-conformal quantile over the run's residuals | exchangeability tested and **not violated**: real-order coverage 0.0771 vs shuffled 0.0854, Fisher p = 0.723; adaptive gives 0.1000 (§5.10) | **Not needed here, and now demonstrated rather than assumed** |
+| 9.3 | Adaptive conformal under shift | Gibbs & Candès 2021 | update δ online because a learning policy shifts the score distribution | fixed split-conformal quantile over the run's residuals | tested on both testbeds: not violated on dar (0.0771 vs shuffled 0.0854, Fisher p = 0.723), **violated on rdf** through lag-1 dependence (p = 0, three seeds) — and the fixed margin attains δ = 0.1 on both, 0.0771 and 0.0854 (§5.10, §5.10a) | **Not needed here, and now demonstrated where it fails rather than only where it holds** |
 | 9.2 | Model-based safe RL | CAP (Ma 2022); SMBPO (Thomas 2021); SafeDreamer | inflate the cost estimate by model uncertainty (ensemble disagreement) | inflate by a conformal quantile of realised-cost residuals | At matched sample budget, run-level: **CAP 11.99%, SMBPO 12.20%, ours 5.00%**. Both lose by ~7 pts (p = 0.0003 / 0.0014); CAP vs SMBPO p = 0.83; neither separates from no margin at all (§9.2a) | **Ours wins, and the reason generalises further than expected**: an adapted mean+kσ and an unadapted max land 0.2 pts apart, so the *summary* of disagreement is irrelevant — the distribution is what is wrong. SafeDreamer unrun |
 | 9.2 | Model-free constrained RL | CPO; PPO-Lagrangian; Sauté; primal-dual NPG | constrain in the true environment, many samples | plan in a surrogate, probe the truth periodically | dar: better return (t = +3.84 to +17.95) at **12.5× fewer real transitions**, but 7.3% violating where they violate 0% (§3.1) | **Mixed and stated as such.** Part of the sample-efficiency advantage was bought with violations |
 | 9.4 | Objective mismatch / decision-focused learning | Lambert 2020; decision-focused learning | better model ≠ better control; train the model for the decision | tested joint Simulate+Plan training | model improved **5–9×**, decision did not move (§4.3) | **Known, inverted data point.** Our contribution is the magnitude: the improvement was large and the decision was flat |
