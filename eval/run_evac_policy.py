@@ -1,0 +1,386 @@
+"""When to leave, when the forecast might be wrong.
+
+§5.14 gives a trip a route and a deadline against ONE solved flood. The deadline
+is therefore conditional on the storm arriving as modelled, and an operator who
+acts on it is trusting a single realisation. That is the gap this measures.
+
+The decision is genuinely sequential and genuinely under partial observation,
+which is what makes it the one place in this project where a policy earns its
+keep rather than decorating a shortest path:
+
+  * the network degrades while you drive, so a route is a schedule, not a path
+    (§5.14 already handles this part);
+  * the schedule depends on a forcing nobody knows exactly, so the schedule is
+    a distribution over schedules;
+  * and you learn about the forcing as the flood arrives -- depths you can see
+    now tell you which member of that distribution you are living in.
+
+Five arms, from the thing an operator does today to the thing this framework
+argues for:
+
+  leave-now      depart immediately on the ensemble-mean schedule
+  static-peak    route on the mean member's PEAK field -- the standard flood-twin
+                 output, and what §5.13 routes against
+  dp-mean        time-dependent routing on the ensemble-mean schedule: §5.14,
+                 believing the central forecast
+  conformal      dp-mean with a conformal margin on the REPORTED SCALAR (deepest
+                 water on the chosen route), calibrated across held-out members
+  filtered       re-plan every slot against only those members still consistent
+                 with the depths observed so far, then apply the margin to what
+                 is left. Perceive feeding Plan, with no training
+
+and `oracle`, which plans on the member that actually happens, as the ceiling.
+
+Evaluation is leave-one-out over the ensemble: each member in turn is reality
+and the others are the forecast. An arm SUCCEEDS on a trip if the traveller is
+never on a road whose true depth exceeds what the vehicle can cross while they
+are on it, and reaches the destination.
+
+The ensemble is over a forcing MULTIPLIER, not a meteorological forecast
+ensemble. It spans "how big is this flood" and nothing else -- not timing, not
+spatial pattern, not the solver's own error. That is a narrower uncertainty than
+an operator faces, and the numbers should be read as a mechanism result.
+
+    python3 eval/run_evac_policy.py --dx 200 --members 8
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import random
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from pspe.plan import margins, routes  # noqa: E402
+
+PLACES = {
+    "lismore-coraki": {
+        "origin": {"lat": -28.8135, "lon": 153.2773, "name": "Lismore"},
+        "destination": {"lat": -28.9956, "lon": 153.2906, "name": "Coraki"},
+        "q_m3s": 3000.0, "driver": "river",
+    },
+}
+
+
+def box_for(o: dict, d: dict) -> dict:
+    span = math.hypot(
+        (float(d["lon"]) - float(o["lon"])) * 111.320
+        * math.cos(math.radians((float(o["lat"]) + float(d["lat"])) / 2)),
+        (float(d["lat"]) - float(o["lat"])) * 110.540)
+    pad = max(0.3 * span, 3.0)
+    mid_lat = (float(o["lat"]) + float(d["lat"])) / 2
+    mid_lon = (float(o["lon"]) + float(d["lon"])) / 2
+    half_lat = max(span / 2 + pad, abs(float(o["lat"]) - float(d["lat"])) / 2 + pad) / 110.540
+    half_lon = half_lat / max(math.cos(math.radians(mid_lat)), 0.2)
+    return {"west": mid_lon - half_lon, "east": mid_lon + half_lon,
+            "south": mid_lat - half_lat, "north": mid_lat + half_lat}
+
+
+def solve_member(dom, box, mult: float, args, snap_h, flat, offs):
+    """One ensemble member: this much water, on the same terrain."""
+    import torch
+    from pspe.simulate.flood import FloodConfig, FloodSolver
+    from service.app import PlanRequest, build_forcing
+
+    req = PlanRequest(
+        west=box["west"], south=box["south"], east=box["east"], north=box["north"],
+        name="evac", dx=dom.dx, rain_mm_h=args.rain_mm_h,
+        storm_hours=args.storm_hours, run_hours=args.run_hours,
+        driver=args.driver, river_q_m3s=args.q_m3s * mult, sites=[],
+    )
+    z = torch.as_tensor(dom.z, dtype=torch.float32)[None]
+    fx = build_forcing(dom, req)
+    cfg = FloodConfig(dx=dom.dx, open_edges=("south", "north", "east", "west"),
+                      manning=0.035, bed_slope=1e-4, dt_max=300.0)
+    solver = FloodSolver(z, cfg)
+    h = torch.zeros_like(z)
+    qx, qy = solver.zeros_flux(1)
+    src, sea_mask, sea_level = fx["source"], fx["sea_mask"], fx["sea_level"]
+    at = sorted(float(x) * 3600.0 for x in snap_h)
+    rows, nxt, tt, dur = [], 0, 0.0, args.run_hours * 3600.0
+    while tt < dur:
+        dt = min(solver.adaptive_dt(h), dur - tt)
+        if dt <= 0:
+            break
+        on = tt < args.storm_hours * 3600.0
+        r = (src if on else 0.0) if src is not None else 0.0
+        h, qx, qy = solver.step(h, qx, qy, dt, rain=r, z=z)
+        if sea_mask is not None and on:
+            lvl = torch.clamp(sea_level - z, min=0.0)
+            h = torch.where(sea_mask.expand_as(h), torch.maximum(h, lvl), h)
+        tt += dt
+        while nxt < len(at) and tt >= at[nxt]:
+            rows.append(routes.depths_from_field(h[0].numpy(), flat, offs))
+            nxt += 1
+    while nxt < len(at):
+        rows.append(routes.depths_from_field(h[0].numpy(), flat, offs))
+        nxt += 1
+    return routes.Schedule(times=[x * 60.0 for x in snap_h], depths=rows), fx
+
+
+def mean_schedule(scheds: list[routes.Schedule]) -> routes.Schedule:
+    """The central forecast: elementwise mean over members, per edge per time."""
+    arr = np.mean([np.asarray(s.depths) for s in scheds], axis=0)
+    return routes.Schedule(times=list(scheds[0].times), depths=arr.tolist())
+
+
+def inflate(sched: routes.Schedule, q: float) -> routes.Schedule:
+    return routes.Schedule(times=list(sched.times),
+                           depths=[[d + q for d in row] for row in sched.depths])
+
+
+def walk(g, route, truth: routes.Schedule, limit: float, depart: float) -> dict:
+    """Drive the plan against the member that actually happened.
+
+    Failure is being on a road whose TRUE depth exceeds the limit while on it --
+    not whether the plan looked safe when it was made.
+    """
+    if route is None or not route.ok:
+        return {"arrived": False, "why": "no plan", "minutes": None,
+                "worst_m": None}
+    t, worst = depart, 0.0
+    for ei in route.edges:
+        t2 = t + g.edges[ei].minutes
+        d = truth.worst_between(ei, t, t2)
+        worst = max(worst, d)
+        if d > limit:
+            return {"arrived": False, "why": f"caught on {g.edges[ei].name or 'a road'}",
+                    "minutes": round(t2 - depart, 1), "worst_m": round(d, 3)}
+        t = t2
+    return {"arrived": True, "why": "", "minutes": round(t - depart, 1),
+            "worst_m": round(worst, 3)}
+
+
+def route_scalar(g, route, sched: routes.Schedule, depart: float) -> float:
+    """Deepest water on a route under a schedule: the scalar the margin covers."""
+    if route is None or not route.ok:
+        return float("nan")
+    t, worst = depart, 0.0
+    for ei in route.edges:
+        t2 = t + g.edges[ei].minutes
+        worst = max(worst, sched.worst_between(ei, t, t2))
+        t = t2
+    return worst
+
+
+def consistent(scheds: list[routes.Schedule], truth: routes.Schedule,
+               upto_min: float, tol: float) -> list[int]:
+    """Which members agree with what has been seen up to now.
+
+    This is the Perceive stage doing the only job it can do here: the depths
+    already on the network are an observation, and they rule members out. No
+    training, no filter parameters beyond a tolerance -- and the tolerance is
+    stated rather than tuned.
+    """
+    keep = []
+    for i, s in enumerate(scheds):
+        err = 0.0
+        n = 0
+        for k, t in enumerate(s.times):
+            if t > upto_min:
+                break
+            a = np.asarray(s.depths[k])
+            b = np.asarray(truth.depths[k])
+            err += float(np.abs(a - b).mean())
+            n += 1
+        if n == 0 or err / n <= tol:
+            keep.append(i)
+    return keep or list(range(len(scheds)))
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--place", default="lismore-coraki", choices=sorted(PLACES))
+    ap.add_argument("--dx", type=float, default=200.0)
+    ap.add_argument("--members", type=int, default=8)
+    ap.add_argument("--spread", type=float, default=0.6,
+                    help="multiplier range: 1-spread .. 1+spread on discharge")
+    ap.add_argument("--rain-mm-h", type=float, default=50.0)
+    ap.add_argument("--storm-hours", type=float, default=6.0)
+    ap.add_argument("--run-hours", type=float, default=12.0)
+    ap.add_argument("--snapshots", type=int, default=13)
+    ap.add_argument("--limit", type=float, default=routes.VEHICLE_DEPTH_M["car"])
+    ap.add_argument("--delta", type=float, default=0.1)
+    ap.add_argument("--step-min", type=float, default=30.0)
+    ap.add_argument("--trips", type=int, default=12)
+    ap.add_argument("--obs-tol", type=float, default=0.02,
+                    help="mean per-edge depth error, metres, for a member to "
+                         "count as consistent with what has been observed")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--out", default="runs/evac_policy")
+    args = ap.parse_args()
+
+    t0 = time.time()
+    place = PLACES[args.place]
+    args.driver, args.q_m3s = place["driver"], place["q_m3s"]
+    o, d = place["origin"], place["destination"]
+    box = box_for(o, d)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+
+    from service.app import build_domain, fetch_roads
+
+    print("=== terrain and network ===", flush=True)
+    dom = build_domain(box["west"], box["south"], box["east"], box["north"],
+                       dx=args.dx, name="evac")
+    z = np.asarray(dom.z, dtype=np.float32)
+    print(f"  grid {z.shape} at {dom.dx:.0f} m", flush=True)
+
+    cache = out / "roads.json"
+    net = (json.loads(cache.read_text()) if cache.exists()
+           else fetch_roads(box["west"], box["south"], box["east"], box["north"]))
+    if not cache.exists():
+        cache.write_text(json.dumps(net))
+    g = routes.build_graph(net.get("features", []))
+    flat, offs = routes.edge_cells(g, box, z.shape)
+    print(f"  {len(g.nodes)} junctions, {len(g.edges)} edges, "
+          f"{g.total_km:.0f} km", flush=True)
+
+    snap_h = [args.run_hours * i / (args.snapshots - 1) for i in range(args.snapshots)]
+    mults = [1.0 - args.spread + 2 * args.spread * i / (args.members - 1)
+             for i in range(args.members)]
+    print(f"=== {args.members} members, discharge x{mults[0]:.2f}..{mults[-1]:.2f} "
+          f"of {args.q_m3s:.0f} m3/s ===", flush=True)
+    scheds = []
+    for i, m in enumerate(mults):
+        tm = time.time()
+        sc, fx = solve_member(dom, box, m, args, snap_h, flat, offs)
+        scheds.append(sc)
+        print(f"  member {i} (x{m:.2f}): peak cut "
+              f"{routes.cut_km(g, sc.peak(), args.limit):6.1f} km of "
+              f"{g.total_km:.0f}, {time.time()-tm:.0f}s", flush=True)
+    if fx["driver"] != args.driver:
+        raise SystemExit(f"DEGENERATE: forcing fell back to {fx['driver']} "
+                         f"({fx['note'][:120]}) -- the ensemble would be over a "
+                         f"multiplier that does not reach the roads")
+
+    spread_km = [routes.cut_km(g, s.peak(), args.limit) for s in scheds]
+    if max(spread_km) - min(spread_km) < 1.0:
+        raise SystemExit(
+            f"DEGENERATE: every member cuts {min(spread_km):.1f}-"
+            f"{max(spread_km):.1f} km, so the ensemble carries no disagreement "
+            f"for a policy to be right or wrong about. Widen --spread.")
+
+    # Trips: out of the settlement, to junctions the mean member leaves dry.
+    rng = random.Random(args.seed)
+    mean_all = mean_schedule(scheds)
+    src = routes.nearest_node(g, float(o["lon"]), float(o["lat"]))
+    dst0 = routes.nearest_node(g, float(d["lon"]), float(d["lat"]))
+    pairs = [(src, dst0)]
+    dry = [n for n in g.adj
+           if max((mean_all.peak()[ei] for ei, _ in g.adj[n]), default=0.0) <= 0.05]
+    rng.shuffle(dry)
+    pairs += [(src, n) for n in dry[: max(0, args.trips - 1)]]
+    print(f"=== {len(pairs)} trips, leave-one-out over {args.members} members ===",
+          flush=True)
+
+    arms = ["leave-now", "static-peak", "dp-mean", "conformal", "filtered", "oracle"]
+    tally = {a: {"arrived": 0, "caught": 0, "no_plan": 0, "minutes": [],
+                 "waited": []} for a in arms}
+    rows = []
+
+    for k_true, truth in enumerate(scheds):
+        others = [s for j, s in enumerate(scheds) if j != k_true]
+        fc = mean_schedule(others)
+        for (s_, t_) in pairs:
+            if s_ == t_:
+                continue
+            # The margin: conformal quantile of the route scalar's error across
+            # held-out members, which is the quantity the decision reads.
+            base = routes.fastest_at(g, s_, t_, fc, args.limit, 0.0)
+            resid = [abs(route_scalar(g, base, m, 0.0)
+                         - route_scalar(g, base, fc, 0.0))
+                     for m in others] if base.ok else []
+            resid = [r for r in resid if not math.isnan(r)]
+            q = margins.margin("residual", args.delta, residuals=resid) if resid else 0.0
+
+            plans: dict[str, tuple] = {}
+            plans["leave-now"] = (base if base.ok else None, 0.0)
+            plans["static-peak"] = (
+                routes.fastest(g, s_, t_, fc.peak(), args.limit), 0.0)
+            dl, dlr = routes.latest_departure(g, s_, t_, fc, args.limit,
+                                              step_min=args.step_min)
+            plans["dp-mean"] = (base if base.ok else dlr, 0.0 if base.ok else (dl or 0.0))
+            infl = inflate(fc, q)
+            rb = routes.fastest_at(g, s_, t_, infl, args.limit, 0.0)
+            plans["conformal"] = (rb if rb.ok else None, 0.0)
+            ora = routes.fastest_at(g, s_, t_, truth, args.limit, 0.0)
+            plans["oracle"] = (ora if ora.ok else None, 0.0)
+
+            # filtered: step forward, keep members consistent with what has been
+            # seen, re-plan on their mean plus the margin over what is left.
+            dep, chosen, waited = 0.0, None, 0.0
+            t_now = 0.0
+            while t_now <= fc.horizon_min:
+                keep = consistent(others, truth, t_now, args.obs_tol)
+                sub = [others[i] for i in keep]
+                fsub = mean_schedule(sub)
+                r0 = routes.fastest_at(g, s_, t_, fsub, args.limit, t_now)
+                rq = [abs(route_scalar(g, r0, m, t_now)
+                          - route_scalar(g, r0, fsub, t_now)) for m in sub] if r0.ok else []
+                rq = [x for x in rq if not math.isnan(x)]
+                qq = margins.margin("residual", args.delta, residuals=rq) if rq else 0.0
+                rr = routes.fastest_at(g, s_, t_, inflate(fsub, qq), args.limit, t_now)
+                if rr.ok:
+                    dep, chosen, waited = t_now, rr, t_now
+                    break
+                t_now += args.step_min
+            plans["filtered"] = (chosen, dep)
+
+            for a in arms:
+                r, dp = plans[a]
+                res = walk(g, r, truth, args.limit, dp)
+                key = ("arrived" if res["arrived"]
+                       else "no_plan" if res["why"] == "no plan" else "caught")
+                tally[a][key] += 1
+                if res["arrived"]:
+                    tally[a]["minutes"].append(res["minutes"])
+                    tally[a]["waited"].append(dp)
+                rows.append({"member": k_true, "from": s_, "to": t_, "arm": a,
+                             "depart_min": dp, **res, "margin_m": round(q, 3)})
+
+    def pct(a: str) -> float:
+        t = tally[a]
+        n = t["arrived"] + t["caught"] + t["no_plan"]
+        return round(100 * t["arrived"] / n, 1) if n else float("nan")
+
+    summary = {
+        "place": args.place, "dx_m": dom.dx, "grid": list(z.shape),
+        "members": args.members, "spread": args.spread,
+        "discharge_m3s": args.q_m3s, "limit_m": args.limit, "delta": args.delta,
+        "trips": len(pairs), "network_km": round(g.total_km, 1),
+        "peak_cut_km_range": [round(min(spread_km), 1), round(max(spread_km), 1)],
+        "arms": {a: {"arrived_pct": pct(a), **{k: v for k, v in tally[a].items()
+                                               if k not in ("minutes", "waited")},
+                     "median_minutes": (round(float(np.median(tally[a]["minutes"])), 1)
+                                        if tally[a]["minutes"] else None),
+                     "median_wait_min": (round(float(np.median(tally[a]["waited"])), 1)
+                                         if tally[a]["waited"] else None)}
+                 for a in arms},
+        "seconds": round(time.time() - t0, 1),
+    }
+    (out / "results.json").write_text(json.dumps({"summary": summary, "rows": rows}, indent=1))
+
+    print(f"\n=== {len(pairs)} trips x {args.members} held-out members "
+          f"= {len(pairs) * args.members} decisions ===")
+    print("| arm | got through | caught by water | no plan | median drive | median wait |")
+    print("|---|---|---|---|---|---|")
+    for a in arms:
+        t = tally[a]
+        print(f"| {a} | **{pct(a)}%** | {t['caught']} | {t['no_plan']} | "
+              f"{summary['arms'][a]['median_minutes']} min | "
+              f"{summary['arms'][a]['median_wait_min']} min |")
+    print(f"\npeak cut across members: {min(spread_km):.0f}-{max(spread_km):.0f} km "
+          f"of {g.total_km:.0f} km")
+    print(f"{summary['seconds']}s -> {out}/results.json")
+
+
+if __name__ == "__main__":
+    main()
