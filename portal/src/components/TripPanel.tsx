@@ -153,6 +153,16 @@ export function TripPanel({
   const [vehicle, setVehicle] = useState(0.25);
   const [storm, setStorm] = useState(1);
   const [driver, setDriver] = useState<"river" | "rain" | "coastal">("river");
+  /** River discharge in m3/s. Empty means "let the model estimate it".
+   *
+   *  This control exists because the estimate is not always usable. Bankfull is
+   *  derived from DEM geometry, and on the Wilsons River at Lismore it comes out
+   *  at 234 m3/s -- so even the Extreme preset, at 4x bankfull, reaches under a
+   *  thousand, while the 2022 flood of record was an order of magnitude larger.
+   *  Without a way to say which event you are planning against, the trip view
+   *  could only ever model the flood the terrain implies, which is not the one
+   *  an operator is asked about. */
+  const [qText, setQText] = useState("");
   const [res, setRes] = useState<TripResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -176,6 +186,8 @@ export function TripPanel({
           vehicle_depth_m: vehicle,
           rain_mm_h: s.mm_h, storm_hours: s.hours, run_hours: 12,
           driver, snapshots: 13, depart_step_min: 30,
+          ...(driver === "river" && Number(qText) > 0
+            ? { river_q_m3s: Number(qText) } : {}),
         }),
       });
       const d = await r.json();
@@ -198,7 +210,7 @@ export function TripPanel({
       setBusy(false);
       if (timer.current) clearInterval(timer.current);
     }
-  }, [from, to, vehicle, storm, driver, onResult, onRoutes]);
+  }, [from, to, vehicle, storm, driver, qText, onResult, onRoutes]);
 
   const r = res?.route ?? null;
 
@@ -240,6 +252,40 @@ export function TripPanel({
           ))}
         </div>
       </div>
+
+      {driver === "river" && (
+        <div className="mt-3">
+          <label htmlFor="trip-q" className="eyebrow">
+            How much water is coming down the river
+          </label>
+          <div className="mt-1.5 flex items-center gap-2">
+            <input
+              id="trip-q"
+              value={qText}
+              onChange={(e) => setQText(e.target.value.replace(/[^0-9.]/g, ""))}
+              placeholder="estimate from the terrain"
+              inputMode="decimal"
+              className="w-36 rounded-md border border-line bg-bg-inset px-2.5 py-1.5
+                         text-[13px] text-ink placeholder:text-ink-faint
+                         focus:border-accent/60 focus:outline-none"
+            />
+            <span className="text-[13px] text-ink-mute">m³/s</span>
+            {qText && (
+              <button onClick={() => setQText("")}
+                      className="text-[13px] text-ink-mute hover:text-ink">
+                use the estimate
+              </button>
+            )}
+          </div>
+          <p className="anno mt-1.5 leading-relaxed">
+            Leave this empty and the model estimates bankfull from the terrain,
+            then applies the storm above as a multiple of it. That estimate comes
+            from a 30 m elevation model, not a gauged rating, and on some reaches
+            it is far smaller than a flood of record — so if you are planning
+            against a known event, type its peak here.
+          </p>
+        </div>
+      )}
 
       <div className="mt-3">
         <h3 className="eyebrow">What is being driven</h3>
