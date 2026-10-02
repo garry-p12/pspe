@@ -24,7 +24,11 @@ constraint. Both alternatives fail in experiment as the theorem predicts. On a
 reaction–diffusion hazard it cuts constraint violations from 14.1% to 5.0% (20
 seeds, paired difference −9.1 points, 95% CI [−11.8, −5.5], p = 0.0002) at **no cost
 in objective value**, and it beats a published model-based safe-RL method by 7.0
-points (95% CI [+4.0, +10.0]).
+points (95% CI [+4.0, +10.0]). The mechanism replicates on two further PDE families
+and the stated rate is attained on one of them — on a shallow-water family it cuts
+violations 33.2% → 16.8% (20 seeds, 95% CI [−24.7, −8.0]) without reaching δ = 0.1,
+which we report because a contribution whose point is a *stated* rate cannot treat
+missing the rate as a validation.
 
 We then test whether this transfers to real hazards by building two twins. A
 **wildfire twin** over 607 observed fires (WildfireSpreadTS) closes an

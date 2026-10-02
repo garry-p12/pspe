@@ -98,8 +98,9 @@ right column is the measurement that disagreed. Regenerate with
 > surrogate makes, and inherits them invisibly: the dual controller enforcing a
 > budget is fed cost measured *in the model*, while violation is realised under
 > *true* dynamics. We characterise this failure, give a split-conformal margin
-> that converts it into a stated failure rate, and validate on three PDE
-> families and on wildfire intervention over real fire records, where planning
+> that converts it into a stated failure rate. The mechanism replicates on three
+> PDE families and the stated rate is attained on two of them (§3.4b). We also
+> validate on wildfire intervention over real fire records, where planning
 > through a learned spread model beats the operational forecast-then-treat
 > heuristic by 12 points of burned-area reduction **at a 3-day planning horizon
 > and a 3% daily crew budget**.
@@ -133,11 +134,35 @@ catalogue (§0.2, §7).
 > what the runs support — and a reviewer checking the appendix would find it
 > immediately.
 >
-> *What would restore the claim:* §3.4a revived `swe`'s objective at horizon 96
-> (span 47.9%, improving directions 37.5% against rdf's 38%), but its cost limit
-> is calibrated only to a lower bound (≈0.083, pending a trained reward-greedy
-> anchor). Finishing that calibration and running the margin comparison on it
-> would make "two families" honest. "Three" would additionally need dar put into
+> **UPDATE, 2026-10-01 — the calibration finished, and "two" is now earned.**
+> Jobs 1038066 (anchor) and 1038069–72 (20 seeds, 58 min each) completed it. The
+> trained reward-greedy anchor puts swe's cost limit at **1.1437** (greedy
+> 3.2647, do-nothing 0.0017), replacing the ≈0.083 lower bound. At that limit the
+> constraint binds hard and the margin separates:
+>
+> | swe arm, 20 seeds | violating | return |
+> |---|---|---|
+> | baseline | 47.7% | −5.40 |
+> | margin alone | 47.7% | −4.82 |
+> | probe | 33.2% | −2.62 |
+> | **probe + conformal margin** | **16.8%** | −2.86 |
+>
+> Paired `probe+margin − probe`: **−16.4 points, 95% CI [−24.7, −8.0]**, so the
+> interval excludes zero. The margin-alone arm is identical to baseline to four
+> decimal places, which is the expected behaviour and a useful internal check:
+> with no probe there are no matched pairs, so there is nothing to calibrate and
+> the margin is correctly inert.
+>
+> **But it does not attain the level, and that distinction is the whole point of
+> this project.** 16.8% against δ = 0.1. The *mechanism* replicates on a third
+> family; the *stated rate* does not. Per-seed violation is bimodal (0.000–1.000
+> on every arm), so 20 seeds is thin for a 10% target. The honest sentence is
+> therefore: **the mechanism replicates on three families (rdf, dar, swe); the
+> level is attained on two (dar trivially at 0%, rdf at 5.0% against δ = 0.1) and
+> missed on swe at 16.8%.** Reporting "three families validated" would repeat
+> exactly the error this audit block exists to catch.
+>
+> "Three" validated would additionally need dar put into
 > a regime where its constraint binds.
 
 > **Revised after the literature audit.** Each failure in the catalogue turns
@@ -966,6 +991,53 @@ conditions, and a probe that contradicts an established result is suspect before
 the result is.** The contradiction was the bug report.
 
 ---
+
+### 3.4b swe at a calibrated limit: the mechanism replicates, the level does not (2026-10-01)
+
+§3.4a revived swe's objective but could only bound its cost limit from below
+(≈0.083), so the margin comparison could not be run on it and §0.3's "three PDE
+families" stood on one. This closes the calibration and runs the comparison.
+
+**Stage 1, the anchor** (job 1038066, 3 seeds, 46 min). The limit has to be a
+fraction of what a *reward-greedy* planner spends, and that planner has to be
+trained rather than assumed: greedy cost **3.2647**, do-nothing **0.0017**,
+limit **1.1437**. The stage deliberately runs its arms unconstrained — cost
+limit 1e6 in the logs, which looks like a bug and is the measurement.
+
+**Stage 2, the comparison** (jobs 1038069–72, 20 seeds, 58 min each, split four
+ways so `gh` backfills them into gaps).
+
+| arm | violating | return | per-seed spread |
+|---|---|---|---|
+| baseline | 47.7% | −5.40 | 0.000–1.000 |
+| margin alone | 47.7% | −4.82 | 0.000–1.000 |
+| probe | 33.2% | −2.62 | 0.000–1.000 |
+| **probe + conformal margin** | **16.8%** | −2.86 | 0.000–1.000 |
+
+Paired `probe+margin − probe` across the 20 seeds: **−16.4 points, 95% CI
+[−24.7, −8.0]**. The interval excludes zero, so the effect is real on a third
+family.
+
+**Two things to read carefully.** The margin-alone arm matches baseline to four
+decimal places. That is not a null result, it is the design: with no real-system
+probe there are no matched pairs, nothing to calibrate, and the margin is
+correctly inert. It is the cheapest available check that the margin is reading
+its calibration set and not a constant.
+
+And the level is **missed**. 16.8% against δ = 0.1. On rdf the same machinery
+reaches 5.0% and the guarantee holds; here it does not, and a project whose
+whole contribution is a *stated* failure rate cannot describe 16.8% against a
+10% target as a validation. Per-seed violation is bimodal — every arm spans
+0.000 to 1.000 — so some seeds violate on every evaluation and others never do,
+and 20 seeds is thin for resolving a 10% rate against that variance. Whether
+more seeds would bring the mean under δ or merely tighten it around 16.8% is not
+something this run answers.
+
+**What §0.3 may now say.** *The mechanism replicates on three PDE families; the
+stated rate is attained on two.* dar attains it trivially (0% → 0%, nobody
+violates), rdf attains it at 5.0%, swe does not at 16.8%. That is weaker than
+"validated on three families" and stronger than the single-family fallback the
+audit previously required, and unlike either it is what the runs support.
 
 ### 3.5 What the margin should bound: the derived answer
 
@@ -5081,7 +5153,7 @@ arms matched on sample budget, and does the wording match what the runs support?
 | A8 | §5.2a's twin-loop effect sizes | **PASSES, fully reproducible.** Every figure recomputes from `runs/wsts_twin/results.json`: sync-vs-open d = 1.55, t = 38.23, 595/606 fires; adaptation d = 0.20/0.44/0.32 and t = 4.85/10.90/7.82 at days +1/+2/+3. One off-by-three on day +2 fires-improved (tie handling, or the 3 incomplete records of 1,821) | none. Note for the write-up: §5.2a averages over seeds **before** comparing, giving 606 independent fires. Pooling the 1,818 fire-seed records instead inflates t to 65.66 ≈ 38.2·√3 — **the same unit error §3.2's z-values made** (A3). The codebase gets the unit of independence right here and wrong there; worth one consistency pass over every remaining paired test |
 | A7 | §5.3's partial-observation claim | **PASSES, and understates itself.** `blind` is best at every occlusion level, and `perceive` is *significantly worse*: −1.52 at 15% (p = 0.034), −4.15 at 35% (p = 0.058), **−7.18 at 60% (p = 0.046)**. `persist` is statistically identical to blind throughout (p = 0.44–0.93) | state the negative at full strength — a learned belief over occluded cells does not merely fail to help, it **hurts more as occlusion grows**, which is the more interesting claim and survives at 3 seeds |
 | A6 | §4.3's joint-training conclusion | **incomplete** — the table reports return and surrogate rel L2 and has **no violation column**. On rdf, `joint-unanchored` cuts violations **85.5% → 30.9%** (paired t = −3.59, **p = 0.023**) while costing return (−7.46 vs −6.76). §4.3 dismisses that arm as "destroys the surrogate" (rel L2 0.0024 → 0.83), which is true and is not the whole story | **done 2026-09-30** — violation column added to §4.3, with the trade and both cautions stated |
-| A1 | *"validate on three PDE families"* (§0.3) | **FAILS** — rdf separates (14.1% → 5.0%, p = 0.0002); dar is 0% → 0% (nobody violates: a regression check); swe is retired and its constraint never binds | reword to *"a reaction–diffusion family, with a diffusion–advection family as a regression check"*, or finish §3.4a's swe calibration to earn "two" |
+| A1 | *"validate on three PDE families"* (§0.3) | **PARTLY CLOSED, 2026-10-01.** The swe calibration finished: trained anchor puts the limit at 1.1437, and at that limit the margin separates — 33.2% → **16.8%** over 20 seeds, paired −16.4 points, 95% CI [−24.7, −8.0]. So the **mechanism** replicates on three families. The **level** does not: 16.8% against δ = 0.1, per-seed bimodal. rdf attains it (5.0%), dar trivially (0%) | say *"the mechanism replicates on three families; the stated rate is attained on two"* — not "validated on three". The weaker claim is the true one and still stronger than the single-family fallback this row previously required |
 | A2 | *"12 points of burned-area reduction at matched crew budget"* (§0.3) | **true but under-qualified** — it is the 3-day horizon at a 3% crew budget. The gap runs +0.6 (1 day, n.s.) to +14.3 (5 days), and +6.8 (1% budget) to +16.9 (5%). The headline table is the same data as the 3-day row of the horizon ablation, not a separate experiment | **done 2026-09-30** — operating point now in §0.3 |
 | A3 | the three z-values in §3.2 | **one not reproducible** (+3.68 against a recomputed +2.13), and the unit was evaluations rather than runs | done — §3.2's provenance audit; run-level test now reported |
 | A4 | §3.2's margin claim at 5 seeds | **unsupported as stated**; real at 20 | done — §3.2b |
