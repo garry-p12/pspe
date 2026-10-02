@@ -880,7 +880,7 @@ against the prevalence floor 0.011–0.013.
   `run_alpha_rule.py`, `run_joint.py`, `run_lipschitz.py`, `run_conformal.py`,
   `run_explain_baselines.py`, `run_perception_baselines.py`, `run_transfer.py`,
   `run_resolution.py`, `run_pdebench.py`, `run_ndws.py`.
-* **Tests.** 166 test functions across 20 files as of 2026-10-02, 188 collected (the docs quote
+* **Tests.** 174 test functions across 21 files as of 2026-10-02, 198 collected (the docs quote
   156 collected), including regression tests for each measurement bug below, the
   closed-form CMDP checks, gradient-checkpoint identity, the Lipschitz estimator
   on a known map, conformal coverage on skewed distributions, eval-schedule
@@ -1272,7 +1272,7 @@ scripts/      train_{simulate,plan,perceive,explain,e2e}.py (Hydra), generate_da
               calibrate_constraints.py, download_{pdebench,ndws}.py, make_*_figure(s).py,
               tacc/ (SLURM: vista_*.slurm, vista_packed.slurm, driver.sh, fetch/watch scripts)
 configs/      Hydra yaml per phase
-tests/        20 files, 166 test functions / 188 collected (canary and slow markers)
+tests/        21 files, 174 test functions / 198 collected (canary and slow markers)
 docs/         technical_report.md, proposal_deltas.md, paper_gap_and_plan.md, slides_*.md,
               figures/ (architecture, per-module, applications, digital twin; svg/pdf/png)
 runs/         per-experiment results (gitignored raw; results_seeds.{md,json} are the record)
@@ -1478,7 +1478,7 @@ real-sample column — `constraint_fix` reports 3,200 (states) for the same data
   achievable. The cost assertion passes there because `relu(-1) = 0`, so only
   the closed-form action check sees it. Report Sauté as validated on 2 of 3
   canary seeds. §8.3's row stands -- Sauté is not collapsed on `dar`.
-* RECOUNTED 2026-10-02: 188 collected from 166 test functions. The "156 tests" figure was the collected count with parametrisation; 139 test
+* RECOUNTED 2026-10-02: 198 collected from 174 test functions (the 9 post-hoc control tests landed after the first recount). The "156 tests" figure was the collected count with parametrisation; 139 test
   functions exist.
 
 ### 12.6 Smaller points a reviewer will ask

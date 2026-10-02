@@ -20,7 +20,7 @@ Vista on 2026-09-21 and are on slides 14 and 15; the rdf planner fix and baselin
   - evaluation perturbed training through the global RNG (baseline return shifted from -2.51 to -2.30)
   - optional-dependency tests skipped silently (a "tested" loader failed on first real use)
 - Full sweeps: about 9.5 minutes on 5 GH200 nodes versus about 9 hours on one CPU
-- 188 tests collected from 166 test functions (20 files), including regression tests for each of the bugs above
+- 198 tests collected from 174 test functions (21 files), including regression tests for each of the bugs above
 
 Source: `docs/technical_report.md` section 6, `tests/`.
 

@@ -1453,11 +1453,17 @@ Audit item 12.5, recorded here so a reviewer does not have to ask.
   not a bug in our implementation. Anyone reproducing that table should be told
   so, because the number looks like a broken baseline and is not.
 * **The test count has two values and the audit's pair is stale.** Recounted
-  2026-10-02: **188 tests collected** across 20 files with parametrisation,
-  from **166 test functions**. The audit recorded 156 and 139, both of which
+  2026-10-02: **198 tests collected** across 21 files with parametrisation,
+  from **174 test functions**. The audit recorded 156 and 139, both of which
   predate work since. Quote the function count for "how much is tested"; the
   collected count is larger only because parametrised cases are counted
-  separately.
+  separately. **A count in a document goes stale the moment a test is added** —
+  this one was written as 188/166 earlier the same day and was wrong within the
+  hour, once §3.4f's nine post-hoc tests landed. Re-derive it at write-up time
+  rather than quoting this line.
+* **One test is known-failing**: the Sauté canary on seed 0 (§3.4g, defect 51).
+  With it deselected the suite is green — 100% passes and one skip. Anyone
+  reproducing should expect exactly that one red case and no others.
 
 `runs/margin_synthetic/`, `pspe/plan/margins.py`, `tests/test_margins.py`
 
