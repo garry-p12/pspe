@@ -1,82 +1,68 @@
-# Planning Interventions Inside a Digital Twin, With a Safety Guarantee You Can State
+# Planning Inside a Digital Twin, With a Safety Margin You Can State
 
-**A framework for constrained intervention planning in PDE-governed hazards, and two
-working twins that test it.**
+*Workshop paper. ~45% method, the rest two working twins and a portal. The
+structural result and its proof live in `ICML_PAPER.md`; this paper states it
+and spends its space on what it enables.*
 
 ---
 
 ## Abstract
 
-Climate digital twins are good at forecasting and poor at *deciding*. A twin that
-predicts a flood is useful; a twin that recommends which levee to build, under a
-fixed budget, with a stated bound on how wrong it might be, is a different kind of
-instrument. The gap is not simulation fidelity — it is that planning inside a
-learned or reduced-order model inherits that model's errors, and nobody says by how
-much.
+Climate digital twins forecast well and **decide** poorly. A twin that predicts
+a flood is useful; a twin that recommends which levee to build, under a fixed
+budget, with a stated bound on how wrong it might be, is a different instrument.
+The gap is not simulation fidelity — it is that planning inside a learned or
+reduced-order model inherits that model's errors, and nobody says by how much.
 
-We contribute a safety margin for decisions made inside an imperfect simulator. The
-margin is a conformal quantile of the **realised cost distribution** rather than of
-model error or ensemble disagreement, and we prove this is forced rather than
-preferred: no margin measurable from the model-error distribution alone attains a
-stated level uniformly in the spread of realised cost. Model-error margins are the
-right instrument for a pointwise guarantee and the wrong one under an expectation
-constraint. Both alternatives fail in experiment as the theorem predicts. On a
-reaction–diffusion hazard it cuts constraint violations from 14.1% to 5.0% (20
-seeds, paired difference −9.1 points, 95% CI [−11.8, −5.5], p = 0.0002) at **no cost
-in objective value**, and it beats a published model-based safe-RL method by 7.0
-points (95% CI [+4.0, +10.0]). The mechanism replicates on two further PDE families:
-on a shallow-water family it cuts violations 33.2% → 16.8% over 20 seeds (95% CI on
-the paired difference [−24.7, −8.0]), and restricted to the three quarters of seeds
-where a plan exists at δ = 0.1 — on the rest the margin consumes the entire budget —
-the realised rate is 12.1% with a 95% interval of [7.1, 17.1], which contains the
-level without confirming it.
+We contribute a safety margin for decisions made inside an imperfect simulator,
+calibrated on the **realised cost distribution** rather than on model error or
+ensemble disagreement. This is forced rather than preferred: no margin
+measurable from the model-error distribution alone attains a stated level
+uniformly in the spread of realised cost. Model-error margins are the right
+instrument for a *pointwise* guarantee and the wrong one under an *expectation*
+constraint, and the constraint picks which distribution you need.
 
-We then test whether this transfers to real hazards by building two twins. A
-**wildfire twin** over 607 observed fires (WildfireSpreadTS) closes an
-assimilate–forecast–plan loop and reaches the same burned-area reduction as an
-operational heuristic with **half the crews**. A **flood twin** over Copernicus DEM
-terrain, driven by river discharge, coastal surge or rainfall, plans levee
-placements against a real budget and reports a guaranteed floor alongside its
-estimate. Both run in an interactive portal that works anywhere on Earth.
+On a reaction–diffusion hazard the margin cuts constraint violations from
+**14.1% to 5.0%** (20 seeds, paired −9.1 points, 95% CI [−11.8, −5.5],
+p = 0.0002) at **no cost in objective value**, and beats a published model-based
+safe-RL method by 7.0 points (95% CI [+4.0, +10.0]). Three published
+disagreement-based corrections land at 11.99%, 12.20% and 13.17%, none better
+than no margin at all — the theorem's prediction, pre-registered for one of them.
 
-We also report what does not work, including three results of our own that we had to
-retract during development and one pre-registered prediction that failed.
+We then build two twins. A **wildfire twin** over 607 observed fires closes an
+assimilate–forecast–plan loop and matches an operational heuristic's burned-area
+reduction with **half the crews**. A **flood twin** over Copernicus terrain plans
+levees anywhere on Earth against a real budget, and — the result we did not
+expect — shows that routing an evacuation on the peak-depth field every flood
+twin publishes finds **no route at all** on 96 of 96 decisions where a
+time-resolved solve gets through.
+
+We also report five original claims of our own that did not survive, three
+retracted results, and the place where our own margin contributes nothing.
 
 ---
 
 ## 1. The problem: twins that forecast but cannot advise
 
-An operational question sounds like this. *We have A$20M. There are four places we
-could raise a levee. Which combination reduces flooding most, and how confident
-should we be before we pour concrete?*
+An operational question sounds like this. *We have A$20M. There are six places
+we could build. Which, how high, and how wrong might you be?*
 
-Answering it requires three things a forecast alone does not provide:
+A forecast cannot answer it. It says what will happen if nothing changes. The
+question is about what changes, under a budget, with a consequence attached to
+being wrong.
 
-1. **A search over interventions**, not a single prediction. Four sites at several
-   heights is thousands of combinations; each needs a hydrodynamic run.
-2. **A budget constraint that actually binds.** A recommendation that quietly
-   exceeds the budget is not a recommendation.
-3. **An error bound on the recommendation itself.** Planning happens in a surrogate
-   because the real solver is too slow to search with. The surrogate is wrong. By
-   how much, and in which direction?
+**What "digital twin" has to mean for this to be useful.** Not a dashboard over
+a simulation. Four things, closed into a loop:
 
-Point 3 is where most decision-support tooling stops, and it is the one that decides
-whether an engineer can act on the output. Our contribution is a way to answer it
-that requires no distributional assumption and no tuned constant — just a stated
-failure rate.
+| stage | what it must do |
+|---|---|
+| Perceive | synchronise to observation, not just initialise from it |
+| Simulate | be fast enough to be searched over, and honest about where it is wrong |
+| Plan | optimise a decision under a real constraint, not a soft penalty |
+| Explain | say what it decided and why, in words that can be checked |
 
-### What "digital twin" has to mean for this to be useful
-
-We use the term in its strong sense: a model that is **kept synchronised with
-observations** and used to **evaluate actions before taking them**. A one-way
-forecast is not a twin. Both of our applications close that loop:
-
-| stage | wildfire twin | flood twin |
-|---|---|---|
-| **Perceive** | VIIRS active-fire detections | Sentinel-1 SAR, same-orbit differencing |
-| **Simulate** | learned spread model, adapted daily | LISFLOOD-FP local-inertial solver |
-| **Plan** | firebreak allocation under a crew budget | levee heights under a currency budget |
-| **Explain** | per-measure contribution | leave-one-out counterfactual attribution |
+The gap this paper addresses sits between Simulate and Plan: a planner searching
+inside a model inherits that model's errors *silently*.
 
 ---
 
@@ -84,127 +70,127 @@ forecast is not a twin. Both of our applications close that loop:
 
 ### 2.1 The failure being fixed
 
-Planning under a constraint in a learned model usually proceeds by a Lagrangian:
-maximise reward, penalise constraint cost, let a dual multiplier find the trade-off.
-This works when the cost estimate is right. Inside a surrogate it is not, and the
-failure is specific: **the dual converges, reports the constraint as satisfied, and
-the real system violates it anyway.** The multiplier is balancing against a number
-that is biased.
+Constrained planning in a learned model is usually a Lagrangian: maximise
+reward, penalise constraint cost, let a dual find the trade-off. It works when
+the cost estimate is unbiased. Inside a surrogate it is not, and the failure is
+specific: **the dual converges, reports the constraint satisfied, and the real
+system violates it anyway.** Measured: 7.3% of evaluations over the limit while
+every internal diagnostic looks correct.
 
-The obvious fix is to inflate the cost estimate by how wrong the model is. We tried
-that, and it made things worse — violations rose from 14.5% to 18.2%. The reason is
-our main conceptual point, and it is worth stating with its scope attached, because
-the unqualified version is both less accurate and less interesting:
+The obvious fix is to inflate the estimate by how wrong the model is. We tried
+it and violations rose from **14.5% to 18.2%**. The reason is our main conceptual
+point, and it needs its scope attached, because the unqualified version is both
+less accurate and less interesting:
 
-> A model-error margin is the **right** instrument for a pointwise guarantee — bound
-> the error at each state and you bound the state. It is the **wrong** instrument
-> under an *expectation* constraint, where what carries a trajectory over the limit
-> is not how wrong the model is on average but the **spread of realised cost from
-> episode to episode**. The two distributions are different objects, and the
+> A model-error margin is the **right** instrument for a pointwise guarantee —
+> bound the error at each state and you bound the state. It is the **wrong**
+> instrument under an *expectation* constraint, where what carries a trajectory
+> over the limit is not how wrong the model is on average but the **spread of
+> realised cost from episode to episode**. Two different distributions; the
 > constraint picks which one you need.
 
-This is a theorem, not a preference. Write `R(q; σ)` for the realised violation rate
-of a margin `q` when realised cost has spread `σ`.
+And it is a theorem, not a preference. Write `R(q; σ)` for realised violation
+when margin `q` meets realised-cost spread `σ`.
 
 > **Proposition (separation).** Let `Q` be any margin rule that is a measurable
-> function of the model-error distribution alone. Then `R` is strictly increasing in
-> `σ`, tends to ½ as `σ → ∞` for symmetric error, and exceeds δ for every
-> `σ > (Q − b)/z_δ`. Hence **no margin measurable with respect to model error alone
-> attains level δ uniformly in σ.**
+> function of the model-error distribution alone. Then `R` is strictly
+> increasing in `σ`, tends to ½ as `σ → ∞` for symmetric error, and exceeds δ
+> for every `σ > (Q − b)/z_δ`. Hence **no margin measurable with respect to
+> model error alone attains level δ uniformly in σ.**
 
-The proof is three lines and we give it in the technical report; the content is not
-the difficulty but the statement, which says the choice of distribution is a
-feasibility constraint rather than a modelling taste. For Gaussian error it closes
-to `R(ρ) = 1 − Φ(z_δ/ρ)` with `ρ = σ/ε`, which predicts the failure *quantitatively*
-from one dimensionless ratio — including that requesting a **stricter** guarantee
-from the wrong distribution makes matters worse, the default's error growing from
-1.2× at δ = 0.30 to 3.7× at δ = 0.02.
+The proof is three lines (`ICML_PAPER.md` §3). For Gaussian error it closes to
+`R(ρ) = 1 − Φ(z_δ/ρ)` with `ρ = σ/ε`, which predicts measured violation to
+within **0.003** across two orders of magnitude in ρ — and predicts that
+requesting a *stricter* guarantee from the wrong distribution makes matters
+worse, the error growing from 1.2× at δ = 0.30 to 3.7× at δ = 0.02.
 
-The same proposition covers **ensemble disagreement**, which is also a function of
-model wrongness and not of outcome spread. We test it below rather than resting on
-the theory.
+The same proposition covers **ensemble disagreement**, which is also a function
+of model wrongness. We test it rather than resting on the theory.
 
 ### 2.2 The margin
 
-Let `c` be the realised episode cost in the real system and `g` the surrogate's
-estimate. We calibrate on matched pairs from a periodic real-system probe and take a
-split-conformal quantile of the residual `c − g`. Adding that quantile to the
-constraint limit gives, under exchangeability of the residuals,
+Let `ĝ` be the quantity the dual controls. Calibrate on matched pairs
+`s_i = c_i − ĝ` from a periodic probe of the true environment and take a
+split-conformal quantile. Adding it to the limit gives
 
-    P[ realised cost > limit ] ≤ δ
+```
+P[ realised cost > limit ] ≤ δ
+```
 
-with **δ chosen and stated**, not tuned. Two properties matter operationally. The
-quantile refuses to return a value when calibration data is insufficient
-(`n ≥ 1/δ − 1`), rather than extrapolating — this caught a real bug in our own
-portal, described in §5.3. And the margin is computed from outcomes, so it needs no
-assumption about the surrogate's error structure.
+with **δ chosen and stated**, not tuned. Two properties matter operationally.
+The quantile **refuses** to return a value when calibration data is insufficient
+(`n ≥ 1/δ − 1`) rather than extrapolating — this caught a real bug in our own
+portal (§5.5). And it is computed from outcomes, so it assumes nothing about the
+surrogate's error structure.
 
 ### 2.3 Does it work
 
-Reaction–diffusion hazard, 20 seeds, budget constraint, δ = 0.1. Four arms differing
-only in which mechanism is active:
+Reaction–diffusion hazard, 20 seeds, δ = 0.1:
 
-| arm | violating % | 95% CI | objective (IQM) |
-|---|---|---|---|
-| no margin | 14.1 | [9.1, 17.3] | −6.917 |
-| margin only | 14.1 | [9.1, 17.3] | −6.917 |
-| real-system probe only | 10.9 | [6.4, 15.5] | −6.850 |
-| **probe + conformal margin** | **5.0** | **[0.9, 8.2]** | **−6.884** |
+| arm | violating evaluations | objective |
+|---|---|---|
+| no margin | 14.1% | — |
+| model-error margin | 18.2% | — |
+| **probe + conformal margin** | **5.0%** | **no loss** |
 
-Seed-paired against the no-margin arm: **−9.1 points, 95% CI [−11.8, −5.5]**,
-15/20 seeds improved, paired t = −4.59, p = 0.0002. Objective value is
-statistically unchanged — the safety is not bought with performance.
+Paired **−9.1 points, 95% CI [−11.8, −5.5], p = 0.0002**, objective
+statistically indistinguishable. The margin removes a bias; it does not buy
+safety with performance.
 
-The decomposition is the part worth keeping. **The margin alone does nothing**
-(0.0 points, 0/20 seeds changed): a conformal quantile with no probe data to
-calibrate against is identically zero. **The probe alone is not enough** (−4.5
-points, interval touches zero). The two together are significant and exceed the sum
-of the parts. Safety here is not a component you bolt on; it is a loop that must be
-closed.
+A second family (diffusion–advection) goes 0% → 0%: nobody violates, so the
+margin cannot help and must not hurt. That is a regression check, **not** a
+second validation. A third (shallow water) needed its cost limit calibrated
+against a trained reward-greedy anchor (limit 1.1437); there the margin cuts
+33.2% → 16.8% over 20 seeds, paired 95% CI [−24.7, −8.0], and over the three
+quarters of seeds where a plan exists at δ = 0.1 the rate is 12.1%, 95% CI
+[7.1, 17.1] — containing the level without confirming it. On the other quarter
+the margin consumes the entire budget and the task is infeasible, which we found
+by reading per-seed data after an aggregate looked bad.
 
-### 2.4 Against a published safe-RL baseline
+**The honest summary across families: the mechanism replicates on three; the
+stated rate is attained on one, trivially satisfied on a second, and not
+rejected on the third.** Not "validated on three families".
 
-We transplant **CAP** [Ma et al., AAAI 2022] — a model-based safe-RL method that
-inflates cost by ensemble disagreement with an adaptively tuned coefficient — onto
-our own planner, so that the *only* difference is how model error is corrected for.
-Both arms get identical planner, dual, testbed, limit and **real-sample budget
-(8,320 training and 1,920 probe transitions)**.
+### 2.4 Against three published corrections
 
-We do the same for **SMBPO** [Thomas et al., NeurIPS 2021], which corrects by
-*pessimism* instead — the maximum over the ensemble, over a truncated imagination
-horizon, with no adaptation.
+All implemented inside *our* planner, so the only difference is how model error
+is corrected for:
 
-| method | corrects using | violating % | vs ours | p |
-|---|---|---|---|---|
-| no margin | — | 14.1 | — | — |
-| CAP | ensemble disagreement, **adaptive mean + kσ** | 12.0 | +7.0 [+4.0, +10.0] | 0.0003 |
-| SMBPO | ensemble disagreement, **unadapted max** | 12.2 | +7.2 [+4.0, +10.1] | 0.0014 |
-| **ours** | **conformal quantile of realised cost** | **5.0** | — | — |
+| method | violating | beats no margin? |
+|---|---|---|
+| no margin | 14.1% | — |
+| conformal ensemble disagreement | 11.99% | no |
+| SMBPO | 12.20% | no |
+| SafeDreamer | 13.17% | no |
+| **ours** | **5.00%** | — |
 
-CAP's adaptive coefficient settled between 0.50 and 1.46, so its mechanism was
-active, not inert. Neither baseline separates from applying **no margin at all**
-(CAP 0.4σ; SMBPO −1.9 points, p = 0.75).
+Within 1.2 points of each other, none separating from no margin. **We
+pre-registered 12% for SafeDreamer before running it**; it returned 13.17%. They
+are not three methods that happened to lose — they are three instances of the
+class the theorem excludes.
 
-**The two baselines are indistinguishable from each other** — CAP − SMBPO =
-−0.2 points, 95% CI [−2.8, +2.5], p = 0.83 — and that is the result worth having.
-They summarise disagreement about as differently as one can: an adapted second
-moment against an unadapted maximum. They land 0.2 points apart. So:
+Two of our own implementations were wrong first: SMBPO's truncated prefix cost
+rescaled linearly on a non-linear cost, a −4.7% bias four times the pessimism
+term that made the arm net *optimistic*; and SafeDreamer's cost critic shadowing
+the trainer's own `critic`, scoring the wrong head. Both errors initially
+favoured us.
 
-> **How you summarise model disagreement does not matter. Which distribution you
-> compute it on does.** Both describe *how wrong the model is*; under an
-> expectation constraint that is not what carries a trajectory over the limit.
+### 2.5 The assumption, tested where it fails
 
-We registered the opposite prediction before running SMBPO — that its cruder,
-unadapted statistic would fare *worse* than CAP's. It did not, and dropping that
-embellishment leaves a cleaner and more falsifiable claim: any third
-disagreement-based correction should land near 12%, and any method that bounds
-realised outcomes should land near 5%.
+Split conformal needs exchangeable calibration scores, and ours are collected
+during a learning run. Three seeds per testbed, 320 scores, 160/160 split:
+**on rdf exchangeability is violated** — lag-1 serial dependence at p
+indistinguishable from zero on every seed, with drift and distribution-shift
+tests both non-rejections. Dependent, not drifting. **Coverage holds anyway**,
+0.0854 against δ = 0.1 (dar: 0.0771). Dependence of this kind inflates the
+quantile's variance without biasing it, which is why the beyond-exchangeability
+bound is the right frame and why adaptive conformal inference is unnecessary
+here — demonstrated rather than assumed.
 
-### 2.5 Why decision-time planning, not a trained policy
+### 2.6 Why decision-time planning, not a trained policy
 
-A reasonable objection is that one could train a policy and skip the search. We
-tested the strongest version of that — distilling our planner's own solutions into a
-compact policy via behaviour cloning, the recipe the literature identifies as
+We tested the strongest version of the objection — distilling our planner's own
+solutions into a compact policy, the recipe the literature identifies as
 effective:
 
 | arm | burned-area reduction |
@@ -213,14 +199,11 @@ effective:
 | distilled from the planner | 18.3% |
 | policy trained from scratch | 10.4% |
 
-Distillation recovers **47%** of the advantage — a real gain over training from
-scratch, and a concession that our earlier framing overstated the case. But **21
-points survive it.** The mechanism is visible in the diagnostics: the planner draws
-16.0 points of its effect through the learned fire-spread dynamics, the distilled
-policy only 1.0. A single forward pass learns *where fires generally go*; it does
-not reason about *how this fire's fuel state responds*. For rare, high-consequence,
-heterogeneous events — which is the climate-hazard case — decision-time search buys
-something a policy does not.
+Distillation recovers **47%** — a real gain, and a concession that our earlier
+framing overstated the case. But **21 points survive it**. The mechanism is in
+the diagnostics: the planner draws 16.0 points of its effect through the learned
+spread dynamics, the distilled policy 1.0. A forward pass learns where fires
+generally go; it does not reason about how *this* fire's fuel state responds.
 
 ---
 
@@ -228,91 +211,46 @@ something a policy does not.
 
 ### 3.1 Setup
 
-**WildfireSpreadTS** [Gerard et al., NeurIPS 2023 Datasets & Benchmarks] provides
-607 fires and 13,607 daily multi-channel images. We use year-wise
-cross-validation — folds of 176 / 74 / 201 / 156 fires from 2018–2021 — because the
-operationally honest question is whether a model fitted on past seasons works on a
-new one, and fire regimes shift between years.
-
-The loop runs daily: ingest today's detections, correct the model's state, adapt the
-model, forecast tomorrow, plan firebreaks.
+WildfireSpreadTS, 607 fires. A learned spread model, an ensemble Kalman update
+against observation, and decision-time planning of crew allocation under a daily
+budget.
 
 ### 3.2 Assimilation works, and we checked it against a real filter
 
-Skill at forecasting the next day's fire extent, 606 fires:
+Rather than assert that a simple correction suffices, we ran the classical
+filter with its error term swept and showed where the optimum sits. The
+adaptation benefit is **small and reported as such**: d = 0.20 at day +1. We
+give the effect size, not the p-value alone.
 
-| mode | day +1 | day +2 | day +3 |
-|---|---|---|---|
-| free-running forecast | 0.019 | 0.011 | 0.009 |
-| + state synchronisation | 0.379 | 0.118 | 0.025 |
-| + model adaptation | **0.381** | **0.126** | **0.027** |
-
-State synchronisation beats a free-running forecast by +0.361 at day +1 on 595/606
-fires (Cohen's d = 1.55). That is a large effect and also a *textbook* one — keeping
-a model on the rails with observations is what data assimilation is. We say so
-rather than presenting it as a finding.
-
-The honest question is whether our simple correction is defensible against the
-classical machinery. So we ran a **32-member Ensemble Kalman Filter** with the
-observation-error term swept, not fitted (VIIRS ships no per-cell error variance,
-and choosing one that flatters the result is exactly the trap):
-
-| observation error σ_o | implied Kalman gain | day +1 skill |
-|---|---|---|
-| 0.05 | 0.979 | 0.329 |
-| 0.15 | 0.837 | 0.127 |
-| 0.30 | 0.562 | 0.032 |
-| our method (gain 1) | 1.000 | **0.379** |
-
-**No setting of the filter beats ours, and skill tracks the implied gain
-monotonically.** The interpretation matters more than the win: on this system the
-observations are far more reliable than the forecast, which drives the optimal gain
-toward 1. Our method is not a crude stand-in for a filter — it is approximately the
-filter's own optimum, and now we know why rather than having assumed it.
-
-Model adaptation on top of synchronisation is the genuinely novel row and it is
-**small**: +0.0016 at day +1 (helping 62% of fires, d = 0.20) and +0.0075 at day +2
-(76%, d = 0.44). We report it at that size.
+**Figure 1** `docs/figures/paper/fig8_twin_loop.png` — the
+assimilate–forecast–plan loop.
 
 ### 3.3 Planning: the same outcome with half the crews
 
-Firebreak allocation on held-out fires, against an operational
-forecast-then-treat heuristic, at matched daily crew budget:
+At a 3-day planning horizon and a 3% daily crew budget, planning through the
+learned spread model beats the operational forecast-then-treat heuristic by
+**12 points** of burned-area reduction — equivalently, it matches the
+heuristic's reduction with **half the crews**.
 
-| crew budget/day | heuristic | ours | ratio |
-|---|---|---|---|
-| 1% | 7.5% | **14.3%** | **1.91×** |
-| 2% | 12.8% | 26.2% | 2.05× |
-| 3% | 24.1% | 36.5% | 1.52× |
-| 5% | 36.1% | 53.0% | 1.47× |
-| 8% | 55.0% | 69.4% | 1.26× |
+**The operating point belongs in the sentence.** The gap runs **+0.6 at one day**
+— where theory requires it to vanish — to **+14.3 at five days**, and **+6.8 at
+a 1% budget** to **+16.9 at 5%**. Both sweeps are in the appendix; the headline
+is the 3-day row of the horizon ablation, not a separate experiment.
 
-**The advantage is largest where crews are scarcest** — ours at a 1% budget matches
-the heuristic at nearly 2%, roughly half the crews for the same outcome. That is the
-regime real agencies operate in.
+**Figure 2** `docs/figures/paper/fig4_wildfire.png` — budget Pareto and horizon
+ablation.
 
-### 3.4 Why it works, tested where theory says it must fail
+### 3.4 Tested where theory says it must fail
 
-The claimed mechanism is that planning over a *multi-day* horizon beats
-greedy-today allocation, because today's optimum ignores where the fire will be
-tomorrow. That mechanism makes a falsifiable prediction: **at a one-day horizon the
-advantage must vanish**, since the one-day problem is separable over cells and
-treating the highest-risk cells within budget is its exact optimum.
+The horizon sweep is the mechanism test: at a one-day horizon there is nothing
+for a planner to reason about and the advantage should vanish. It does (+0.6).
+A result that survives its own falsification test is worth more than one that
+was never exposed to it.
 
-| horizon | heuristic | ours | gap | 95% CI |
-|---|---|---|---|---|
-| 1 day | 25.1 | 25.6 | +0.6 | **[−0.2, +1.7]** |
-| 2 days | 24.3 | 33.6 | +8.5 | [+7.0, +10.4] |
-| 3 days | 22.1 | 35.4 | +12.1 | [+10.0, +14.8] |
-| 5 days | 18.0 | 34.0 | **+14.3** | [+10.9, +18.2] |
-
-At one day the interval **contains zero and is bounded** — whatever the advantage
-is, it is at most 1.7 points. From two days on it excludes zero with every seed
-agreeing in sign, and the heuristic actively *degrades* (25.1 → 18.0) because it
-keeps optimising for today.
-
-*A result that is absent exactly where theory requires and present exactly where it
-predicts is stronger evidence for a mechanism than any single large number.*
+An earlier version of this claim was measured on 8 fires with t = 3.0. At 607
+fires the same benefit is **a third the size** and holds on 76% of them. The
+8-fire number was not wrong; it was underpowered, and we re-ran it rather than
+publish it.
 
 ---
 
@@ -320,30 +258,12 @@ predicts is stronger evidence for a mechanism than any single large number.*
 
 ### 4.1 Setup
 
-Terrain from **Copernicus DEM GLO-30**; hydrodynamics from a **LISFLOOD-FP-style
-local-inertial solver**, batched over candidate plans so a scenario library can be
-built on demand; forcing from one of three drivers, selected by what the site
-actually has.
+Copernicus DEM GLO-30 terrain, a LISFLOOD-FP-style local-inertial solver batched
+over candidate plans, and forcing from river discharge, coastal surge or
+rainfall — whichever the site actually has. Terrain and forecast are fetched on
+demand, so the tool works on terrain that is nowhere in the repository.
 
-### 4.2 The forcing has to be physical, and this is where we got it wrong twice
-
-Two corrections we consider instructive for anyone building similar tooling.
-
-**Rainfall alone recommends nothing.** Our first configuration forced the domain
-with uniform rainfall. Across four candidate levee sites the best single measure
-reduced flooding by **0.4%** — correctly, because a levee does nothing against water
-falling behind it. The tool was not broken; the scenario was. **Flood interventions
-are only meaningful against a directional driver.**
-
-**A boundary condition sets a state, not a volume.** Injecting the Cedar Rapids
-design discharge (6,036 m³/s — the right order against the 2008 event's ~5,400) as a
-volumetric source into a channel's few cells produced water **112 m deep**, a number
-with no physical meaning: mass arrived faster than the cells could spread it.
-Holding a *stage* instead, via Manning's normal depth with no free parameters,
-
-    h = (Q·n / (W·√S))^(3/5)  →  10.2 m stage, 11.7 m peak
-
-The consequences for the recommendation are total:
+### 4.2 The forcing has to be physical, and we got it wrong twice
 
 | forcing | best single site | best plan | verdict |
 |---|---|---|---|
@@ -351,93 +271,95 @@ The consequences for the recommendation are total:
 | river, as a volume | 7.6% | 8.5% | physically void (112 m deep) |
 | **river, as a stage** | **16.2%** | **21.3%, guaranteed 20.8%** | 17 held-out combinations |
 
-### 4.3 Validated against satellite observation, including the uncomfortable part
+Rain falling across the whole box gives a levee nothing to block — the tool
+correctly recommends nothing, which is a real answer. Injecting discharge as a
+volume made water arrive faster than cells could spread it and reached 112 m
+depth, a number with no physical meaning. A boundary sets a **stage**, not a
+volume; Manning's normal depth gives it with no free parameters.
 
-We validate on the Richmond NSW 2022 flood using Sentinel-1 SAR, holding permanent
-water separately so that rivers are not scored as model error.
+Also found and fixed: DEM nodata filled with sea level created a 247 m trench
+ringing every inland domain, draining the catchment into it.
+
+**Figure 3** `docs/figures/paper/fig10_flood_precondition.png` — why rainfall
+recommends nothing.
+
+### 4.3 Validated against satellite, including the uncomfortable part
+
+Richmond NSW 2022, Sentinel-1 SAR, permanent water held separately so rivers are
+not scored as model error.
 
 - Our fast solver reproduces the reference hydrodynamic model at **CSI 0.979**.
 - The reference model reproduces the **satellite** at **CSI 0.535**.
 
-The second number is the one that belongs in an operational discussion, and it is
-not flattering. A 0.98 model-to-model agreement is a statement about our numerics;
-a 0.53 model-to-observation agreement is a statement about how well anyone's
+The second number belongs in an operational discussion and is not flattering. A
+0.98 model-to-model agreement is a statement about our numerics; a 0.53
+model-to-observation agreement is a statement about how well anyone's
 hydrodynamics matches a real flood at 30 m. We report both, because quoting only
-the first is how decision-support tools acquire unearned authority. **One validated
-event is also one event** — this is a demonstration of a validation *method*, not an
-established skill score.
+the first is how decision-support tools acquire unearned authority. **One
+validated event is also one event** — a demonstration of a validation *method*,
+not an established skill score.
+
+**Figure 4** `docs/figures/paper/figA1_sar_validation.png`.
 
 ---
 
 ## 5. The portal: the loop, operable
 
-All of the above runs behind an interactive portal. This section exists because a
-framework that only appears in a results table has not been shown to be usable.
+A framework that only appears in a results table has not been shown usable.
 
-### 5.1 It runs the actual loop, anywhere
+### 5.1 One click, end to end
 
-| stage | endpoint | what happens |
-|---|---|---|
-| Perceive | `POST /observe` | most recent Sentinel-1 pass, same-orbit differencing, permanent water separated |
-| Simulate | solver | local-inertial hydrodynamics on Copernicus DEM |
-| Plan | `POST /api/plan` | budget-constrained allocation, milliseconds |
-| Explain | — | leave-one-out counterfactual attribution per measure |
-| Margin | `pspe.plan.margins` | split-conformal, 30 calibration runs |
+> **Budget A$20M** · 12 of 36 options fit
+> → **Recommend:** levee at site 3 (3.0 m) + site 5 (1.0 m), A$18.2M of A$20M
+> → **Estimated 52% · at least 39%, 90% of the time**
+> → *"Margin ±13 points, from 30 held-out solver runs. Write the business case
+>   against the lower figure."*
+> → **Attribution:** site 3 +43% (47% alone) · site 5 +6% (9% alone)
+> → **Warns:** site 1 (−9%), site 0 (−9%) — measured as *deepening* flooding
+> → **Caveat on screen:** the plan was chosen inside a surrogate; adopting it
+>   should be conditional on a full hydrodynamic run of this exact height vector
 
-Terrain, weather, river discharge and road networks are fetched on demand for **any
-location on Earth** — Copernicus DEM, Open-Meteo, and OpenStreetMap via Overpass —
-so the twin is not a diorama of one pre-built city. Roads are real OSM geometry, so
-the planner can reason about which access routes an intervention protects.
-
-### 5.2 One click, end to end
-
-Budget A$20M →
-
-- **search** over site/height combinations — 12 of 36 fit the budget,
-- **recommend**: *levee at site 3, 3.0 m and site 5, 1.0 m — A$18.2M of A$20M*,
-- **report**: estimated **52%** reduction, and **at least 39%, 90% of the time**,
-  with the margin stated as *"±13 points, from 30 held-out solver runs. Write the
-  business case against the lower figure."*
-- **attribute**: site 3 contributes **+43%** here against 47% alone; site 5
-  contributes **+6%** against 9% — in each case 4 points of what it would achieve
-  alone is already covered by the rest of the plan,
-- **warn**: *"not selected: site 1 (−9%), site 0 (−9%) — the model measures these
-  as deepening flooding at the settlement rather than reducing it"*,
-- **caveat**, shown in the interface: *"the plan was chosen inside a surrogate.
-  Adopting it should be conditional on a full hydrodynamic run of this exact
-  height vector."*
-
-Two details there are the contribution made visible rather than asserted. The
+Two details are the contribution made visible rather than asserted. The
 interface tells an engineer to **write the business case against the lower
 figure**, which is what a stated failure rate is *for*. And it reports two
-candidate levees as actively harmful — the backwater effect — rather than
-quietly ranking them last.
+candidate levees as actively harmful — a backwater effect — rather than quietly
+ranking them last.
 
-That sequence is the contribution made operable: plan in the surrogate, bound the
-error against reality, state what you would still verify before committing.
+**Figure 5** `runs/portal_shots/45_plan_result.png` — the single most important
+figure here.
 
-### 5.2a The question an operator actually asks: can we get out, and by when
+### 5.2 Every option's water, not just the winner
 
-Levee placement is a planning question answered months in advance. On the night,
-the question is a trip: *I am here, I need to get there, what do I do.* We added
-that, and it turned out to be the sharpest demonstration of why a twin has to
-simulate rather than only map.
+The planner solves every option it offers in one batched timestep loop, so a
+ranked list costs about what one scenario costs. Selecting a row now redraws the
+flood from that option's own solved field — the comparison the list exists for.
+It previously moved a radio button and nothing else: the fields were computed
+and discarded.
 
-The forcing is a **stated design discharge** (3,000 m³/s on the Wilsons River,
-scaled 2.5× by the severe-storm preset to 7,500), not today's gauge reading: the
-numbers below are a design event, and a box that happens not to contain a detected
-through-channel falls back to rainfall and floods nothing, which we have seen and
-which the interface says.
+The recommended plan is now **solved rather than predicted** — one extra bed
+through the same loop, 28.7 s → 32.1 s — which immediately caught the surrogate
+reporting a **111.7%** reduction where the solve gives **99.81%**: past the
+physical maximum, at a configuration where the margin was unattainable so nothing
+flagged it.
 
-Give the portal two places. It derives everything else — a box containing both
-with room to detour, at a resolution chosen to keep the solve interactive — fetches
-terrain, solves the flood across it, pulls the road network from OpenStreetMap, and
-routes. **Lismore to Coraki, 20 km, 4,120 road segments, 104 s end to end.**
+**Figure 6** `runs/portal_shots/81_option_picked.png`.
 
-The flood is carried as a **schedule**, not a peak: the solver emits instantaneous
-depth at 13 times across the run, and a road is usable for a crossing only if it
-stays under the vehicle's depth for the whole time the vehicle is on it. That one
-change decides the answer:
+### 5.3 The question an operator actually asks: can we get out, and by when
+
+Levees are decided months ahead. On the night the question is a trip: *I am here,
+I need to get there, what do I do.*
+
+Give the portal two places and it derives everything else — a box containing both
+with room to detour, at a resolution that keeps the solve interactive — fetches
+terrain, solves the flood, pulls the road network from OpenStreetMap, and routes.
+Lismore to Coraki, 20 km, ~4,120 road segments over 1,346 km, **104 s** end to
+end. The forcing is a **stated design discharge** (3,000 m³/s scaled 2.5× by the
+severe-storm preset), not today's gauge reading.
+
+The flood is carried as a **schedule**, not a peak: instantaneous depth at 13
+times across the run, and a road is usable for a crossing only if it stays under
+the vehicle's depth for the whole time the vehicle is on it. That one change
+decides the answer:
 
 | what the operator is told | result |
 |---|---|
@@ -446,44 +368,95 @@ change decides the answer:
 | the same trip at the last possible departure | 25.5 min, 27.7 km, **a different road** |
 | how long the trip stays possible | **3h30** |
 
-A peak-depth map — the standard output of every flood twin, ours included — is the
-union of states that never coexist. Routing on it refuses roads that are dry when
-the driver passes them, and so tells this operator there is no way out of Lismore.
-There is, for three and a half hours. Leave at the deadline and the route is a
-different road, because by then Coraki Road is under 1.0–2.9 m where the direct line
-crosses it. None of that is computable from a peak.
+A peak-depth map — the standard output of every flood twin, ours included — is
+the union of states that never coexist. Routing on it refuses roads that are dry
+when the driver passes them, and tells this operator there is **no way out of
+Lismore**. There is, for three and a half hours. Leave at the deadline and the
+route is a different road, because by then Coraki Road is under **1.0–2.9 m**
+where the direct line crosses it.
 
-The routing itself is a time-dependent shortest path solved exactly, with waiting
-permitted — not a learned policy, and we say so because the temptation to dress
-Dijkstra as planning is exactly the kind of overclaim this paper is otherwise
-arguing against. What the framework contributes here is the schedule (Simulate), the
-time-dependent search (Plan), and a written brief that is **scored against the route
-it describes and withheld if it disagrees** (Explain) — the same refusal discipline
-as the margin, applied to prose. The brief is parseable, faithfulness is computed on
-every response, and a test deliberately drifts it seven ways to confirm the guard
-fires.
+**And it is not one trip.** Over an eight-member forcing ensemble (×0.40 to
+×1.60 of the design discharge, peak network cut spanning 55–190 km),
+leave-one-out, on the 12 trips of 523 candidates that the members disagree
+about — 96 decisions:
 
-What we do not claim: the deadline is conditional on the storm arriving as modelled.
-It is one realisation, not an ensemble, and making it robust to a wrong forecast is
-a sequential decision problem under partial observation that we have scoped and not
-solved.
+| arm | got through | caught by water | no plan |
+|---|---|---|---|
+| leave now, on the mean forecast | 41.7% | 7 | 49 |
+| **route on the peak field** | **0.0%** | 0 | **96** |
+| time-dependent on the mean forecast | 41.7% | 7 | 49 |
+| + conformal margin on the route scalar | 41.7% | 7 | 49 |
+| **re-plan on members consistent with what is observed** | **56.2%** | 14 | 28 |
+| oracle: plan on the member that happens | 85.4% | 0 | 14 |
 
-### 5.3 The bug that justifies the whole margin apparatus
+An arm succeeds only if the traveller is **never on a road whose true depth
+exceeds what the vehicle can cross while they are on it**; judging a plan by
+whether it looked safe when it was made is how this kind of experiment flatters
+itself.
 
-Our own portal displayed a confidence it had no data to support. It showed
-`1.645 · RMSE · √(1 + 1/n)` — a normal-approximation interval — described in its own
-code as "the product-facing form of the framework's safety margin". It was not. Two
-errors compounded: the fit was tuned on **six** multi-measure runs where 90%
-coverage requires at least nine, and a Gaussian places the 90% point at 1.64×RMSE
-where the empirical residuals are heavier-tailed.
+**The peak field fails 96 times out of 96**, against an oracle that gets through
+85% of the time. This is the most transferable result in the paper, because the
+peak field is what essentially every flood twin publishes.
 
-Rebuilt honestly at 30 calibration points, the margin is **±20.2 points against the
-±10.5 displayed — the tool was overstating its confidence by about 2×.**
+**Our own margin contributes nothing here, and we say so.** It is exactly
+0.000 m on all 96 decisions: the route the central forecast chooses is dry under
+every member, so the residual of the reported scalar is identically zero. What
+differs between members is not *how deep the chosen road gets* but **which roads
+exist**. The decision is discrete and the margin is continuous. A feasibility
+theorem cuts both ways — it says which distribution a margin must use, not that
+a margin exists for every decision.
 
-The conformal quantile would have **refused to return a number** at six points,
-which is the correct behaviour and the reason we prefer it. A normal approximation
-always returns something. For decision-support software, a method that declines to
-answer when it lacks data is not a limitation; it is the feature.
+**Observation helps, as a 2:1 bet rather than a free lunch.** Filtering the
+ensemble on observed depths — Perceive feeding Plan, stated tolerance, no
+training — converts **21 of the central forecast's 49 refusals into departures,
+of which 14 get through and 7 are caught**. Nobody who was arriving stops
+arriving; nobody who was caught is saved. Quoting "+14.5 points" would hide the
+seven, and being trapped on a flooding road is not the same outcome as having
+stayed home.
+
+The routing itself is a time-dependent shortest path solved exactly, with
+waiting permitted — **not** a learned policy, and we say so because dressing
+Dijkstra as planning is the overclaim this paper otherwise argues against. Three
+PSPE stages do the work: Simulate supplies the schedule, Plan solves the search,
+Explain emits the brief. **Perceive is not in the single-trip loop**, and
+claiming "all four stages" would be a claim about a diagram.
+
+**Figure 7** ⚠️ *needs capture* — a trip, its route and its deadline, from a
+river-driven run at the stated discharge. `runs/portal_shots/95_trip.png` shows
+a box with no detected through-channel, so that run fell back to rainfall and
+nothing flooded: the wrong case for this figure.
+
+### 5.4 An explanation the service will not ship unless it matches the plan
+
+The route brief is generated from the same record the map is drawn from, and it
+is **parseable**, so faithfulness can be computed: the text is scored against
+the route it claims to describe and **withheld** if it disagrees. That is the
+margin's refusal discipline applied to prose. The score travels in the response,
+so the guarantee is auditable from outside the service.
+
+Its first live run found the guard's own blind spot. A trip that correctly
+returned *no route* shipped, at faithfulness 1.000: *"Every way through is under
+more water than 25 cm. Cut: Casino Street under 147 cm. **0 km of 212 km is
+impassable.**"* The last sentence contradicts the first — the brief was quoting
+the cut length at t = 0, which is structurally zero because every run starts
+dry, and the check was only reading the departure call. Both fixed; the old
+sentence now scores 0.750 and is withheld.
+
+### 5.5 The bug that justifies the whole margin apparatus
+
+Our own portal displayed a confidence it had no data to support:
+`1.645 · RMSE · √(1 + 1/n)`, a normal-approximation interval described in its own
+code as "the product-facing form of the framework's safety margin". It was not.
+Two errors compounded: the fit was tuned on **six** multi-measure runs where 90%
+coverage requires at least **nine**, and a Gaussian places the 90% point at
+1.64×RMSE where the honest order statistic is roughly twice that. The displayed
+band was about half the width it should have been.
+
+A normal-approximation interval always returns something. The conformal
+quantile **refuses**. That is not a detail of the method; it is the reason to
+prefer it.
+
+**Figure 8** `runs/portal_shots/52_refusal.png`.
 
 ---
 
@@ -491,90 +464,86 @@ answer when it lacks data is not a limitation; it is the feature.
 
 ### Enables
 
-**A reusable pattern for decision-capable climate twins.** The margin needs only
-matched pairs of (surrogate estimate, realised outcome) from a periodic probe of the
-real system. It makes no assumption about the simulator — learned, reduced-order or
-full-physics — and none about the error distribution. Any twin that can occasionally
-check itself against reality can carry a stated failure rate on its
-recommendations.
+**A stated failure rate on any twin that can occasionally check itself.** The
+recipe needs matched pairs from a periodic probe and nothing about the error
+distribution.
 
-**Search where a policy will not do.** §2.5 quantifies what decision-time planning
-buys over a trained policy on real fire data: 21 points that survive the best
-distillation recipe we could implement. For heterogeneous, rare, high-consequence
-events, that is the argument for keeping a solver in the loop.
+**Search where a policy will not do.** 21 points survive the best distillation
+recipe we could implement, on real fire data.
 
-**Decisions a map cannot support.** §5.2a is the clearest case: the same flood,
-the same network, and the standard peak-depth output says *no route out* where a
-time-resolved solve finds one with three and a half hours of margin. Anything an
-operator decides against a union of states that never coexist is decided against a
+**Decisions a map cannot support.** The same flood, the same network: the
+standard peak-depth output says *no route out* where a time-resolved solve finds
+one with three and a half hours of margin, on 96 of 96 decisions. Anything
+decided against a union of states that never coexist is decided against a
 scenario that never happens.
 
-**A testable standard for "our assimilation is good enough."** §3.2's EnKF sweep is
-a template: rather than asserting a simple correction suffices, run the classical
+**A testable standard for "our assimilation is good enough."** Run the classical
 filter with its error term swept and show where the optimum sits.
 
 ### Not claiming
 
 - **No fire in our archive had a firebreak cut on our instruction.** Planning is
-  validated against held-out observations inside the model, not against a controlled
-  field trial. The intervention arm is unvalidated in reality, and no retrospective
-  dataset can fix that.
+  validated against held-out observations *inside* the model. The intervention
+  arm is unvalidated in reality and no retrospective dataset can fix that.
 - **One validated flood event**, at CSI 0.53 against satellite.
 - **The guarantee is marginal, not per-step**: it bounds the probability that a
   trajectory's total cost exceeds the limit, not the cost at every timestep.
+- **Exchangeability is tested, and on one of two testbeds it fails** — lag-1
+  dependence, p ≈ 0, three seeds — with coverage attained on both regardless. We
+  report this rather than the easier sentence, because it is the first thing a
+  conformal reviewer checks.
 - **The evacuation deadline is one realisation, not a forecast distribution.**
-  §5.2a's "3h30" is conditional on the storm arriving as modelled. Making it robust
-  to a wrong forecast is a sequential problem under partial observation; we scope it
-  and do not solve it.
-- **Exchangeability is tested, and on one of the two testbeds it fails.** Scores
-  collected during a learning run show significant lag-1 serial dependence on rdf
-  (p indistinguishable from zero, three seeds) with no drift and no distribution
-  shift — dependent, not drifting. The margin attains its level on both testbeds
-  regardless (miscoverage 0.0771 and 0.0854 against δ = 0.1), which is what the
-  beyond-exchangeability bound predicts for dependence that inflates the quantile's
-  variance without biasing it. We report this rather than the easier sentence,
-  because the assumption is the first thing a conformal reviewer checks.
-- The adaptation benefit in §3.2 is **small** (d = 0.20 at day +1). We report the
-  effect size rather than the p-value alone.
+  "3h30" is conditional on the storm arriving as modelled, and the ensemble in
+  §5.3 spans *how big the flood is* and nothing else — not timing, not spatial
+  pattern, not the solver's own error.
+- **The margin contributes nothing to route choice** (§5.3), and a trained
+  policy over the same ensemble is an obvious arm we have not run.
+- The model-adaptation benefit is **small** (d = 0.20 at day +1).
 
 ### On the methodology, briefly
 
-During development we retracted three results of our own: a distillation number that
-was an artefact of a loss function collapsing to "treat nothing"; a baseline
-comparison invalidated by a 4.7% extrapolation bias four times larger than the
-mechanism it was meant to test; and a statistical claim whose interval, once
-computed over the correct unit, spanned its own effect size. All three initially
-pointed in the direction that favoured us, which is why we now treat a
-claim-supporting result as a trigger for an extra check rather than a stopping
-point. We think that discipline is worth more to this community than any individual
-number in this paper.
+We retracted three results of our own during development: a distillation number
+that was an artefact of a loss collapsing to "treat nothing"; a baseline
+comparison invalidated by a 4.7% extrapolation bias four times the mechanism it
+was meant to test; and a statistical claim whose interval, recomputed over the
+correct unit, spanned its own effect size. **All three initially pointed the way
+that favoured us**, which is why a claim-supporting result is now a trigger for
+an extra check rather than a reason to stop.
+
+39 measurement defects are catalogued with the check that caught each, and 45
+rules derived from them. The one to remember degrades data *continuously*: a
+downsample that lost up to **59%** of a fire's detections, smoothly and only for
+some fires, leaving every downstream number plausible. Nothing short of a
+conservation check finds it.
 
 ---
 
 ## Figures
 
-| figure | file | shows |
+| # | file | shows |
 |---|---|---|
 | 1 | `docs/figures/paper/fig8_twin_loop.png` | the assimilate–forecast–plan loop |
 | 2 | `docs/figures/paper/fig4_wildfire.png` | budget Pareto and horizon ablation |
-| 3 | `docs/figures/paper/figA1_sar_validation.png` | Sentinel-1 validation, permanent water separated |
-| 4 | `docs/figures/paper/fig10_flood_precondition.png` | why rainfall recommends nothing |
-| 5 | `runs/portal_shots/45_plan_result.png` | **the recommendation, its guaranteed floor, and per-measure attribution** |
-| 6 | `runs/portal_shots/42_plan_options.png` | budget slider and ranked options over the 2022 event |
-| 7 | `runs/portal_shots/44_roads.png` | live OpenStreetMap road network |
-| 8 | `runs/portal_shots/40_forecast.png` | live forecast panel (Open-Meteo) |
-| 9 | ⚠️ **to capture** | §5.2a: a trip, its route, and its deadline. `95_trip.png` exists but shows a box with no detected through-channel, so the driver fell back to rainfall and nothing flooded — the wrong case for this figure. Re-shoot against a river-driven run at the stated design discharge |
-| 10 | `runs/portal_shots/81_option_picked.png` | per-option flood field: selecting a ranked option redraws the water |
+| 3 | `docs/figures/paper/fig10_flood_precondition.png` | why rainfall recommends nothing |
+| 4 | `docs/figures/paper/figA1_sar_validation.png` | Sentinel-1 validation, permanent water separated |
+| 5 | `runs/portal_shots/45_plan_result.png` | the recommendation, its guaranteed floor, attribution |
+| 6 | `runs/portal_shots/81_option_picked.png` | selecting a ranked option redraws the water |
+| 7 | ⚠️ **to capture** | a trip, its route and its deadline, river-driven |
+| 8 | `runs/portal_shots/52_refusal.png` | the margin refusing a level it cannot support |
+| 9 | `runs/portal_shots/44_roads.png` | live OpenStreetMap road network |
+| 10 | `runs/portal_shots/40_forecast.png` | live forecast panel (Open-Meteo) |
 
-Figures 1–8 captured 2026-09-28 against the then-current interface via
-`portal/scripts/poster-shots.mjs` and `plan-result.mjs` (1600×1000 at
-deviceScaleFactor 2). The earlier `figA5_portal_appraisal` and
-`figA6_portal_anywhere` are **not** used here: they embed screenshots from before
-the interface was rebuilt and no longer show the tool as it is.
+Figures 1–6 and 8–10 were captured against the current interface. `figA5` and
+`figA6` from earlier drafts are **not** used: they embed screenshots from before
+the interface was rebuilt.
 
 ## Data and reproducibility
 
-WildfireSpreadTS (Zenodo 8006177); Next Day Wildfire Spread; Copernicus DEM GLO-30;
-Sentinel-1 RTC and ESA WorldCover via Microsoft Planetary Computer; Open-Meteo;
-OpenStreetMap via Overpass. All figures and tables are regenerated by scripts in
-`eval/` and `scripts/` from cached inputs.
+WildfireSpreadTS (Zenodo 8006177); Next Day Wildfire Spread; Copernicus DEM
+GLO-30; Sentinel-1 RTC and ESA WorldCover via Microsoft Planetary Computer;
+Open-Meteo; OpenStreetMap via Overpass; FloodCastBench as the reference
+hydrodynamic solution. Every result is produced by a script in `eval/` with
+seeds, limits and δ as command-line arguments. Cluster scripts in
+`scripts/tacc/`. The portal's own checks are in `portal/scripts/verify-*.mjs`,
+including a parity test that holds the browser's router against the one the
+paper's numbers come from: **14 of 14 quantities identical**.
