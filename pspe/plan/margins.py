@@ -127,6 +127,38 @@ def conformal_quantile(sample: Sequence[float], delta: float) -> float | None:
     return sorted(sample)[rank - 1]
 
 
+def conditional_quantile(
+    strata: "dict[object, Sequence[float]]", delta: float,
+) -> "dict[object, float | None]":
+    """Split-conformal quantile within each stratum -- Mondrian conformal.
+
+    Pooling residuals across strata gives MARGINAL coverage: the limit holds
+    over the whole population and may be violated systematically inside any
+    subgroup. When the subgroup is chosen by the planner, that is the wrong
+    guarantee, because the planner can walk into the subgroup where the pooled
+    band is too narrow and the pooled number still looks valid.
+
+    The portal's levee task is exactly that case. Surrogate residuals grow with
+    the number of active sites -- mean |measured - predicted| of 4.74 over 21
+    two-site runs, 8.57 over 8 three-site runs, 11.50 on the single six-site run
+    -- so a pooled band is too wide for a two-site plan and too narrow for a
+    six-site one, and a search maximising predicted effect prefers more sites.
+    It walks into the stratum its own margin does not cover.
+
+    Validity: the taxonomy must be a function of the INPUT only, never of the
+    outcome. `n_active` is a property of the height vector, so conditioning on
+    it is legitimate and each stratum keeps the usual exchangeability
+    requirement among its own members.
+
+    The price is sample size. Each stratum must independently satisfy the rank
+    condition, so a stratum below `min_calibration(delta)` gets `None` and the
+    caller must refuse for plans landing there rather than borrow a neighbour's
+    band. That refusal is the honest output: it says the evidence covers
+    two-site plans at this level and does not cover six-site ones.
+    """
+    return {k: conformal_quantile(list(v), delta) for k, v in strata.items()}
+
+
 def margin(mode: str, delta: float, *, model_err: Sequence[float] = (),
            deviations: Sequence[float] = (), residuals: Sequence[float] = (),
            bias: float = 0.0, gamma: float = 0.02) -> float:

@@ -102,3 +102,65 @@ export function bandAt(
   const rank = Math.ceil((have + 1) * (confidencePct / 100));
   return { band: residuals[rank - 1], attainable: true, needed, have };
 }
+
+
+/**
+ * The band for ONE PLAN, conditioned on the stratum that plan lands in.
+ *
+ * Mirrors `pspe.plan.margins.conditional_quantile`. `bandAt` above pools every
+ * calibration run and returns one number for every plan, which is MARGINAL
+ * coverage: it holds across the population of plans and can be violated
+ * systematically inside any subgroup. When the planner picks the subgroup, that
+ * is the wrong guarantee -- and here the planner picks it adversarially,
+ * because predicted effect rises with the number of active sites and so does
+ * the surrogate's error.
+ *
+ * Measured on the stored calibration set: mean |measured - predicted| is 4.74
+ * over 21 two-site runs, 8.57 over 8 three-site runs, 11.50 on the single
+ * six-site run. The pooled band of 13.37 is therefore too WIDE for a two-site
+ * plan (the honest figure is 10.01) and unsupported for anything larger, where
+ * the stratum holds fewer runs than the rank condition needs.
+ *
+ * Two strata are special and neither is in the calibration file:
+ *
+ *  - no site active: nothing is predicted, so the band is zero.
+ *  - ONE site at FULL height: `alpha[i]` was measured by a solver run of
+ *    exactly that configuration, so the prediction is that measurement and the
+ *    band is zero. This is the `effect` function's single-measure exactness
+ *    property, and it is why single-measure runs are excluded from calibration.
+ *  - one site at a PARTIAL height is NOT exact: the prediction is
+ *    `alpha[i]·(h/maxH)`, a linear-in-height interpolation that no run
+ *    calibrates. There are no one-site calibration points to bound it, so this
+ *    refuses rather than borrow the two-site band.
+ */
+export interface PlanBand extends Band {
+  nActive: number;
+  /** True when the prediction is a solver measurement, not an extrapolation. */
+  exact: boolean;
+}
+
+export function bandForPlan(
+  calibration: CalibrationPoint[],
+  S: number,
+  confidencePct: number,
+  heights: number[],
+  maxHeightM: number,
+): PlanBand {
+  const active = heights.filter((h) => h > 0);
+  const nActive = active.length;
+  const needed = runsNeeded(confidencePct);
+
+  if (nActive === 0) {
+    return { band: 0, attainable: true, needed, have: 0, nActive, exact: true };
+  }
+  if (nActive === 1) {
+    const full = Math.abs(active[0] - maxHeightM) < 1e-9;
+    return full
+      ? { band: 0, attainable: true, needed, have: 0, nActive, exact: true }
+      : { band: 0, attainable: false, needed, have: 0, nActive, exact: false };
+  }
+
+  const stratum = calibration.filter((p) => p.n_active === nActive);
+  const base = bandAt(stratum, S, confidencePct);
+  return { ...base, nActive, exact: false };
+}

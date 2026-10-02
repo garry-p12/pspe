@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { bandAt, maxConfidencePct, runsNeeded, saturating, type CalibrationPoint } from "@/lib/margin";
+import { bandAt, bandForPlan, maxConfidencePct, runsNeeded, saturating,
+         type CalibrationPoint, type PlanBand } from "@/lib/margin";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -127,6 +128,78 @@ export async function POST(req: Request) {
   const { effect } = surrogate(fit, heights);
   const active = heights.filter((h) => h > 0).length;
 
+  // The requested confidence, clamped, and the stored calibration set. Both are
+  // needed by the guarantee search below as well as by the band reported at the
+  // end, so they are declared once here rather than twice.
+  const askedConf = typeof body.confidence_pct === "number"
+    ? Math.min(99.9, Math.max(50, body.confidence_pct))
+    : fit.delta ? 100 * (1 - fit.delta) : 90;
+  const cal = fit.calibration ?? [];
+
+  // ----------------------------------------------------------------------- //
+  // The SECOND plan: the one with the best guarantee, not the best estimate.
+  //
+  // The greedy search above maximises the surrogate's PREDICTION. That is what
+  // a planner does when its margin is a single pooled number, because a
+  // constant offset cannot change an argmax -- and it is why the margin was
+  // decorative here. Conditioned on the stratum a plan lands in (lib/margin
+  // `bandForPlan`) the band stops being constant, and the two objectives come
+  // apart:
+  //
+  //   budget  best predicted            best guaranteed
+  //   A$10M   1 site at 2.0 m, 31.0     2 sites, 27.2 -> floor 17.2
+  //           (partial height: NO VALID BAND)
+  //   A$15M   1 site at 3.0 m, 46.5     same plan, floor 46.5
+  //   A$20M   2 sites, 52.1 -> 42.0     1 site at 3.0 m, floor 46.5
+  //   A$30M   3 sites, 52.5             1 site at 3.0 m, floor 46.5
+  //           (stratum too thin: NO VALID BAND)
+  //
+  // At A$20M the guaranteed plan predicts 5.6 points LESS and promises 4.5
+  // points MORE, because its prediction is a solver measurement rather than an
+  // extrapolation. At A$10M and A$30M the prediction-optimal plan cannot be
+  // guaranteed at all. This is the framework's own thesis applied to the
+  // portal's own task: bound the quantity the decision commits to, and the
+  // decision changes.
+  //
+  // Exhaustive, not greedy. The floor jumps when a site crosses zero or reaches
+  // full height, so a hill-climb in increments cannot see it. 7^6 = 117,649
+  // combinations at the default step is microseconds; above the guard it falls
+  // back to reporting only the greedy plan rather than silently sampling.
+  interface GuaranteedPlan {
+    heights: number[]; effect: number; floor: number; spent: number;
+    band: PlanBand; active: number;
+  }
+
+  const searchGuaranteed = (): GuaranteedPlan | null => {
+    const levels = Math.floor(maxH / step) + 1;
+    if (levels ** k > 400_000) return null;     // report greedy only, never sample
+    let best: GuaranteedPlan | null = null;
+    const h = new Array<number>(k).fill(0);
+    const walk = (i: number): void => {
+      if (i === k) {
+        const spent = cost(h);
+        if (spent > budget) return;
+        const b = bandForPlan(cal, fit.saturation_S || 100, askedConf, h, maxH);
+        if (!b.attainable) return;              // refuse, never borrow a band
+        const e = surrogate(fit, h).effect;
+        const floor = e - b.band;
+        if (!best || floor > best.floor) {
+          best = { heights: h.slice(), effect: e, floor, spent, band: b,
+                   active: h.filter((x) => x > 0).length };
+        }
+        return;
+      }
+      for (let v = 0; v <= maxH + 1e-9; v += step) { h[i] = v; walk(i + 1); }
+      h[i] = 0;
+    };
+    walk(0);
+    return best;
+  };
+  const guaranteed = searchGuaranteed();
+
+  // And what the greedy plan can actually promise, under the same rule.
+  const greedyBand = bandForPlan(cal, fit.saturation_S || 100, askedConf, heights, maxH);
+
   // EXPLAIN, by counterfactual rather than by narration.
   //
   // Section 4.4 killed this project's first explanation module: briefs scored
@@ -177,10 +250,6 @@ export async function POST(req: Request) {
   // The band is recomputed at whatever confidence was asked for, rather than
   // served from the one level it happened to be calibrated at. Asking for more
   // confidence than 30 held-out runs can carry returns a refusal, not a number.
-  const askedConf = typeof body.confidence_pct === "number"
-    ? Math.min(99.9, Math.max(50, body.confidence_pct))
-    : fit.delta ? 100 * (1 - fit.delta) : 90;
-  const cal = fit.calibration ?? [];
   const recomputed = cal.length
     ? bandAt(cal, fit.saturation_S || 100, askedConf)
     : { band: fit.band_km, attainable: fit.band_attainable !== false,
@@ -211,6 +280,47 @@ export async function POST(req: Request) {
     runs_have: recomputed.have,
     refusal: attainable ? null
       : `To promise this ${conf}% of the time we would need about ${recomputed.needed} test floods to check against. We have ${recomputed.have}. Lower the certainty, or run more tests.`,
+    // ---- the conditional band, and the plan that maximises it ----------- //
+    //
+    // `band_pct` above is the POOLED band, kept so nothing downstream breaks.
+    // These fields are the honest per-plan figures. For the greedy plan the
+    // pooled and conditional bands differ in both directions: narrower for a
+    // two-site plan (10.01 against 13.37, so the pooled number understates what
+    // the tool can promise) and absent for anything the calibration set does
+    // not cover at this level.
+    conditional: {
+      band_pct: greedyBand.attainable ? greedyBand.band : null,
+      attainable: greedyBand.attainable,
+      n_active: greedyBand.nActive,
+      exact: greedyBand.exact,
+      guaranteed_pct: greedyBand.attainable ? effect - greedyBand.band : null,
+      runs_in_stratum: greedyBand.have,
+      runs_needed: greedyBand.needed,
+      why: greedyBand.exact
+        ? "One site at full height: the prediction IS the solver run that measured it, so no margin is owed."
+        : greedyBand.attainable
+          ? `Calibrated on the ${greedyBand.have} runs that activated ${greedyBand.nActive} sites, not on all ${cal.length}. Surrogate error grows with the number of sites, so a pooled band is the wrong width for both.`
+          : greedyBand.nActive === 1
+            ? "One site at a partial height. The prediction scales a full-height solver run linearly and no run checks that, so no margin can be claimed."
+            : `Only ${greedyBand.have} of the stored runs activated ${greedyBand.nActive} sites, and ${greedyBand.needed} are needed at this confidence.`,
+    },
+    // The plan the FRAMEWORK recommends: best guaranteed floor, not best
+    // estimate. Null when no plan in budget has a valid band at this level.
+    best_guaranteed: guaranteed && {
+      heights: guaranteed.heights,
+      cost_aud: guaranteed.spent,
+      reduction_pct: guaranteed.effect,
+      guaranteed_pct: guaranteed.floor,
+      band_pct: guaranteed.band.band,
+      n_active: guaranteed.active,
+      exact: guaranteed.band.exact,
+      // The number that makes the two objectives worth distinguishing.
+      floor_gain_vs_greedy: greedyBand.attainable
+        ? guaranteed.floor - (effect - greedyBand.band)
+        : null,
+      estimate_given_up: effect - guaranteed.effect,
+      why: "Maximises what the tool can promise rather than what it predicts. A pooled margin is a constant and cannot change this choice; a margin conditioned on the plan can, and does.",
+    },
     steps: trace,
     attribution,
     harmful,

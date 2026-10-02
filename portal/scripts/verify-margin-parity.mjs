@@ -36,7 +36,7 @@ for (const f of ["margin.js", "routemargin.js", "routes.js", "inspect.js"]) {
   const at = join(outDir, f);
   writeFileSync(at, readFileSync(at, "utf8").replace(/from "\.\/([a-z]+)"/g, 'from "./$1.js"'));
 }
-const { bandAt, runsNeeded, maxConfidencePct, saturating } = await import(join(outDir, "margin.js"));
+const { bandAt, bandForPlan, runsNeeded, maxConfidencePct, saturating } = await import(join(outDir, "margin.js"));
 const { predictedReduction } = await import(join(outDir, "routemargin.js"));
 
 // One sample, generated once here and HANDED to the Python side.
@@ -89,6 +89,24 @@ const SAT = [
 ];
 const satTs = SAT.map((c) => +saturating(c.lead, c.rest, c.S).toFixed(10));
 
+// Conditional-band cases. Strata of 21 / 8 / 1 reproduce the portal's own
+// calibration shape: attainable at 90%, too thin, far too thin. The last two
+// exercise the exactness rule for a single site, which has no calibration
+// points at all and must not borrow another stratum's band.
+const mkPts = (n, m) => Array.from({ length: n }, (_, i) => ({
+  n_active: m, lead: 2 + (i % 4) * 1.3, rest: 0.4 + (i % 3) * 0.9,
+  measured: 2 + (i % 4) * 1.3 + ((i % 7) - 3) * 1.1,
+}));
+const POOL = [...mkPts(21, 2), ...mkPts(8, 3), ...mkPts(1, 6)];
+const COND = [
+  { label: "2 (21 runs)",      points: POOL, S: 6, conf: 90, heights: [3, 1, 0, 0, 0, 0], maxH: 3 },
+  { label: "3 (8 runs, thin)", points: POOL, S: 6, conf: 90, heights: [3, 1, 0.5, 0, 0, 0], maxH: 3 },
+  { label: "6 (1 run)",        points: POOL, S: 6, conf: 90, heights: [3, 1, 1, 1, 1, 1], maxH: 3 },
+  { label: "1 at full height", points: POOL, S: 6, conf: 90, heights: [3, 0, 0, 0, 0, 0], maxH: 3 },
+  { label: "1 partial",        points: POOL, S: 6, conf: 90, heights: [2, 0, 0, 0, 0, 0], maxH: 3 },
+  { label: "none active",      points: POOL, S: 6, conf: 90, heights: [0, 0, 0, 0, 0, 0], maxH: 3 },
+];
+
 const surr = [
   { alpha: [12, 7, 3], h: [3, 0, 0], max: 3, S: 100 },
   { alpha: [12, 7, 3], h: [3, 3, 0], max: 3, S: 100 },
@@ -114,13 +132,25 @@ for d in ${JSON.stringify(DELTAS)}:
         rows.append({"delta": d, "n": n,
                      "band": None if q is None else round(q, 10),
                      "needed": margins.min_calibration(d)})
+cond=[]
+for c in ${JSON.stringify(COND)}:
+    act=[x for x in c["heights"] if x>0]; m=len(act); mh=c["maxH"]
+    if m==0 or (m==1 and abs(act[0]-mh)<1e-9):
+        cond.append({"band": 0.0})
+    elif m==1:
+        cond.append({"band": None})
+    else:
+        resid=[abs(p["measured"]-surrogate.saturating(p["lead"],p["rest"],c["S"]))
+               for p in c["points"] if p["n_active"]==m]
+        q=margins.conditional_quantile({m: resid}, 1.0-c["conf"]/100.0)[m]
+        cond.append({"band": None if q is None else round(q,10)})
 sat=[]
 for c in ${JSON.stringify(SAT)}:
     sat.append(round(surrogate.saturating(c["lead"], c["rest"], c["S"]), 10))
 surr=[]
 for c in ${JSON.stringify(surr.map(({ alpha, h, max, S }) => ({ alpha, h, max, S })))}:
     surr.append(round(surrogate.effect(c["alpha"], c["h"], c["max"], c["S"]), 10))
-print(json.dumps({"rows": rows, "surr": surr, "sat": sat}))
+print(json.dumps({"rows": rows, "surr": surr, "sat": sat, "cond": cond}))
 `;
 const pf = join(outDir, "p.py");
 writeFileSync(pf, py);
@@ -137,6 +167,24 @@ ref.rows.forEach((p, i) => {
   if (!bandSame) { bandBad++; disagree.push(`band  delta=${p.delta} n=${p.n}: py=${p.band} ts=${t.band}`); }
   if (!needSame) { needBad++; disagree.push(`needed delta=${p.delta}: py=${p.needed} ts=${t.needed}`); }
 });
+// The CONDITIONAL band, stratum by stratum, against
+// margins.conditional_quantile. This is the band the planner now optimises, so
+// a drift here changes which plan the portal recommends -- not just the number
+// printed beside it.
+let condBad = 0;
+ref.cond.forEach((row, i) => {
+  const c = COND[i];
+  const got = bandForPlan(c.points, c.S, c.conf, c.heights, c.maxH);
+  const pyAtt = row.band !== null;
+  if (got.attainable !== pyAtt) {
+    condBad++;
+    disagree.push(`conditional n_active=${c.label}: attainable py=${pyAtt} ts=${got.attainable}`);
+  } else if (pyAtt && Math.abs(row.band - got.band) > 1e-9) {
+    condBad++;
+    disagree.push(`conditional n_active=${c.label}: py=${row.band} ts=${got.band}`);
+  }
+});
+
 let satBad = 0;
 ref.sat.forEach((v, i) => {
   if (Math.abs(v - satTs[i]) > 1e-9) {
@@ -153,6 +201,7 @@ ref.surr.forEach((v, i) => {
 
 console.log(`conformal band:      ${ref.rows.length - bandBad}/${ref.rows.length} agree`);
 console.log(`refusal threshold:   ${ref.rows.length - needBad}/${ref.rows.length} agree`);
+console.log(`conditional band:    ${COND.length - condBad}/${COND.length} agree  (per stratum, exactness, refusal)`);
 console.log(`saturating form:     ${SAT.length - satBad}/${SAT.length} agree  (rest=0, saturated, tiny S)`);
 console.log(`effect(alpha,h,max,S): ${surr.length - surrBad}/${surr.length} agree`);
 console.log(`maxConfidencePct(30) = ${maxConfidencePct(30).toFixed(2)}%  (the portal's stated ceiling)`);
@@ -161,6 +210,6 @@ if (disagree.length) {
   console.log("\n--- disagreements ---");
   [...new Set(disagree)].slice(0, 20).forEach((d) => console.log("  " + d));
 }
-const ok = bandBad === 0 && needBad === 0 && surrBad === 0 && satBad === 0;
+const ok = bandBad === 0 && needBad === 0 && surrBad === 0 && satBad === 0 && condBad === 0;
 console.log(ok ? "\nPASS — one guarantee, two implementations" : `\nFAIL — ${disagree.length} disagreements`);
 process.exit(ok ? 0 : 1);

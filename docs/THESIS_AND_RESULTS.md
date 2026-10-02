@@ -1440,6 +1440,125 @@ a canary with a closed-form optimum needs to assert the *action*, not only the
 cost — the cost assertion is satisfied by doing nothing at all.
 
 
+### 3.4h Conditioning the margin changes the portal's recommendation (2026-10-02)
+
+The portal's district tab ran a greedy search maximising the surrogate's
+**predicted** reduction and printed a pooled conformal band beside the answer.
+That band could never have changed the plan: `bandAt` pools every calibration
+run and returns one number for every height vector, so `effect(h) − band` has
+the same argmax as `effect(h)`. **A constant offset cannot change a decision**,
+which is why the margin was decorative on this task in the same way it is
+provably inert for route choice (§5.3, 0.000 m on 96/96).
+
+**It is not a constant once you ask what the plan commits to.** Surrogate error
+grows with the number of sites a plan activates, because that is exactly the
+interaction the saturating form only partly captures:
+
+| n_active | runs | mean &#124;measured − predicted&#124; | median | max |
+|---|---|---|---|---|
+| 2 | 21 | 4.742 | 4.982 | 13.397 |
+| 3 | 8 | 8.571 | 6.390 | 24.216 |
+| 6 | 1 | 11.498 | 11.498 | 11.498 |
+
+Correlation between `n_active` and residual: **+0.371** over 30 points. So the
+planner, by preferring more sites, walks into the stratum its own margin covers
+worst — and the pooled number still looks valid.
+
+**The fix is Mondrian conformal**: stratify the calibration set by a function of
+the *input*, and apply split conformal within each cell. `n_active` is a
+property of the height vector and never of the outcome, so conditioning on it is
+legitimate and each stratum keeps the usual exchangeability requirement among
+its own members. The price is sample size — each stratum must satisfy the rank
+condition on its own:
+
+| stratum | runs | band at 90% |
+|---|---|---|
+| **pooled (what the tool displayed)** | 30 | **13.369** |
+| n_active = 2 | 21 | **10.007** |
+| n_active = 3 | 8 | **refuse** — 9 needed |
+| n_active = 6 | 1 | **refuse** |
+
+**The pooled band was wrong in both directions.** Too wide for the two-site plan
+the tool actually recommends — 13.37 displayed against an honest 10.01, so it
+*understated* what the framework can promise — and displayed at all for plans of
+three or more sites, where the evidence supports no band whatsoever.
+
+**Two strata are not in the calibration file and both matter.** A plan with one
+site at **full height** owes **no margin**: `alpha[i]` was measured by a solver
+run of exactly that configuration, so the prediction *is* that measurement —
+this is `effect`'s single-measure exactness property, and the reason
+single-measure runs are excluded from calibration in the first place. A plan
+with one site at a **partial** height is **not** exact: the prediction is
+`alpha[i]·(h/maxH)`, a linear-in-height interpolation no run checks, and there
+are no one-site calibration points to bound it. It refuses rather than borrow
+the two-site band. Getting this wrong in the first draft would have claimed a
+zero band for every single-site plan.
+
+**And now the two objectives come apart.** Exhaustive over 7⁶ = 117,649 height
+vectors at the default 0.5 m step, δ = 0.1:
+
+| budget | maximise predicted | maximise guaranteed floor |
+|---|---|---|
+| A$10M | 1 site @ 2.0 m, pred 31.0, **no valid band** | 2 sites, pred 27.2, floor **17.2** |
+| A$15M | 1 site @ 3.0 m, pred 46.5, floor 46.5 | same plan, floor 46.5 |
+| **A$20M** | 2 sites, pred **52.1**, floor 42.0 | 1 site @ 3.0 m, pred 46.5, floor **46.5** |
+| A$30M | 3 sites, pred 52.5, **no valid band** | 1 site @ 3.0 m, floor **46.5** |
+
+**At A$20M the framework's plan predicts 5.6 points less and promises 4.5 points
+more**, because its prediction is a solver measurement rather than an
+extrapolation. At A$10M and A$30M the prediction-optimal plan **cannot be
+guaranteed at all** — at A$30M the old interface would have shown a 13.4-point
+band on a three-site plan backed by eight runs where nine are needed.
+
+This is the paper's thesis executed on the portal's own task: bound the quantity
+the decision commits to, and the decision changes. It is also the exact
+complement to the route result. We now have both cases measured — a discrete
+decision where the margin is provably inert, and a continuous allocation where
+conditioning makes it decision-relevant.
+
+**What was NOT done, and why.** No neural policy was put behind `/api/plan`, and
+one would have been decoration. The task is a **one-shot, deterministic,
+six-dimensional box-constrained allocation**: there is no state, no transition,
+no horizon, and the budget constraint is exactly computable, so the realised
+cost has **σ = 0**. The paper's correction is about constraints on expectations
+whose realised value scatters; with no scatter in the cost there is nothing for
+it to bite on, and `GaussianFieldPolicy` would have had to consume a constant
+field, reducing it to a parameterised point. The only available checkpoints are
+`dar`-trained — a different PDE, different action semantics, different reward —
+and serving one here would have been a fabricated result.
+
+The scatter on this task is in the **objective**, not the constraint, and that
+is what the conditional band measures. The framework's planning *principle* —
+optimise against what you can guarantee, and refuse when you cannot — is now
+live in the portal. The learned-policy stack is still absent from it, and the
+honest home for one is the evacuation task, which is genuinely sequential
+(departure timing, waiting permitted, non-monotone edge availability).
+
+Parity: `portal/scripts/verify-margin-parity.mjs` now checks five quantities,
+the conditional band among them, **6/6 across the strata, the exactness rule and
+both refusals**. The TypeScript search reproduces the Python table above line
+for line.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 52 | The district tab pooled its conformal band over all 30 calibration runs regardless of plan, so the margin was a constant offset and could not affect the recommendation | the displayed band understated the guarantee for the recommended two-site plan (13.37 against 10.01) and was shown at all for three-site plans the evidence cannot support; the planner maximised a prediction while the number beside it described a different population | asking what in the portal would change if the margin were conditioned on the plan | 3.4h |
+
+**Rule 58: a margin that does not depend on the decision cannot improve the
+decision.** A pooled band is a constant, and a constant never moves an argmax —
+so a tool can display a conformal guarantee, be entirely correct about it
+marginally, and still choose its plan with the margin switched off. Before
+claiming a margin makes a system safer, check whether the chosen action would
+change if the margin were removed. Here it would not have, on either of the two
+portal tasks, until the band was conditioned on the stratum the plan lands in.
+
+**Rule 59: stratify by a function of the input, then let the thin strata
+refuse.** Conditioning is only worth it if each cell carries its own evidence;
+borrowing a neighbouring stratum's band restores the problem conditioning was
+meant to fix, with the added harm of looking rigorous. Two of the three strata
+here refuse, and that refusal is the result — it says the calibration set covers
+two-site plans at 90% and does not cover six-site ones.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -6782,7 +6901,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 51 defects, 57 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 52 defects, 59 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
