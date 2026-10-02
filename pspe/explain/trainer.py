@@ -357,6 +357,21 @@ class ExplainTrainer:
         return summary
 
     # -- evaluation ---------------------------------------------------------- #
+    def _briefs_for(self, condition: Tensor) -> list[str]:
+        """Greedy briefs for this arm. The ONLY place generation is dispatched.
+
+        There were three call sites -- `evaluate`, `faithfulness_samples` and
+        `faithfulness_samples_permuted` -- and when the prompted arm was added
+        only the first one learned about it. The other two are what the runner
+        reports, so `post-hoc-prompted` would have been scored on the untrained
+        prefix model and come out numerically identical to
+        `post-hoc-untrained`, with the identity reading as a finding.
+        """
+        if self.cfg.posthoc_prompted:
+            return self._prompted_briefs(condition)
+        generated, _ = self.model.generate(condition, greedy=True)
+        return generated
+
     @torch.no_grad()
     def faithfulness_samples(self, n: int, batch: int = 16) -> "np.ndarray":
         """Per-brief F on `n` fresh states — the input to the conformal certificate.
@@ -368,7 +383,7 @@ class ExplainTrainer:
         scores = []
         while sum(len(s) for s in scores) < n:
             condition, _, reference_dist = self.sample_batch(min(batch, n))
-            generated, _ = self.model.generate(condition, greedy=True)
+            generated = self._briefs_for(condition)
             parsed, _ = self.parser.batch_distribution(generated, self.device)
             score, _ = faithfulness_score(reference_dist, parsed, self.cfg.per_dim_kl)
             scores.append(score.detach().cpu().numpy())
@@ -388,7 +403,7 @@ class ExplainTrainer:
         scores = []
         while sum(len(s) for s in scores) < n:
             condition, _, reference_dist = self.sample_batch(min(batch, n))
-            generated, _ = self.model.generate(condition, greedy=True)
+            generated = self._briefs_for(condition)
             parsed, _ = self.parser.batch_distribution(generated, self.device)
             roll = torch.roll(reference_dist.mean, 1, dims=0)
             shifted = torch.distributions.Normal(roll, torch.roll(reference_dist.stddev, 1, dims=0))
@@ -396,8 +411,8 @@ class ExplainTrainer:
             scores.append(score.detach().cpu().numpy())
         return np.concatenate(scores)[:n]
 
-    @torch.no_grad()
     # -- the prompted control ------------------------------------------------ #
+    @torch.no_grad()
     def _prompted_briefs(self, condition: Tensor) -> list[str]:
         """Brief per row by prompting the backbone in its own tokens.
 
@@ -426,13 +441,24 @@ class ExplainTrainer:
             if self._native_tok.pad_token_id is None:
                 self._native_tok.pad_token = self._native_tok.eos_token
 
+        from .brief import CONFIDENCE_LEVELS
+
+        # Derived, never hardcoded: the first version of this prompt asked for
+        # "low|medium|high" while the parser accepts
+        # confident|likely|moderate|uncertain|vague, so every prompted brief
+        # would have fallen back to the default std of 0.4 -- the same crippling
+        # fallback that makes the untrained arm meaningless (defect 48). A
+        # control handicapped by its own prompt is worse than no control.
+        words = "|".join(CONFIDENCE_LEVELS)
         k = self.env.action_dim
         centers = self.env.basis.centers.cpu()
         mean, log_std = condition[:, :k], condition[:, k:2 * k]
         stats = condition[:, 2 * k:]              # mean, max, cost, limit, reward
         out: list[str] = []
+        # The PeftModel itself, NOT `.base_model`: that attribute is a LoraModel
+        # wrapper with no `generate`, and an untrained LoRA has B = 0, so the
+        # adapter is exactly the identity here anyway.
         base = self.model.backbone
-        base = getattr(base, "base_model", base)  # unwrap PEFT for generation
 
         for i in range(condition.shape[0]):
             sites = "\n".join(
@@ -452,12 +478,16 @@ class ExplainTrainer:
                 "actuator <i> at <x> <y> set to <amplitude> to increase|reduce the field .\n"
                 "predicted cost <c> is within|above the limit <l> .\n"
                 "expected reward <r> .\n"
-                "confidence low|medium|high .\n"
+                f"confidence {words} .\n"
             )
             ids = self._native_tok.apply_chat_template(
                 [{"role": "user", "content": msg}],
                 add_generation_prompt=True, return_tensors="pt",
-            ).to(self.device)
+            )
+            # Returns a tensor on some versions and a BatchEncoding on others.
+            if not isinstance(ids, torch.Tensor):
+                ids = ids["input_ids"]
+            ids = ids.to(self.device)
             with torch.no_grad():
                 gen = base.generate(
                     ids, max_new_tokens=self.cfg.posthoc_prompt_max_new,
@@ -468,13 +498,11 @@ class ExplainTrainer:
                 gen[0, ids.shape[1]:], skip_special_tokens=True))
         return out
 
+    @torch.no_grad()
     def evaluate(self, batch: int = 16, dump: str | Path | None = None) -> dict[str, float]:
         """Faithfulness of greedily generated briefs, plus a brief dump for raters."""
         condition, references, reference_dist = self.sample_batch(batch)
-        if self.cfg.posthoc_prompted:
-            generated = self._prompted_briefs(condition)
-        else:
-            generated, _ = self.model.generate(condition, greedy=True)
+        generated = self._briefs_for(condition)
         parsed, extras = self.parser.batch_distribution(generated, self.device)
         score, kl = faithfulness_score(reference_dist, parsed, self.cfg.per_dim_kl)
 

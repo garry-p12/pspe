@@ -150,3 +150,89 @@ def test_reference_briefs_exceed_the_old_default_length(tmp_path):
         "the old 96-token cap truncated it"
     )
     assert any("confidence" in b for b in briefs)
+
+
+# --------------------------------------------------------------------------- #
+# Bugs found auditing the above before firing the rerun. Each of these three
+# would have produced a plausible, wrong number rather than an error.
+# --------------------------------------------------------------------------- #
+
+def test_prompted_arm_is_scored_through_the_prompted_path(tmp_path, monkeypatch):
+    """`faithfulness_samples` is what the runner REPORTS, not `evaluate`.
+
+    The first version dispatched the prompted path only inside `evaluate`,
+    while the two `faithfulness_samples*` methods called `self.model.generate`
+    directly. So the prompted arm would have been scored on the untrained
+    prefix model and come out numerically identical to the untrained arm --
+    and the identity would have read as a finding.
+    """
+    env = _env()
+    t = _trainer(env, _policy(env), tmp_path, posthoc_prompted=True)
+
+    called = {"prompted": 0, "prefix": 0}
+    monkeypatch.setattr(t, "_prompted_briefs",
+                        lambda c: (called.__setitem__("prompted", called["prompted"] + 1),
+                                   ["actuator 0 at 0.17 0.17 set to -0.10 to reduce the field ."
+                                    " confidence likely ."] * c.shape[0])[1])
+    real_generate = t.model.generate
+
+    def spy(*a, **kw):
+        called["prefix"] += 1
+        return real_generate(*a, **kw)
+
+    monkeypatch.setattr(t.model, "generate", spy)
+
+    t.faithfulness_samples(4, batch=4)
+    t.faithfulness_samples_permuted(4, batch=4)
+    t.evaluate(4)
+
+    assert called["prompted"] == 3, (
+        f"prompted path used {called['prompted']}/3 times; the reporting methods "
+        "bypassed it"
+    )
+    assert called["prefix"] == 0, "prefix model generated for a prompted arm"
+
+
+def test_prompt_asks_for_a_confidence_word_the_parser_accepts():
+    """A control handicapped by its own prompt is worse than no control.
+
+    The first prompt asked for "low|medium|high". The parser accepts only
+    confident|likely|moderate|uncertain|vague, so every prompted brief would
+    have fallen back to the default std of 0.4 -- the same fallback that makes
+    the untrained arm meaningless -- and the prompted LM would have been
+    reported as underperforming for a reason that was our fault.
+    """
+    import inspect
+
+    from pspe.explain.brief import CONFIDENCE_LEVELS
+    from pspe.explain.parser import FrozenBriefParser
+
+    src = inspect.getsource(ExplainTrainer._prompted_briefs)
+    # Comment lines out: the fix's own comment names the rejected vocabulary to
+    # explain why it is gone, and matching that would fail on the explanation.
+    code = "\n".join(ln for ln in src.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    assert "low|medium|high" not in code, "prompt asks for a vocabulary the parser rejects"
+    assert "CONFIDENCE_LEVELS" in code, "confidence words must be derived, not hardcoded"
+
+    # And the derived words must actually parse to a non-default std.
+    parser = FrozenBriefParser(9)
+    for word in CONFIDENCE_LEVELS:
+        _, std, _ = parser.parse(f"confidence {word} .")
+        assert abs(float(std[0]) - parser.default_std) > 1e-9 or \
+            abs(CONFIDENCE_LEVELS[word] - parser.default_std) < 1e-9, word
+
+
+def test_evaluate_keeps_its_no_grad():
+    """Inserting a method above `evaluate` stole its decorator once already.
+
+    Without it, evaluating a 1.5B backbone builds a graph it never uses.
+    """
+    import inspect
+
+    src = inspect.getsource(ExplainTrainer)
+    i = src.index("def evaluate(")
+    head = src[:i]
+    assert head.rstrip().endswith("@torch.no_grad()"), (
+        "evaluate() is not decorated with @torch.no_grad()"
+    )

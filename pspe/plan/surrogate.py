@@ -39,11 +39,17 @@ def saturating(lead: float, rest: float, S: float) -> float:
     a levee that helps could lower the prediction and the greedy search refused
     to spend half of every budget).
 
-    Written once because it was written four times -- twice here, in `effect`
-    and inside `fit`'s residual loop, and three times in the portal. Four copies
-    of a formula that produces a displayed guarantee is four chances to disagree,
-    and `portal/scripts/verify-margin-parity.mjs` can only check one of them
-    against one of these.
+    Written once because it was written TEN times: six in Python (`effect`, both
+    residual sites in `fit`, both in `scripts/fit_surrogate.py`, and
+    `run_route_margin.predict`) and four in TypeScript (`margin.predicted`,
+    `routemargin.predictedReduction`, and inline copies in `/api/plan` and
+    `/api/estimate`). All ten agreed, by luck. Two of them were in the script
+    that writes the `surrogate.json` the portal displays, which fits `S` against
+    its own copy and calibrates the band on that copy's residuals -- so a drift
+    there would have shown an `S` optimal for one formula beside a band
+    calibrated on it while the framework predicted with another.
+    `portal/scripts/verify-margin-parity.mjs` checks this one against
+    `margin.saturating`, which it can only do if there is one of each.
     """
     return lead + S * math.tanh(rest / S)
 
