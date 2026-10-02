@@ -1,197 +1,153 @@
 # POSTER — Digital Twins That Decide, Not Just Forecast
 
-*A0 portrait, four columns. ~15% method, the rest the two twins and the portal.
-Numbers here must match `WORKSHOP_PAPER.md`; the proofs and the full derivation
-are `THESIS_AND_RESULTS.md` Part 10.*
+*A0 portrait, four columns. Companion to the **systems** paper
+(`WORKSHOP_PAPER.md`): ~15% method, the rest the two twins, the routing result
+and the portal. The calibration method is a separate paper (`ICML_PAPER.md`);
+derivations and the defect catalogue are `THESIS_AND_RESULTS.md`.*
 
 ---
 
 ## TITLE BAR (full width, top)
 
 # Digital Twins That Decide, Not Just Forecast
-### Budget-constrained intervention planning for floods and wildfires, with a stated error bound
+### Perceive → Simulate → Plan → Calibrate → Explain, on 607 fires and a flooded road network
 
 *Authors · affiliation · QR to the live portal and the repo*
 
-> **One-line version, set large enough to read from three metres:**
-> A twin that forecasts a flood is useful. A twin that tells you **which levee
-> to build, for A$20M, and how wrong it might be** is a different instrument.
+> **One line, readable from three metres:**
+> A twin that forecasts a flood is useful. A twin that tells you **which levee to
+> build for A$20M, how wrong it might be, and whether anyone can still drive out**
+> is a different instrument.
 
 ---
 
-# COLUMN 1 — The gap, and the one idea that closes it
+# COLUMN 1 — The gap, the loop, and the one thing we calibrate
 
-## A. The operational question a forecast cannot answer
+## A. The question a forecast cannot answer
 
-> *"We have A$20M. There are six places we could build. Which, how high, and
-> how wrong might you be?"*
+> *"We have A$20M. There are six places we could build. Which, how high, and how
+> wrong might you be?"*
 
-A forecast says what happens if nothing changes. The question is about what
-changes, under a budget, with a consequence attached to being wrong.
+A forecast says what happens if nothing changes. This is about what changes,
+under a budget, with a consequence for being wrong.
 
-**And the failure mode is quiet.** Plan inside a learned model and the planner
-inherits that model's errors invisibly:
-
-> ### The dual converges. Its own diagnostics say the constraint is satisfied.
-> ### The real system violates it.
-
-Measured: **7.3% of evaluations** over the true limit while every internal
-number looks correct. Found only by periodically probing the real environment —
-which a self-consistent training loop never does.
-
-## B. What we mean by "twin"
-
-Not a dashboard over a simulation. Four things, closed into a loop:
+## B. Five stages, and most twins have two
 
 | **Perceive** | synchronise to observation, not just initialise from it |
 |---|---|
-| **Simulate** | fast enough to search over, honest about where it is wrong |
+| **Simulate** | fast enough to search over; honest about where it is wrong |
 | **Plan** | optimise under a real constraint, not a soft penalty |
-| **Explain** | say what it decided, in words that can be checked |
+| **Calibrate** | state how wrong the recommendation might be |
+| **Explain** | say what was decided, in words that can be checked |
 
 **FIGURE 1** — `docs/figures/paper/fig8_twin_loop.png`
 
-## C. The technical idea (the only equation on this poster)
+## C. The calibration stage, briefly
 
-Plan in a fast surrogate, then **bound the error against reality**. Collect
-matched pairs of *(what the surrogate predicted, what actually happened)* from
-an occasional check against the real system, and take a conformal quantile of
-the difference:
+*(the full method is the companion paper — this poster is about what it buys)*
+
+Plan in a fast surrogate, then **bound the error against reality**: collect
+matched pairs of *(predicted, actually happened)* from an occasional check
+against the real system and take a conformal quantile.
 
 > ### P[ real cost > limit ] ≤ δ
-> **with δ chosen and stated — not tuned.**
+> **δ chosen and stated — not tuned.**
 
-**The insight that makes it work.** The obvious approach is to inflate your
-estimate by *how wrong the model is*. **We tried it and it made things worse**
-(violations 14.5% → 18.2%). That instrument is right for a *pointwise* guarantee
-and wrong for a *budget*: what pushes you over a budget is not average model
-error, it's the **spread of real outcomes**. Bound that instead.
+**The non-obvious part.** Inflating your estimate by *how wrong the model is*
+**made things worse** (violations 14.5% → 18.2%). That instrument is right for a
+*pointwise* guarantee and wrong for a *budget*: what pushes you over a budget is
+not average model error, it is the **spread of real outcomes**. Bound that, and
+violations fall **14.1% → 5.0%** at no cost in objective.
 
-**And it is forced, not preferred.** No margin computed from model error alone
-can hold a stated level however wide the outcome spread gets — a three-line
-separation result. For Gaussian error it closes to
-
-> ### R(ρ) = 1 − Φ(z_δ / ρ)   ·   ρ = (outcome spread) / (model error)
-
-**one dimensionless number predicts the failure** — matching measurement to
-within **0.003** across two orders of magnitude in ρ — and predicts that asking
-for a *stricter* guarantee from the wrong distribution makes it worse
-(1.2× error at δ = 0.30 → 3.7× at δ = 0.02).
-
-**FIGURE 2** — `docs/figures/paper/fig0_calibration.png`
-*Caption: measured violation against the closed form, with the δ-sweep inset.*
-
-🔑 **One consequence worth the poster space:** when there isn't enough
-calibration data, the method **refuses to return a number**. A
-normal-approximation interval always returns something. See Column 4 for the
-time that saved us.
+🔑 **The property this poster actually uses:** when there is not enough
+calibration data, the method **refuses to return a number**. With 30 held-out
+simulations the highest honest confidence is **96.8%** — ask for 99% and it
+declines and says how many more runs it would need. A normal-approximation
+interval always returns something. Column 4 has the time that saved us.
 
 ---
 
-# COLUMN 2 — Does it work, and against what
+# COLUMN 2 — Wildfire twin · 607 observed fires
 
-## The headline
+**Perceive:** VIIRS detections → ensemble Kalman update of the burned state.
+**Simulate:** learned spread dynamics. **Plan:** crew allocation, several days
+ahead, under a daily budget.
 
-**Reaction–diffusion hazard · 20 seeds · δ = 0.1**
+## The systems headline
 
-| arm | violating | objective |
+| daily crew budget | operational heuristic | planner |
 |---|---|---|
-| no margin | 14.1% | — |
-| inflate by model error | 18.2% | — |
-| ### ours | ### 5.0% | ### no loss |
+| ### 1% | 7.5 ± 1.4 | ### 14.3 ± 0.5 |
+| ### 2% | ### 12.8 ± 2.0 | 26.2 ± 0.7 |
+| 3% | 24.1 ± 3.8 | 36.5 ± 1.0 |
+| 5% | 36.1 ± 5.0 | 53.0 ± 1.1 |
+| 8% | 55.0 ± 5.5 | 69.4 ± 0.6 |
 
-**Paired −9.1 points · 95% CI [−11.8, −5.5] · p = 0.0002**
+> ### The planner on a 1% crew budget (14.3%) beats the heuristic on 2% (12.8%).
+> Half the crews for a better outcome — and the advantage is **largest where
+> crews are scarcest**, which is the regime that matters.
 
-The objective is statistically unchanged. **The margin removes a bias; it does
-not buy safety with performance.**
+**FIGURE 2** — `docs/figures/paper/fig4_wildfire.png`
 
-**FIGURE 3** — `docs/figures/paper/fig2_rdf_violations.png`
+## Tested where it must fail
 
-## Three published methods, and a prediction we registered first
+At a one-day horizon a greedy allocation is optimal, so a planner should buy
+nothing:
 
-All three reimplemented **inside our planner**, so the only difference is how
-model error is corrected for.
-
-| method | violating | beats no margin? |
+| horizon | gap over heuristic | |
 |---|---|---|
-| no margin | 14.1% | — |
-| conformal ensemble disagreement | 11.99% | **no** |
-| SMBPO | 12.20% | **no** |
-| SafeDreamer | 13.17% | **no** |
-| ### ours | ### 5.00% | — |
+| 1 day | **+0.6** | **not significant** |
+| 2 days | +8.5 | t = 10.74 |
+| 3 days | +12.1 | t = 11.08 |
+| 5 days | **+14.3** | t = 8.99 |
 
-> **They land within 1.2 points of each other and none beats doing nothing.**
-> That is the theorem's prediction, not three unlucky baselines — all three are
-> functions of model wrongness, which the separation result excludes. **We
-> pre-registered 12% for SafeDreamer before running it.** It returned 13.17%.
+> **It vanishes exactly where theory requires**, then grows with the horizon over
+> which sequential reasoning can act. A result that survives its own
+> falsification test is worth more than one never exposed to it.
 
-**Two of these we got wrong first, and both errors favoured us:** SMBPO's
-truncated cost rescaled linearly on a non-linear quantity (a −4.7% bias, 4× the
-pessimism term, making the arm net *optimistic*), and SafeDreamer's cost critic
-shadowing the trainer's own, scoring the wrong head.
+*An earlier version of this claim was measured on 8 fires at t = 3.0. At 607 the
+benefit is a third the size and holds on 76%. We re-ran it rather than publish
+it.*
 
-## How far it generalises — stated exactly
+## And a policy will not do instead
 
-| family | result |
+| decision-time planner | **39.0%** |
 |---|---|
-| reaction–diffusion | **14.1% → 5.0%**, level attained |
-| diffusion–advection | 0% → 0% — nobody violates: a **regression check**, not a validation |
-| shallow water | 33.2% → 16.8%; on the ¾ of seeds where a plan exists, **12.1%, CI [7.1, 17.1]** — contains δ without confirming it |
+| distilled from the planner | 18.3% |
+| trained from scratch | 10.4% |
 
-> **The mechanism replicates on three families. The stated rate is attained on
-> one, trivially satisfied on a second, and not rejected on the third.** We do
-> not say "validated on three families", because it isn't.
+Distillation recovers **47%** — a real gain we initially understated — but **21
+points survive it**. The planner draws 16.0 points of its effect through the
+learned dynamics; the distilled policy, 1.0.
 
-## The assumption, tested where it breaks
+## Two data defects worth your time
 
-Conformal needs exchangeable calibration scores; ours come from a learning run.
-**On rdf exchangeability is violated** — lag-1 serial dependence at p ≈ 0 on
-every seed, with drift and distribution-shift tests both non-rejections.
-Dependent, not drifting.
-
-> **And coverage holds anyway: 0.0854 against δ = 0.1.** Dependence of this kind
-> inflates the quantile's variance without biasing it. Adaptive conformal
-> inference is **not needed here** — demonstrated, not assumed.
+- ❌ **"No detection" is not "not observed."** Treating absence as absence would
+  have deleted **37.4%** of days — exactly the days fires go out.
+- ❌ **A downsample cropped the raster margin**, losing up to **59%** of a fire's
+  detections — continuously, only for some fires, every downstream number
+  plausible. **Only a conservation check finds that.**
 
 ---
 
-# COLUMN 3 — Two twins, one of them surprising
-
-## Wildfire · 607 observed fires
-
-Learned spread model + ensemble Kalman update + decision-time planning of crews
-under a daily budget.
-
-> ### Same burned-area reduction as the operational heuristic, with HALF the crews
-> **+12 points at a 3-day horizon and a 3% daily crew budget**
-
-**The operating point is part of the claim.** The gap runs **+0.6 at one day** —
-where theory says it must vanish, and it does — to **+14.3 at five days**; and
-**+6.8 at a 1% budget** to **+16.9 at 5%**.
-
-**FIGURE 4** — `docs/figures/paper/fig4_wildfire.png`
-
-**And a policy will not do instead.** Distilling our own planner into a compact
-policy recovers **47%** of the advantage — a real gain we initially understated —
-but **21 points survive it**. The planner draws 16.0 points of its effect through
-the learned dynamics; the distilled policy, 1.0.
-
-## Flood · plans levees anywhere on Earth
+# COLUMN 3 — Flood twin · levees anywhere on Earth
 
 Copernicus DEM GLO-30 · local-inertial solver batched over candidate plans ·
 forcing from river discharge, coastal surge or rainfall — whichever the site has.
+Terrain fetched on demand, so it runs where no data was prepared.
 
-> **Budget A$20M** → **site 3 (3.0 m) + site 5 (1.0 m)**, A$18.2M of A$20M
-> → ## Estimated 52% · at least 39%, 90% of the time
+## One click, end to end
+
+> **A$20M** → site 3 (3.0 m) + site 5 (1.0 m), A$18.2M of A$20M
+> → ## estimated 52% · at least 39%, nine times in ten
 > → *"Write the business case against the lower figure."*
-> → **Warns:** site 1 (−9%), site 0 (−9%) — measured as **deepening** flooding
+> → **warns:** site 1 (−9%), site 0 (−9%) — measured as **deepening** flooding
 
-**FIGURE 5** — `runs/portal_shots/45_plan_result.png` ← **the single most
-important figure on this poster**
+**FIGURE 3** — `runs/portal_shots/45_plan_result.png`
 
 > **Point here when someone asks what the maths is for.** The interface tells an
-> engineer to write the business case against **39%**, not **52%**. That sentence
-> is the whole contribution, in the place where it matters.
+> engineer to write the case against **39%**, not **52%**. That sentence is the
+> contribution, in the place where it matters.
 
 ## Getting the physics right changed the answer completely
 
@@ -201,34 +157,10 @@ important figure on this poster**
 | river, as a volume | 8.5% | **physically void** (112 m deep) |
 | **river, as a stage** | **21.3%, guaranteed 20.8%** | 17 held-out combinations |
 
-A boundary sets a **stage**, not a volume. Also fixed: DEM nodata filled with
-sea level put a **247 m trench** around every inland domain.
+A boundary sets a **stage**, not a volume. Also fixed: DEM nodata filled with sea
+level put a **247 m trench** around every inland domain.
 
-## The interface, where the number has to survive contact
-
-**The flood is drawn as a body of water, not a blue picture.** This terrain has
-220 m of relief over 32 km; the water reaches 19 m deep. The *water* is the
-three-dimensional thing in the scene, and painting it flat hides the one
-quantity with real vertical extent — a levee then reads as a wall holding a
-volume back rather than a marker beside a blue shape.
-
-**FIGURE 6** — `runs/portal_shots/60_water_solid.png` beside
-`runs/portal_shots/62_water_flat.png`
-*Caption: same event, as a volume and as paint. Both are available in the tool;
-that is what makes the comparison legible.*
-
-**The allocation is a trace, not a verdict.** The budget is spent in 0.5 m steps
-and every step is shown with what it bought, so an engineer sees where the
-marginal return fell off instead of being handed a height vector.
-**FIGURE 7** — `runs/portal_shots/50_budget_trace.png`
-
-**The trade-off is a control, not a constant.** `/methodology/margin` makes `f` —
-how much of the achievable gain you will give back for a guarantee — a slider,
-and the crossing moves as you drag it.
-**FIGURE 8** — `runs/portal_shots/53_margin_f_low.png` and `53_margin_f_high.png`
-
-**And there is a page for what the tool cannot show**, inside the tool rather
-than only in the paper. **FIGURE 9** — `runs/portal_shots/54_limits.png`
+**FIGURE 4** — `docs/figures/paper/fig10_flood_precondition.png`
 
 ## Validated against satellite — including the uncomfortable number
 
@@ -236,168 +168,133 @@ than only in the paper. **FIGURE 9** — `runs/portal_shots/54_limits.png`
 - the reference model vs **Sentinel-1** — **CSI 0.535**
 
 > **The second number is the one that belongs in an operational discussion.**
-> 0.98 is a statement about our numerics. 0.53 is a statement about how well
-> *anyone's* hydrodynamics matches a real flood at 30 m. Quoting only the first
-> is how decision-support tools acquire unearned authority. **One validated event
-> is also one event.**
+> 0.98 is about our numerics. 0.53 is about how well *anyone's* hydrodynamics
+> matches a real flood at 30 m. Quoting only the first is how decision-support
+> tools acquire unearned authority. **One validated event is also one event.**
 
-**FIGURE 10** — `docs/figures/paper/figA1_sar_validation.png`
+**FIGURE 5** — `docs/figures/paper/figA1_sar_validation.png`
 
 ---
 
-# COLUMN 4 — The night of the flood, and what we won't claim
+# COLUMN 4 — On the night: a peak-depth map cannot route an evacuation
 
-## Levees are decided months ahead. On the night the question is a trip.
-
-Type two places. The portal derives the box, solves the flood across it, pulls
-the roads, and routes. **Lismore → Coraki · 20 km · ~4,120 road segments · 104 s
-end to end.**
+Levees are decided months ahead. During the flood the question is a trip. Type
+two places: the twin derives the box, solves the flood, pulls the roads, builds a
+routable graph (**287.4 km against a published 288.0**, 98% of junctions in one
+component) and routes. **20 km · ~4,120 segments · 104 s end to end.**
 
 The flood is carried as a **schedule**, not a peak — depth at 13 times, and a
-road is usable only if it stays crossable for the whole time you're on it.
+road is usable only if it stays crossable for the whole time you are on it.
 
-| what the operator is told | answer |
-|---|---|
-| routed on the **peak depth map** | ### no route exists |
-| routed on the **time-resolved flood**, now | **22 min**, 24.8 km, dry |
-| same trip, last possible departure | 25.5 min, **a different road** |
-| how long it stays possible | ## 3h30 |
+## THE RESULT
 
-> **This is the poster's argument in one row.** A peak-depth map is every flood
-> twin's standard output — ours included — and it is the **union of states that
-> never coexist**. Route on it and it refuses roads that are dry when the driver
-> passes them: it says *nobody gets out of Lismore*. They do, for three and a
-> half hours. Leave at the deadline and the road is different, because by then
-> Coraki Road is under **1.0–2.9 m** where the direct line crosses.
-
-## And it holds over an ensemble, not one storm
-
-Eight forcing members (×0.40–×1.60 of the design discharge; peak network cut
-spanning **55–190 km**), leave-one-out, on the 12 trips of 523 the members
+Eight forcing members, leave-one-out, on the **12 of 523** trips the members
 disagree about — **96 decisions**. Success = **never on a road whose true depth
-exceeds what the vehicle can cross while you're on it.**
+exceeds what the vehicle can cross while you are on it.**
 
-| arm | got through |
+| routed on | got through |
 |---|---|
-| route on the **peak field** | ### 0.0%  (0 of 96) |
-| leave now, mean forecast | 41.7% |
-| time-resolved, mean forecast | 41.7% |
-| + our conformal margin | 41.7% |
-| **re-plan on what is observed** | **56.2%** |
-| oracle (plans on the storm that happens) | 85.4% |
+| ### the peak-depth field | ### 0 / 96 |
+| the time-resolved flood, now | **40 / 96** |
+| + our conformal margin | 40 / 96 |
+| re-planning on what is observed | **54 / 96** |
+| oracle — plans on the storm that happens | **82 / 96** |
 
-**FIGURE 11** — `runs/portal_shots/96_trip_river.png`
-*Caption: hospital to Coraki, discharge **stated** at 3,000 m³/s (applied at
-7,500). 157 km of the 1,309 km network impassable at peak; the trip is 22 min
-and meets no water, so there is **no deadline** — this route is on ground the
-flood does not reach.*
+> # A peak-depth map is the union of states that never coexist in time.
+> Route on it and it refuses roads that are dry when the driver passes them: on
+> this network it reports that **nobody can leave**, on all 96 decisions, where
+> an oracle gets **82** out. **The peak field is what essentially every flood
+> twin publishes — including ours.** A decision taken against it is taken
+> against a scenario that never happens.
 
-> **Why the discharge is typed in.** Left to estimate it, the tool derives
-> bankfull from a 30 m elevation model: on this reach **234 m³/s**, which the
-> largest storm preset takes to under a thousand against a flood of record of
-> **3,000–4,000**. Every trip the interface could model was a **1.4%**-of-network
-> event until the discharge became statable — and the numbers in Column 4's
-> table came from a command line the interface could not reproduce. That gap was
-> found by trying to photograph our own published result.
+On a single trip the same effect is a **3h30 deadline**: 22 minutes and dry
+leaving now; 25.5 minutes on a **different road** at the last departure, because
+by then Coraki Road is under **1.0–2.9 m** where the direct line crosses.
 
-> **Why this figure and not a bigger flood.** A deadline was available at 8,000
-> m³/s (7h00, 28% cut) or 20,000 (3h30, 42%) — but the service applies 2.5× the
-> stated peak, so those show 20,000 and 50,000 m³/s on a river whose record is
-> ~3,000–4,000. **Picking a larger flood for a better caption is the failure
-> this poster is otherwise about.** The published figure states what it does not
-> contain, and names both rejected discharges.
-
-> **And it reproduces from coordinates, not place names.** Geocoding "Lismore
-> NSW" returns a point 0.6 km from the one Column 4's table uses, which shifts
-> the derived box enough that the channel detector finds nothing and the driver
-> falls back to rainfall. A property of the detector on a 130 m grid, stated
-> rather than left to be rediscovered.
+**FIGURE 6** — `runs/portal_shots/96_trip_river.png`
+*Caption: discharge **stated** at 3,000 m³/s (applied at 7,500). 157 km of 1,309
+impassable at peak; trip 22 min, meets no water, so **no deadline** — this route
+is on ground the flood does not reach.*
 
 ## Two results that argue against us, printed at the same size
 
-> **Our own margin does nothing here.** Exactly **0.000 m on all 96 decisions**.
-> The route the central forecast picks is dry under every member, so the residual
-> is identically zero: what differs is not *how deep the chosen road gets* but
-> **which roads exist**. The decision is discrete, the margin continuous. A
-> feasibility theorem cuts both ways — it says which distribution a margin must
-> use, not that a margin exists for every decision.
+> **Our own calibration does nothing here.** Exactly **0.000 m on all 96
+> decisions**. The route the forecast picks is dry under every member, so the
+> residual is identically zero: what differs is not *how deep the chosen road
+> gets* but **which roads exist**. Discrete decision, continuous margin. The
+> method's feasibility statement cuts both ways.
 
-> **Observation helps as a 2:1 bet, not a free lunch.** Filtering the ensemble on
-> observed depths converts **21 of the forecast's 49 refusals into departures:
-> 14 get through, 7 are caught.** Nobody who was arriving stops; nobody who was
-> caught is saved. "+14.5 points" would hide the seven, and being trapped on a
-> flooding road is not the same outcome as having stayed home.
+> **Observation helps as a 2:1 bet.** Filtering the ensemble on observed depths
+> converts **21 of the forecast's 49 refusals into departures: 14 get through, 7
+> are caught.** Nobody arriving stops; nobody caught is saved. "+14 arrivals"
+> would hide the seven, and being trapped on a flooding road is not the same
+> outcome as having stayed home.
 
 **And the routing is exact dynamic programming, not a learned policy.** We will
-not dress Dijkstra as planning. Three PSPE stages do the work here — Simulate,
-Plan, Explain. **Perceive is not in the single-trip loop** and we do not claim it.
+not dress Dijkstra as planning. It is optimal **only because waiting is
+permitted** — availability is non-monotone once the flood recedes, and without
+holding a test case differs by more than 2× (300 min against 127.5).
 
-## The bug that justifies the whole apparatus
+## The bug that justifies the calibration stage
 
 Our own portal displayed a confidence it had no data to support:
 `1.645 · RMSE · √(1 + 1/n)` — a normal-approximation interval, described in its
 own code as "the product-facing form of the framework's safety margin".
 
-Two errors compounded: the fit used **six** calibration runs where 90% coverage
-needs at least **nine**, and a Gaussian puts the 90% point at 1.64×RMSE where the
-honest order statistic is roughly twice that. **The displayed band was about half
-the width it should have been.**
+**Six** calibration runs where 90% coverage needs **nine**, and a Gaussian 90%
+point at 1.64×RMSE where the honest order statistic is roughly twice that. **The
+band was about half the width it should have been.**
 
 > A normal-approximation interval always returns something. **The conformal
-> quantile refuses.** That is the reason to prefer it.
+> quantile refuses.**
 
-**FIGURE 12** — `runs/portal_shots/52_refusal.png`
+**FIGURE 7** — `runs/portal_shots/52_refusal.png`
 
 ## And the explanation is checked before it ships
 
-The portal's written brief is **parseable**, so it can be scored against the
-route it describes and **withheld if it disagrees** — the margin's refusal
-discipline applied to prose. Its first live run caught the guard's own blind
-spot: a brief reading *"every way through is under more water than 25 cm … 0 km
-of 212 km is impassable"* scored 1.000, because the check was only reading the
-departure call. Fixed; that sentence now scores 0.750 and is withheld.
+The written brief is **parseable**, so it is scored against the route it
+describes and **withheld if it disagrees** — the refusal discipline applied to
+prose. Its first live run caught the guard's own blind spot: *"every way through
+is under more water than 25 cm … 0 km of 212 km is impassable"* scored 1.000,
+because the check read only the departure call. Fixed; that sentence now scores
+0.750 and is withheld.
+
+## What the interface could not express
+
+Chasing one figure found a gap worth more than the figure. The trip view could
+not **state** a design discharge, so it inherited bankfull from a 30 m elevation
+model — **234 m³/s** here, against a flood of record of **3,000–4,000**. Every
+trip it could model was a **1.4%**-of-network event, described by a brief scoring
+1.000 faithfulness because it correctly described a non-event. **Every number was
+correct and the system was useless**, which is the kind of failure invisible from
+inside the results.
 
 ## What we are NOT claiming
 
-*(set plainly, same size as the results — not as small print)*
+*(same size as the results — not small print)*
 
-- ❌ **No fire in our archive had a firebreak cut on our instruction.** The
-  intervention arm is **unvalidated in reality** and no retrospective dataset
-  can fix that.
+- ❌ **No fire had a firebreak cut on our instruction.** The intervention arm is
+  **unvalidated in reality**; no retrospective dataset fixes that.
 - ❌ **One** validated flood event, at CSI 0.53 against satellite.
 - ❌ The guarantee is **marginal, not per-step**.
-- ❌ The evacuation **deadline is one realisation**; the ensemble spans *how big*
-  the flood is and nothing else — not timing, not spatial pattern, not solver
-  error.
-- ⚠️ **Exchangeability fails on one of our two testbeds** (lag-1, p ≈ 0) — and
-  the margin attains δ on both anyway.
+- ❌ The **deadline is one realisation**. The ensemble spans *how big* the flood
+  is and nothing else — not timing, not pattern, not solver error. And it
+  reproduces from **coordinates, not place names**: geocoding "Lismore NSW"
+  lands 0.6 km away, enough to move the box off the channel.
+- ⚠️ The calibration **contributes nothing to route choice**, and a trained
+  policy over the same ensemble is an arm we have not run.
 - ⚠️ Model-adaptation benefit is **small** (d = 0.20 at day +1).
 
-During development we **retracted three of our own results** — a distillation
-number that was an artefact of a collapsed loss, a baseline comparison
-invalidated by an extrapolation bias 4× the effect it tested, and a statistical
-claim whose interval spanned its own effect size. **All three initially pointed
-the way that favoured us.** We now treat a claim-supporting result as a trigger
-for an extra check.
+We **retracted three of our own results** during development — a distillation
+number from a collapsed loss, a baseline comparison invalidated by an
+extrapolation bias 4× the effect it tested, and a statistical claim whose
+interval spanned its own effect size. **All three initially favoured us.**
 
-**39 measurement defects catalogued, 45 rules derived.** The one to remember
-degrades data *continuously*: a downsample that lost up to **59%** of a fire's
-detections, smoothly and only for some fires, leaving every downstream number
-plausible. Nothing short of a conservation check finds it.
-
-## Technical detail, for those who want it
-
-*(smallest type on the poster — deliberately)*
-
-Margin: `s_i = c_i − ĝ`, `ĝ` the quantity the dual controls; split-conformal
-quantile at rank `ceil((n+1)(1−δ))`, refusing below `n ≥ 1/δ − 1`.
-Separation (proof and all corollaries: `THESIS_AND_RESULTS.md` Part 10):
-`R` strictly increasing in σ, → ½ for symmetric error, `> δ` for
-`σ > (q − b)/z_δ`. Routing: label-setting on arrival time with waiting
-permitted — required for exactness, because edge availability is non-monotone
-once the flood recedes. Solver: local-inertial shallow water, `dt` by CFL,
-batched over candidate beds. Portal router parity-checked against the Python
-one: **14 of 14 quantities identical**.
+**41 defects catalogued, 47 rules derived.** And one we chose not to exploit: a
+deadline was available for Figure 6 at 8,000 m³/s or 20,000, but the service
+applies 2.5× the stated peak, so those show 20,000 and 50,000 on a river whose
+record is 3,000–4,000. **Picking the larger flood for a better caption would have
+been every defect in the catalogue, committed on purpose.**
 
 ## Data
 
@@ -410,31 +307,22 @@ OpenStreetMap/Overpass · FloodCastBench (reference hydrodynamics).
 
 ## PRODUCTION NOTES (not printed)
 
-- **Column 4 is the one to read if a visitor has 30 seconds.** The 0-of-96 row
-  and the two results-against-us are the poster's credibility.
-- Set the three big numbers at the same weight: **5.0%**, **half the crews**,
-  **0 of 96**. Do not let the method number dominate the applications.
-- **A cited screenshot is a claim about the tool's present state, so every
-  portal figure here has a capture date.** An interface is rebuilt more often
-  than a poster is printed; three figures in an earlier draft showed a
-  superseded tool, including the one Column 3 calls most important.
-- **Figures re-shot 2026-10-01** against the current interface: 2 (plan result),
-  6 (water), 7 (budget trace), 8 (margin explorer), 9 (limits), and the roads and
-  forecast panels. The versions in earlier drafts predated the per-option water,
-  the route card and the methodology pages. A poster showing a superseded
-  interface is advertising a tool that no longer exists.
-- **Figure 11 is captured** (`96_trip_river.png`, 2026-10-01) from a run whose
-  discharge is stated rather than inherited from the DEM. It shows no deadline,
-  and the caption says so; a deadline was reachable only at discharges above the
-  flood of record. `95_trip.png` is retained but unused — it is the rainfall
-  fallback.
-- `51_certainty.png` was deleted. It was captured on the assumption that the
-  panel's single range input was a confidence control; it is the budget slider.
-  The margin's interactive page is `/methodology/margin` and figure 8 is the
-  honest version of what that figure was reaching for.
-- Every number here appears in `WORKSHOP_PAPER.md`; the separation result, its
-  proof, and the provenance of each number are `THESIS_AND_RESULTS.md` Part 10
-  (§10.14 is the number-to-script table). If a number changes, change it in all
-  three.
+- **This poster is the systems paper's companion, not the method paper's.**
+  Column 1C is deliberately 15% of the space. If a visitor wants the theorem,
+  point them at `ICML_PAPER.md`; do not grow column 1 to accommodate them.
+- **Column 4 is what to read in 30 seconds.** The 0/96 row and the two
+  results-against-us are the poster's credibility.
+- Set these at equal weight: **14.3% on 1% crews**, **0 / 96**, **39% not 52%**.
+  Do not let the method number dominate the applications.
+- **A cited screenshot is a claim about the tool's present state, so every portal
+  figure carries a capture date.** An interface is rebuilt more often than a
+  poster is printed; three figures in an earlier draft showed a superseded tool,
+  including the one Column 3 calls most important.
+- Figures re-shot 2026-10-01: 3 (plan result), 6 (trip), 7 (refusal), plus the
+  water, budget-trace, margin-explorer and limits panels held in reserve if space
+  allows. `figA5`/`figA6` are excluded — superseded interface. `95_trip.png` is
+  the rainfall fallback and is **not** used.
+- Every number here appears in `WORKSHOP_PAPER.md`; provenance for each is
+  `THESIS_AND_RESULTS.md` §10.14. If a number changes, change it in all three.
 - The "NOT claiming" block is not padding. It is why a visitor believes the
-  5.0%.
+  **0 / 96**.

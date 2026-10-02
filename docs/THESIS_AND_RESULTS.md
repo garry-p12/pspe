@@ -5308,6 +5308,74 @@ recurring failure is a *phrase that reads stronger than the runs support*:
 estimate quoted without the interval that contains zero. Those survive review
 right up until a reviewer opens the appendix.
 
+### 8.7 Two papers, split by question rather than by length (2026-10-01)
+
+Reviewer feedback on the preview drafts: the two manuscripts were strong and
+**partially cannibalising each other**, because both were trying to carry the
+conformal method as their centrepiece. The fix is to split by scientific question
+rather than by length, so that neither is a long and short version of the same
+work. Adopted, and the ownership is now explicit.
+
+**Paper 1 — `ICML_PAPER.md`.** *What uncertainty must be calibrated when planning
+under expectation constraints inside an imperfect learned model?* Separation
+proposition, the Gaussian closed form, the finite-sample guarantee and the
+beyond-exchangeability discussion; the `ρ` transition as the hero figure; the
+14.1% → 5.0% planning result; CAP, SMBPO and SafeDreamer as instances of the
+excluded class; three PDE families and the dependence analysis. **One**
+application, wildfire, compressed to the horizon falsification, because that is
+what shows the framework matters beyond synthetic control. The flood twin,
+evacuation routing, levee optimisation, the portal and the interface figures are
+**removed** — they dilute the methodological identity.
+
+A reviewer finishing Paper 1 should be able to summarise it in a sentence: *they
+show model-error uncertainty is the wrong calibration target for
+expectation-constrained model-based planning, derive when it fails, and calibrate
+the controlled quantity instead.*
+
+**Paper 2 — `WORKSHOP_PAPER.md`, with `POSTER.md` as its companion.** *What does
+it take to turn a climate digital twin from a forecasting system into one that
+can make constrained, uncertainty-aware operational decisions?* Organised on
+perceive → simulate → plan → **calibrate** → explain, with the two twins as
+demonstrations. The calibration method is **summarised in a single section and
+cited**, not re-derived: no proposition, no `R(ρ)`, no baseline table, and the
+14.1% → 5.0% figure appears once as a pointer. Verified mechanically — the
+strings `Proposition`, `R(ρ)`, `CAP`, `SMBPO`, `SafeDreamer` and `11.99` occur
+**zero** times in Paper 2.
+
+| result | Paper 1 | Paper 2 |
+|---|---|---|
+| separation theorem | **full** | one-paragraph motivation, cited |
+| `R(ρ)` and its validation | **full** | omitted |
+| `ρ` controlled experiment | **hero** | omitted |
+| 14.1% → 5.0% | **hero** | reference only |
+| CAP / SMBPO / SafeDreamer | **full** | omitted |
+| cross-PDE, exchangeability | **full** | one limitation bullet |
+| 607-fire assimilation, EnKF | compressed | **full** |
+| crew-budget curve | moderate | **full** |
+| horizon falsification | **keep** | **keep** |
+| planner distillation | omitted | **full** |
+| flood physics and SAR validation | omitted | **full** |
+| levee optimisation | omitted | **full** |
+| evacuation routing, 0 of 96 | limitation only | **hero** |
+| portal and interface figures | omitted | **full** |
+| 41 defects | brief | strong discussion |
+
+**One number the feedback improved.** Our framing was "roughly half the crews for
+the same outcome". The reviewer's version names both figures — **the planner at a
+1% daily budget reaches 14.3% where the heuristic at 2% reaches 12.8%** — which
+is the same claim stated so a reader can check it against the table rather than
+taking the ratio on trust. Both papers now use that form. The horizon figures in
+the feedback (+0.6 n.s., +8.5, +12.1, +14.3) were checked against §5.1's table
+and are exact.
+
+**What the split does for the weak parts.** §3.4b's shallow-water result — the
+mechanism replicating while the stated rate is only *not rejected* — is a
+methodological caveat and belongs in Paper 1, where it sits beside the theory
+that predicts when a margin can hold at all. §5.14a's finding that our own margin
+contributes **nothing** to discrete route choice is a limitation in Paper 1 and a
+**headline** in Paper 2, where the system it fails in is the subject. Neither
+placement hides it.
+
 ## Part 9 — Related work, and an honest positioning
 
 Literature checked September 2026. The long form, with the argument for each
