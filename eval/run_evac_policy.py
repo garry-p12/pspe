@@ -159,7 +159,12 @@ def walk(g, route, truth: routes.Schedule, limit: float, depart: float) -> dict:
 
 
 def route_scalar(g, route, sched: routes.Schedule, depart: float) -> float:
-    """Deepest water on a route under a schedule: the scalar the margin covers."""
+    """Deepest water on a route under a schedule: the scalar the margin covers.
+
+    Also used to decide whether a trip is worth scoring at all, evaluated on the
+    route the network gives with no water in it -- so trip selection depends on
+    the ensemble's disagreement and not on any arm's choices.
+    """
     if route is None or not route.ok:
         return float("nan")
     t, worst = depart, 0.0
@@ -268,18 +273,41 @@ def main() -> None:
             f"{max(spread_km):.1f} km, so the ensemble carries no disagreement "
             f"for a policy to be right or wrong about. Widen --spread.")
 
-    # Trips: out of the settlement, to junctions the mean member leaves dry.
+    # Trips the ensemble DISAGREES about.
+    #
+    # The first version of this picked destinations on ground the mean member
+    # leaves dry, which selected away the entire question: no trip ever met
+    # water, every arm scored 87.5% including the oracle, and six identical
+    # rows looked like a result. A trip is in play only if the members straddle
+    # the limit on it -- passable under some, cut under others -- which is the
+    # same stratification section 5.13 applies and this did not inherit.
     rng = random.Random(args.seed)
-    mean_all = mean_schedule(scheds)
     src = routes.nearest_node(g, float(o["lon"]), float(o["lat"]))
     dst0 = routes.nearest_node(g, float(d["lon"]), float(d["lat"]))
-    pairs = [(src, dst0)]
-    dry = [n for n in g.adj
-           if max((mean_all.peak()[ei] for ei, _ in g.adj[n]), default=0.0) <= 0.05]
-    rng.shuffle(dry)
-    pairs += [(src, n) for n in dry[: max(0, args.trips - 1)]]
-    print(f"=== {len(pairs)} trips, leave-one-out over {args.members} members ===",
+    cands = [dst0] + [n for n in g.adj if n not in (src, dst0)]
+    rng.shuffle(cands[1:])
+
+    pairs, skipped_unreachable, skipped_agreed = [], 0, 0
+    for n in cands:
+        if n == src or len(pairs) >= args.trips:
+            continue
+        geom = routes.fastest(g, src, n, [0.0] * len(g.edges), args.limit)
+        if not geom.ok or not geom.edges:
+            skipped_unreachable += 1
+            continue
+        vals = [route_scalar(g, geom, m, 0.0) for m in scheds]
+        if not (min(vals) <= args.limit < max(vals)):
+            skipped_agreed += 1
+            continue
+        pairs.append((src, n))
+    print(f"=== {len(pairs)} trips the members disagree about "
+          f"({skipped_agreed} agreed, {skipped_unreachable} unreachable) ===",
           flush=True)
+    if not pairs:
+        raise SystemExit(
+            "DEGENERATE: no trip is passable under some members and cut under "
+            "others, so every arm would score identically and the comparison "
+            "would be of nothing. Widen --spread or raise --trips.")
 
     arms = ["leave-now", "static-peak", "dp-mean", "conformal", "filtered", "oracle"]
     tally = {a: {"arrived": 0, "caught": 0, "no_plan": 0, "minutes": [],

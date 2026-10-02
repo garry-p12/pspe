@@ -4543,6 +4543,96 @@ the larger of the two bracketing values inside each interval. The box is derived
 from two points, so a trip whose only sensible detour leaves that box cannot be
 found. Checks: `portal/scripts/verify-trip.mjs`.
 
+### 5.14a When to leave, when the forecast might be wrong (2026-10-01)
+
+§5.14's deadline is conditional on the storm arriving as modelled. This measures
+what that costs, and it is the one decision in the project that genuinely needs
+more than a shortest path: the network degrades while you drive, the schedule
+depends on a forcing nobody knows exactly, and the depths already on the ground
+tell you which forcing you are living in.
+
+**Setup.** `eval/run_evac_policy.py`. Lismore to Coraki, 163 × 163 at 200 m,
+4,120 road segments over 1,346 km, eight members spanning ×0.40 to ×1.60 of a
+3,000 m³/s design discharge. The members disagree substantially — peak network
+cut runs **55 km to 190 km** — and the whole thing takes 187 s because the
+members solve in 6 s each at this resolution. Leave-one-out: each member in turn
+is reality, the other seven are the forecast. An arm succeeds only if the
+traveller is **never on a road whose true depth exceeds what the vehicle can
+cross while they are on it**, and reaches the destination; judging a plan by
+whether it looked safe when it was made is how this kind of experiment flatters
+itself.
+
+Trips are stratified to the ones the ensemble disagrees about — passable under
+some members, cut under others — which is **12 of 523** candidate destinations.
+The first version of this script picked destinations on ground the mean member
+leaves dry, and that selected the question away: no trip ever met water, every
+arm scored 87.5% *including the oracle*, and six identical rows looked like a
+result. §5.13 applies this stratification and this script did not inherit it.
+
+**Result, 12 trips × 8 held-out members = 96 decisions.**
+
+| arm | got through | caught by water | no plan | median drive |
+|---|---|---|---|---|
+| leave now, on the mean forecast | 41.7% | 7 | 49 | 12.0 min |
+| **route on the peak field** (the standard twin output) | **0.0%** | 0 | **96** | — |
+| time-dependent on the mean forecast (§5.14) | 41.7% | 7 | 49 | 12.0 min |
+| + conformal margin on the route scalar | 41.7% | 7 | 49 | 12.0 min |
+| **re-plan on members consistent with what is observed** | **56.2%** | 14 | 28 | 11.8 min |
+| oracle: plan on the member that happens | 85.4% | 0 | 14 | 8.3 min |
+
+**The peak field fails 96 times out of 96.** §5.14 showed this once on one trip;
+here it is every decision. Routing on the union of states that never coexist
+finds no route at all, on trips where a time-resolved solve finds one and the
+oracle gets through 85% of the time. This is the single most transferable result
+in the routing work, because the peak field is what essentially every flood twin
+publishes.
+
+**The conformal margin is inert here, and the reason is the finding.** It is
+**exactly 0.000 m on all 96 decisions**. Not a bug: the route the central
+forecast chooses is dry under every member at departure, so the residual of the
+reported scalar — deepest water on the chosen route — is identically zero. What
+differs between members is not *how deep the chosen road gets* but **which roads
+exist at all**. The decision is discrete and the margin is continuous, so there
+is nothing for it to bite on: a depth margin cannot express "this road may not be
+there". §5.13 found the same wall from the other side, where the surrogate's
+error on a max-over-edges scalar was the size of the decision threshold. Taken
+together: **the route-level conformal margin is the wrong instrument for route
+*choice* uncertainty**, and saying so is more useful than reporting a band that
+happens to be zero.
+
+**Observation helps, and it is a gamble rather than a free lunch.** The filtered
+arm uses the Perceive stage with no training — members inconsistent with the
+depths seen so far are dropped, at a *stated* tolerance of 0.02 m mean per-edge
+error, and the survivors' mean is re-planned each slot. Per-decision against
+`dp-mean`:
+
+| dp-mean → filtered | count |
+|---|---|
+| arrived → arrived | 40 |
+| no plan → no plan | 28 |
+| **no plan → arrived** | **14** |
+| **no plan → caught** | **7** |
+| caught → caught | 7 |
+
+Nobody who was arriving stops arriving and nobody who was caught is saved. What
+filtering does is convert **21 of the central forecast's 49 refusals into
+departures, of which 14 get through and 7 are caught** — two to one. Quoting
+"+14.5 points of arrivals" would hide the seven, and being trapped on a flooding
+road is not the same kind of outcome as having stayed at home. The honest
+statement is that observation turns a refusal into a 2:1 bet, and whether to take
+it is the operator's call, not the model's. It closes 14 of the 44 points between
+believing the central forecast and the oracle — about a third of the gap.
+
+**Limits.** 96 decisions over 12 trips on one network: a mechanism result, not a
+rate. The ensemble spans *how big the flood is* and nothing else — not timing,
+not spatial pattern, not the solver's own error — which is a narrower uncertainty
+than an operator faces, and the arms are compared only against that. 200 m cells.
+The filter is a consistency test at a fixed tolerance rather than a learned
+policy; a trained policy over the same ensemble is the obvious next arm, and this
+gives it the baselines to beat — including the uncomfortable one, which is that
+the margin this project is built around contributes nothing to this particular
+decision.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
