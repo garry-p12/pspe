@@ -1671,6 +1671,94 @@ the best achievable in hindsight before concluding anything from a learned arm's
 failure to improve, and before concluding anything from its success.
 
 
+### 3.4j The faithfulness term is net harmful, and the plateau was the token cap (2026-10-03)
+
+Jobs 1043567_[0-2] ran the five Explain arms at `max_len=160` against the
+trained `explain_real_v2` planners. All three COMPLETED 0:0 in ~2 hours. This
+closes audit item 12.1 with numbers, and the numbers are worse for the Explain
+stage than the open item suggested.
+
+| arm | seed 0 | seed 1 | seed 2 | mean F(b) | state-specific gap | train s |
+|---|---|---|---|---|---|---|
+| **no-faithful** (supervised only) | 0.9067 | 0.8982 | 0.8990 | **0.9013** | +0.0001 | 946 |
+| trained-in (supervised + faithfulness) | 0.3517 | 0.3347 | 0.8297 | **0.5054** | −0.0042 | 2147 |
+| post-hoc-prompted (LM, no training) | 0.0559 | 0.5362 | 0.4677 | **0.3533** | +0.0058 | 0 |
+| post-hoc-transfer (trained on another policy) | 0.0514 | 0.4097 | 0.5881 | **0.3497** | +0.0001 | 1925 |
+| post-hoc-untrained | 0.0035 | 0.2446 | 0.2967 | **0.1816** | +0.0000 | 0 |
+| *reference brief (ceiling)* | 0.9068 | 0.8982 | 0.8993 | *0.9014* | — | — |
+
+**1. The truncation ceiling was real, and removing it changes the story.** The
+old Qwen arms plateaued at `F ≈ 0.57` and that was written up as a learning
+limit. At `max_len=160` the supervised-only arm reaches **0.9013 against a
+reference of 0.9014** — it reproduces the reference brief essentially exactly.
+The plateau was the 96-token cap (defect 47), not the generator.
+
+**2. The faithfulness term — the Explain stage's actual contribution — costs
+0.396 of F.** Paired against `no-faithful`: **+0.555, +0.564, +0.069**, all three
+seeds preferring the term switched **off**, and it more than doubles training
+time (2147 s against 946 s). §8.9 already found the weight sweep non-monotone
+and the REINFORCE term unable to move a greedy decode without flipping tokens
+for the worse. This is that finding at the headline: the term does not merely
+fail to help, it undoes most of what supervision achieves.
+
+**3. Against a real control the trained-in advantage is small and not stable.**
+The published claim was "trained-in beats post-hoc, t = +21", computed against
+the untrained arm — 0.5054 against 0.1816, which is trained-vs-untrained
+(defect 48). Against `post-hoc-transfer`, the generator trained on a *different*
+policy's briefs, the gap is **+0.156**, and per seed it is **+0.300, −0.075,
++0.242** — one of three seeds reverses. "Training on the policy being explained
+is what matters" is weakly supported, not established.
+
+**4. Prompting an off-the-shelf 0.5B model is worth exactly what our apparatus
+trained on another policy is worth.** `post-hoc-prompted` 0.3533 against
+`post-hoc-transfer` 0.3497, paired **+0.0035** (+0.004, +0.127, −0.120). The
+prompted arm trains for **zero seconds** and uses no prefix, no LoRA and no
+brief embedding; the transfer arm trains for 1925 s. On this metric the
+prefix-tuning machinery buys nothing over a prompt unless it is trained on the
+policy it explains — which is finding 3, at +0.156 on three seeds.
+
+**5. No arm carries state-specific information.** The permutation gap is within
+±0.006 everywhere, the largest being the prompted arm's +0.0058. §4.4 killed
+this project's first explanation module for exactly this and the finding
+survives both the truncation fix and a real language model: a brief written for
+one state scores the same against another. Whatever F measures here, it is not
+"this explanation describes *this* decision".
+
+**6. Seed 0 confirms the fallback diagnosis.** Its untrained F is 0.0035 against
+0.2446 and 0.2967 — two orders of magnitude apart, because the untrained arm's
+score *is* the parser's fallback `exp(−KL(π ‖ N(0, 0.4·1)))` and therefore
+tracks how close each seed's policy sits to zero action rather than anything
+about explanation (§3.4f). The spread is the mechanism, visible.
+
+**What the Explain stage may now claim.** *A supervised generator reproduces the
+reference brief at the parser's ceiling (0.901 against 0.901). The faithfulness
+objective is net harmful, at −0.396 across three seeds. Training on the policy
+being explained beats training on another policy by +0.156, with one of three
+seeds reversing, and beats an untrained generator by +0.324. No arm produces
+state-specific briefs.* The honest recommendation is to **drop the faithfulness
+term from the headline configuration** and report it as a measured negative, and
+to stop quoting any trained-in-vs-post-hoc figure computed against the untrained
+arm.
+
+**Three seeds, and the variance is large** — `trained-in` spans 0.33 to 0.83.
+The paired differences are what the seeds support; the arm means are not tightly
+resolved, and finding 3 in particular needs more seeds before it is reported as
+an effect rather than a direction.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 53 | The faithfulness REINFORCE term, the Explain stage's stated contribution, reduces brief faithfulness | F(b) 0.5054 with the term against 0.9013 without, on all three seeds, at 2.3× the training cost; the stage's headline mechanism is net negative | rerunning the arms at `max_len=160` after defect 47 removed the truncation ceiling that had been masking the supervised arm's performance | 3.4j |
+
+**Rule 61: a ceiling in the metric can hide the sign of an effect.** At 96
+tokens every arm was cut before the brief's footer, the supervised arm was held
+near 0.57, and the faithfulness term looked roughly neutral. Lift the cap and
+the supervised arm goes to 0.90 while the faithfulness arm stays near 0.51 — the
+term was *always* costing ~0.4, and the truncation was compressing every arm
+into a range too narrow to show it. When a result is "no significant
+difference", check whether the measurement is saturated before concluding the
+effect is absent.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -7013,7 +7101,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 52 defects, 60 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 53 defects, 61 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
