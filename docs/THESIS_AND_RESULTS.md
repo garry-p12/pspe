@@ -6006,7 +6006,7 @@ knowledgeable reviewer and are cheap.
 | # | experiment | cost | what it buys |
 |---|---|---|---|
 | 1 | ~~Port the twin loop to **WildfireSpreadTS**~~ | **done** | 607 fires, year-wise CV, job 1029659. Corrected two §5.2 claims downward: adaptation +6.3% not +21% at day 2, and 62-76% of fires not 8/8 (§5.2a) |
-| 2 | ~~Add a **model-based** safe-RL baseline~~ | **done; second one written 2026-09-28** | CAP transplanted onto our planner at a matched probe budget: 0.1199 violating against our 0.0780, ours vs CAP z = +2.08, CAP vs no margin z = −0.43 (§3.2). `eval/run_smbpo_baseline.py` transplants SMBPO the same way. **Result: 12.20% against CAP's 11.99% (p = 0.83, indistinguishable) and ours at 5.00% (+7.20 pts, p = 0.00135).** The pre-registered prediction that it would lose by *more* than CAP failed, and the failure generalises the claim: how you summarise disagreement does not matter, computing on the wrong distribution does (§9.2a). SafeDreamer remains unrun |
+| 2 | ~~Add a **model-based** safe-RL baseline~~ | **done; second one written 2026-09-28** | CAP transplanted onto our planner at a matched probe budget: 0.1199 violating against our 0.0780, ours vs CAP z = +2.08, CAP vs no margin z = −0.43 (§3.2). `eval/run_smbpo_baseline.py` transplants SMBPO the same way. **Result: 12.20% against CAP's 11.99% (p = 0.83, indistinguishable) and ours at 5.00% (+7.20 pts, p = 0.00135).** The pre-registered prediction that it would lose by *more* than CAP failed, and the failure generalises the claim: how you summarise disagreement does not matter, computing on the wrong distribution does (§9.2a). **SafeDreamer run since: 13.17%, every clause of the pre-registered prediction holding, and indistinguishable from applying no margin at all (p = 0.97) — see §9.2b. All three are now run.** |
 | 3 | ~~Add a **DA baseline** (EnKF or learned gain) to the twin loop~~ | **done (2026-09-28)** | 32-member EnKF, σ_o swept over {0.05, 0.15, 0.30}, 606 fires, job 1031659. **No setting beats gain-1 nudging**; skill tracks the implied Kalman gain (0.979/0.837/0.562 → 0.329/0.127/0.032), so gain 1 is approximately the filter's own optimum, not a naive stand-in (§5.2c) |
 | 4 | ~~Head-to-head on an inaccurate surrogate~~ | **done** | the diagnostic is derived and confirmed at ρ = 1.00 (§3.5); the PDE ladder is queued |
 | 5 | **Flood extent from Sentinel-1** — a dense field, sequential, free on GCS | 2–3 weeks | decides whether §5.3 is a sparse-field quirk or a property of budgeted intervention (§9.10). *Partly done*: `pspe/observe/sar.py` and one validated event (§5.7); the dense-field intervention study is not started |
@@ -6034,7 +6034,7 @@ addressed and one is sharper than the reviewer made it.
 | criticism | status |
 |---|---|
 | "exchangeability check is only on DAR — not RDF, despite RDF carrying much of the headline margin evidence" | **Confirmed.** `runs/exchangeability/` is dar only. Tier 0 below. |
-| "CAP is the only model-based safe-RL baseline … does not compare against SMBPO or SafeDreamer" | **Half closed.** SMBPO run 2026-09-28 (§9.2a): 12.20% against CAP's 11.99%, p = 0.83. SafeDreamer outstanding. |
+| "CAP is the only model-based safe-RL baseline … does not compare against SMBPO or SafeDreamer" | **Half closed.** SMBPO run 2026-09-28 (§9.2a): 12.20% against CAP's 11.99%, p = 0.83. **SafeDreamer run since: 13.17% (§9.2b). FULLY closed — all three model-based baselines are run.** |
 | quoted numbers 0.078 / 0.120 / 0.132 | **Superseded.** At 20 seeds: 5.00 / 11.99 / 14.09, run-level p = 0.0003, and **no objective-value cost** (§3.2b). |
 | "the real-world experiment does not validate the proposed safety method" | **Correct, and the sharpest point in the review.** See Tier 3. |
 | abstract says "the default is structurally wrong" while the body is more precise | **Correct.** Fix the abstract. |
@@ -6788,7 +6788,7 @@ not matched-constraint in the way the phrase implies.
 ### 9.2a A second model-based baseline, and a prediction made before running it
 
 §9.2 reports CAP transplanted onto our planner — 11.99% violating against our
-7.80%, z = +2.08 — and then concedes "SMBPO and SafeDreamer unrun". §3.2 explains
+7.80%, z = +2.08 — and then conceded "SMBPO and SafeDreamer unrun", which is no longer true: both are run (§9.2a, §9.2b). §3.2 explains
 CAP's loss *structurally*: ensemble disagreement is not the distribution that
 breaches the limit, for the same reason model error is not. A structural
 explanation is worth more than a win only if it predicts the next method, so the
