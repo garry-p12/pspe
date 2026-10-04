@@ -33,6 +33,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import torch  # noqa: E402
+
 from eval.metrics import markdown_table  # noqa: E402
 from pspe.envs import make_env  # noqa: E402
 from pspe.plan import GaussianFieldPolicy, HybridPlannerTrainer, PlannerConfig  # noqa: E402
@@ -99,6 +101,24 @@ def main() -> int:
                              "(p = 0.000/0.002/0.000) while adaptive coverage "
                              "landed on 0.1000 against a requested 0.1.")
     parser.add_argument("--out", default="runs/constraint_fix")
+    # The matched-budget comparison. §8.3 gives the model-free four 38,400 real
+    # transitions against the planner's 4,160 and still reports a better return
+    # for the planner -- but the planner violates a limit they respect, so the
+    # document concedes "part of the advantage was bought". Capping them at the
+    # planner's own budget, in this same seed loop, is what makes the claim
+    # matched instead of assembled from two tables of two different runs.
+    parser.add_argument("--null-arm", action="store_true", default=True,
+                        help="evaluate the zero policy as an arm. On by default: "
+                             "it is free and it is the row that decides whether "
+                             "any other row demonstrates control")
+    parser.add_argument("--no-null-arm", dest="null_arm", action="store_false")
+    parser.add_argument("--baselines", action="store_true",
+                        help="also run the four model-free safe-RL baselines at "
+                             "the planner's real-sample budget, same seed")
+    parser.add_argument("--baseline-budget", type=int, default=0,
+                        help="real transitions per baseline; 0 matches the planner")
+    parser.add_argument("--baseline-batch", type=int, default=16,
+                        help="baseline rollout batch; budget = iters x batch x horizon")
     args = parser.parse_args()
 
     if args.probe_every >= args.iterations:
@@ -202,6 +222,101 @@ def main() -> int:
               + ("  INFEASIBLE: the margin consumes the whole limit, so this "
                  "seed's violation rate is not a coverage measurement"
                  if rows[-1]["margin_exceeds_limit"] else ""))
+
+    # ---------------------------------------------------------------------- #
+    # Model-free safe RL, AT OUR REAL-SAMPLE BUDGET.
+    #
+    # Two honest ways to match the comparison: hold performance fixed and count
+    # the samples each method needs, or hold the sample budget fixed and compare
+    # performance. This is the second, because it is one config change -- cap
+    # the baselines at the planner's real-sample count and let them train on the
+    # true environment, which is the only one they have.
+    #
+    # They run in the SAME seed loop, testbed and limit as the planner arms, so
+    # the comparison is seed-paired rather than cross-table.
+    #
+    # PRE-REGISTERED PREDICTION, recorded before the first run and in the style
+    # this project used for SafeDreamer: at ~4,200 real transitions the
+    # model-free four are nowhere near converged (§8.3 runs them for nine times
+    # that), so they should lose to the planner on return AND fail to hold the
+    # constraint they satisfy at full budget -- their 0% is bought with data,
+    # not with the algorithm. If any of them still holds 0% here, the
+    # sample-efficiency claim is weaker than §8.3 implies and that is the
+    # result that must be reported.
+    # The row this table has never had: DO NOTHING.
+    #
+    # Free, instant, and it decides whether any of the other rows mean anything.
+    # Measured on the published IC set (dar, grid 64, d = 0.936) the zero policy
+    # returns -2.5645 at cost 0.2735 -- so Saute's -2.537 is the null policy plus
+    # 0.027, CPO's -2.541 plus 0.024, PPO-Lagrangian's -2.558 plus 0.007, each
+    # bought with 38,400 real transitions. Averaged over five IC draws instead
+    # of the one the published runs shared, do-nothing returns -2.3822 and beats
+    # all four. The sign of "does safe RL beat doing nothing here" depends on the
+    # draw, which is why this row has to be in the table and why the comparison
+    # has to be seed-paired.
+    #
+    # A method that does not clear the zero policy has not demonstrated control,
+    # whatever its violation rate -- and 0% violation is exactly what the zero
+    # policy scores (Rule 57).
+    if args.null_arm:
+        seed_everything(args.seed)
+        nenv = make_env(dynamics="truth", **env_kwargs)
+        st = nenv.reset(8, torch.Generator().manual_seed(args.seed + 10_000))
+        R = torch.zeros(8, device=st.device); C = torch.zeros(8, device=st.device)
+        for _ in range(args.horizon):
+            st, r, c, _ = nenv.step(torch.zeros(8, nenv.action_dim, device=st.device))
+            R += r; C += c
+        lim = nenv.task.cost_limit
+        rows.append({
+            "arm": "do-nothing",
+            "return": round(float(R.mean()), 4),
+            "episode_cost": round(float(C.mean()), 4),
+            "cost_limit": lim,
+            "violating_evals": 0.0 if float(C.mean()) <= lim else 1.0,
+            "worst_cost": round(float(C.max()), 4),
+            "real_samples": 0,
+            "null_policy": True,
+        })
+        print(f"[do-nothing] return {rows[-1]['return']} "
+              f"cost {rows[-1]['episode_cost']} (limit {lim}) "
+              f"real samples 0  <- every other arm must clear this", flush=True)
+
+    if args.baselines:
+        from baselines.safe_rl import ALGORITHMS, SafeRLConfig, make_agent
+
+        planner_real = max((r.get("real_samples", 0) for r in rows), default=0)
+        budget = args.baseline_budget or int(planner_real)
+        iters = max(1, budget // (args.baseline_batch * args.horizon))
+        actual = iters * args.baseline_batch * args.horizon
+        print(f"\n=== model-free baselines at a matched budget ===\n"
+              f"  planner used {planner_real} real transitions; baselines get "
+              f"{iters} x {args.baseline_batch} x {args.horizon} = {actual}",
+              flush=True)
+        for alg in sorted(ALGORITHMS):
+            seed_everything(args.seed)
+            benv = make_env(dynamics="truth", **env_kwargs)
+            agent = make_agent(
+                alg, benv,
+                cfg=SafeRLConfig(iterations=iters, batch=args.baseline_batch,
+                                 horizon=args.horizon, seed=args.seed,
+                                 log_dir=str(root / f"baseline_{alg}")),
+                logger=RunLogger(root / f"baseline_{alg}", use_tensorboard=False),
+                device=device,
+            )
+            bs = agent.train()
+            rows.append({
+                "arm": f"{alg} @matched",
+                "return": round(bs["return"], 4),
+                "episode_cost": round(bs.get("episode_cost", float("nan")), 4),
+                "violating_evals": round(
+                    bs.get("eval/violating_eval_fraction", float("nan")), 4),
+                "worst_cost": round(bs.get("eval/cost_max_over_run", float("nan")), 4),
+                "real_samples": bs.get("samples", actual),
+                "model_free": True,
+            })
+            print(f"[{alg} @matched] return {rows[-1]['return']} "
+                  f"violating {rows[-1]['violating_evals']} "
+                  f"real samples {rows[-1]['real_samples']}", flush=True)
 
     table = markdown_table(rows)
     (root / "results.md").write_text(table + "\n")
