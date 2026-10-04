@@ -6,7 +6,7 @@
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -t 08:00:00
-#SBATCH --array=0-1
+#SBATCH --array=0-3
 #
 # The corrected baseline table: 20 seeds, the seed actually reaching the
 # configs, a do-nothing floor, and the model-free four at OUR sample budget.
@@ -49,32 +49,54 @@ module purge && module load gcc/13.2.0 cuda/12.6 python3/3.11.8
 source "$VENV/bin/activate"; cd "$REPO"
 python -c "import torch; assert torch.cuda.is_available(), 'no CUDA'"
 
+# Two budgets, because they answer two different questions and the first
+# version of this script only wired one.
+#
+#  MATCHED (tasks 0-1): the baselines capped at the planner's own real-sample
+#  count. Tests the sample-efficiency claim -- what do they achieve with the
+#  data we use? Cheap, and the planner arms run alongside.
+#
+#  FULL (tasks 2-3): the baselines at their own 38,400 transitions, which is
+#  what section 8.3 reported, but with 20 seeds that actually vary. This is the
+#  task that corrects that table. --baselines-only skips the planner arms, which
+#  tasks 0-1 already produce, and keeps the free null row so each table stands
+#  alone.
 case "${SLURM_ARRAY_TASK_ID:-0}" in
-  0) TB=dar
-     EXTRA="--probe-every 20 --margin-k 2.0"
-     ;;
-  1) TB=rdf
-     EXTRA="--probe-every 10 --sat-coef 1.0 --adv-floor 1e-2 --dual-ema 0.7 --ki 0.5 \
-            --margin-conformal --margin-delta 0.1"
-     ;;
+  0) TB=dar; MODE=matched ;;
+  1) TB=rdf; MODE=matched ;;
+  2) TB=dar; MODE=full ;;
+  3) TB=rdf; MODE=full ;;
   *) echo "unexpected array index" >&2; exit 1 ;;
+esac
+
+case "$TB" in
+  dar) EXTRA="--probe-every 20 --margin-k 2.0" ;;
+  rdf) EXTRA="--probe-every 10 --sat-coef 1.0 --adv-floor 1e-2 --dual-ema 0.7 --ki 0.5 \
+              --margin-conformal --margin-delta 0.1" ;;
+esac
+
+case "$MODE" in
+  matched) BARGS="--baselines --baseline-batch 16"
+           EXTRA="$EXTRA --epochs 20" ;;
+  # 200 x 16 x 12 = 38,400, exactly what section 8.3 gave them.
+  full)    BARGS="--baselines --baselines-only --baseline-budget 38400 --baseline-batch 16"
+           EXTRA="$EXTRA --epochs 1" ;;   # no planner arms, so no surrogate needed
 esac
 [ -f "data/pde_testbeds/${TB}_64.npz" ] || { echo "missing ${TB}_64.npz" >&2; exit 1; }
 
-OUT="runs/nullfloor20_${TB}"
+OUT="runs/nullfloor20_${TB}_${MODE}"
 mkdir -p "$OUT"
-echo "=== $TB, 20 seeds, null floor + matched-budget baselines ===" >&2
+echo "=== $TB, $MODE budget, 20 seeds ===" >&2
 
 for BATCH in "0 1 2 3 4" "5 6 7 8 9" "10 11 12 13 14" "15 16 17 18 19"; do
   echo "=== batch $BATCH ===" >&2
   for s in $BATCH; do
     python -u eval/run_constraint_fix.py --testbed "$TB" --seed "$s" --grid 64 \
-      --epochs 20 --iterations 200 $EXTRA \
-      --baselines --baseline-batch 16 \
+      --iterations 200 $EXTRA $BARGS \
       --device cuda --out "$OUT/seed_$s" > "$OUT/seed_$s.log" 2>&1 &
   done
   wait
   echo "=== batch $BATCH done ===" >&2
 done
 
-echo "=== $TB complete; $(ls -d $OUT/seed_* 2>/dev/null | wc -l) seeds ===" >&2
+echo "=== $TB $MODE complete; $(ls -d $OUT/seed_* 2>/dev/null | wc -l) seeds ===" >&2

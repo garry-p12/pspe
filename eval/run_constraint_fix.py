@@ -112,6 +112,10 @@ def main() -> int:
                              "it is free and it is the row that decides whether "
                              "any other row demonstrates control")
     parser.add_argument("--no-null-arm", dest="null_arm", action="store_false")
+    parser.add_argument("--baselines-only", action="store_true",
+                        help="skip the planner arms; run the null row and the "
+                             "model-free baselines at --baseline-budget. For "
+                             "re-measuring §8.3 at full budget with varied seeds")
     parser.add_argument("--baselines", action="store_true",
                         help="also run the four model-free safe-RL baselines at "
                              "the planner's real-sample budget, same seed")
@@ -121,7 +125,9 @@ def main() -> int:
                         help="baseline rollout batch; budget = iters x batch x horizon")
     args = parser.parse_args()
 
-    if args.probe_every >= args.iterations:
+    # The probe guard is about the PLANNER arms, which --baselines-only does not
+    # run, so it must not reject a baselines-only invocation.
+    if args.probe_every >= args.iterations and not args.baselines_only:
         raise SystemExit(
             f"--probe-every {args.probe_every} >= --iterations {args.iterations}: "
             "the probe would never fire and all four arms would be identical."
@@ -136,18 +142,28 @@ def main() -> int:
     seed_everything(args.seed)
     data = ensure_dataset(args.testbed, grid=args.grid)
     spec = make_testbed(args.testbed, grid=args.grid)
-    surrogate = make_surrogate("fno", spec.n_channels, grid=args.grid)
-    sim = SimulateTrainer(
-        surrogate,
-        SimulateTrainConfig(testbed=args.testbed, surrogate="fno",
-                            epochs=args.epochs, grid=args.grid),
-        data, RunLogger(root / "surrogate", use_tensorboard=False), device,
-    )
-    sim_summary = sim.train()
-    surrogate = sim.model
-    for p in surrogate.parameters():
-        p.requires_grad_(False)
-    print(f"surrogate rel L2 {sim_summary['rel_l2_final']:.4f}")
+    # The model-free baselines train on the TRUE environment and never touch the
+    # surrogate, so --baselines-only skips fitting it. Guarding only the arms
+    # loop left this running: wasted GPU time on the full-budget tasks, and it
+    # made the path untestable off-GPU because the local FNO backward raises
+    # "norm ops are not supported for complex yet" in clip_grad_norm_.
+    surrogate, sim_summary = None, {}
+    if not args.baselines_only:
+        surrogate = make_surrogate("fno", spec.n_channels, grid=args.grid)
+        sim = SimulateTrainer(
+            surrogate,
+            SimulateTrainConfig(testbed=args.testbed, surrogate="fno",
+                                epochs=args.epochs, grid=args.grid),
+            data, RunLogger(root / "surrogate", use_tensorboard=False), device,
+        )
+        sim_summary = sim.train()
+        surrogate = sim.model
+        for q in surrogate.parameters():
+            q.requires_grad_(False)
+        print(f"surrogate rel L2 {sim_summary['rel_l2_final']:.4f}")
+    else:
+        print("--baselines-only: no surrogate fitted; the baselines train on "
+              "the true environment.", flush=True)
 
     # Real transitions spent fitting the surrogate — the denominator of the
     # sample-efficiency claim, and what the probe arms add to.
@@ -167,7 +183,13 @@ def main() -> int:
                       **task_over,
                       n_actuators=9, device=device, batched=True)
     rows = []
-    for name, overrides in arms(args.probe_every, args.margin_k).items():
+    planner_arms = {} if args.baselines_only else arms(args.probe_every, args.margin_k)
+    if args.baselines_only:
+        print("--baselines-only: skipping the planner arms. Used for the "
+              "full-budget correction of §8.3. The null row still runs: it "
+              "is free and it is the floor these baselines are measured "
+              "against, so every output table stays self-contained.", flush=True)
+    for name, overrides in planner_arms.items():
         seed_everything(args.seed)
         train_env = make_env(dynamics="surrogate", surrogate=surrogate, **env_kwargs)
         eval_env = make_env(dynamics="truth", **env_kwargs)
@@ -286,6 +308,10 @@ def main() -> int:
 
         planner_real = max((r.get("real_samples", 0) for r in rows), default=0)
         budget = args.baseline_budget or int(planner_real)
+        if budget <= 0:
+            raise SystemExit(
+                "no real-sample budget: --baselines-only needs an explicit "
+                "--baseline-budget, since there is no planner arm to match")
         iters = max(1, budget // (args.baseline_batch * args.horizon))
         actual = iters * args.baseline_batch * args.horizon
         print(f"\n=== model-free baselines at a matched budget ===\n"
