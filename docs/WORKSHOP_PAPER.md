@@ -470,7 +470,7 @@ interval, recomputed over the correct unit, spanned its own effect size. **All
 three initially pointed the way that favoured us**, which is why a
 claim-supporting result is now a trigger for an extra check.
 
-**53 measurement defects are catalogued with the check that caught each, and 61
+**53 measurement defects are catalogued with the check that caught each, and 62
 rules derived from them.** Four are worth a workshop audience's time because each
 is a *systems* failure invisible from inside the results:
 

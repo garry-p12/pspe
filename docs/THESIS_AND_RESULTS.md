@@ -1759,6 +1759,88 @@ difference", check whether the measurement is saturated before concluding the
 effect is absent.
 
 
+### 3.4k The null floor: what a do-nothing policy scores (2026-10-04)
+
+Asked what would make the comparison against Sauté RL and PID-Lagrangian
+convincing. The answer was not a better number but **a row the baseline table
+has never had**: the zero policy. Measured under the planner's exact evaluation
+protocol — grid 64, 8 episodes, ICs from `Generator(seed + 10_000)`, reward
+summed over the horizon, zero action at every step.
+
+| testbed | limit | do-nothing return (published IC draw) | mean over 5 draws | episode cost | violates? |
+|---|---|---|---|---|---|
+| dar | 0.936 | **−2.5645** | **−2.3822** | 0.23–0.27 | **no** |
+| rdf | 3.26 | **−8.2798** | **−7.8324** | 0.53–0.78 | **no** |
+
+**The zero policy never violates, on either testbed, and costs nothing.** That
+is Rule 57 restated as a measurement: a 0% violation rate is the *null* policy's
+score, so it certifies nothing on its own.
+
+**rdf, the headline testbed, clears the floor comfortably.**
+
+| arm | violating % | return (IQM) | over the null floor |
+|---|---|---|---|
+| do-nothing | **0%** | −7.832 | — |
+| baseline | 14.1 | −6.917 | +0.92 |
+| probe only | 10.9 | −6.850 | +0.98 |
+| **probe + conformal** | **5.0** | **−6.884** | **+0.95** |
+
+So §3.2's claim survives the check it had never been given: violations fall
+14.1% → 5.0% at a return **0.95 above** what doing nothing achieves, on 20 seeds
+from a runner that does pass the seed, CI [−11.8, −5.5], p = 0.0002. The "at no
+cost in objective value" half of the claim is now anchored to something rather
+than to the untreated arm alone.
+
+**dar, §8.3's testbed, is where the problem is.** Against the null floor on the
+IC draw those runs actually used:
+
+| method | return | over the null | real transitions |
+|---|---|---|---|
+| do-nothing | −2.5645 | — | **0** |
+| **PSPE probe+margin** | −2.301 | **+0.264** | 4,160 |
+| PSPE adaptive α | −2.448 | +0.117 | 3,072 |
+| Sauté RL | −2.537 | **+0.027** | 38,400 |
+| CPO | −2.541 | **+0.024** | 38,400 |
+| primal-dual NPG | −2.544 | **+0.021** | 38,400 |
+| PPO-Lagrangian | −2.558 | **+0.007** | 38,400 |
+
+**The four model-free baselines buy between 0.007 and 0.027 of return over doing
+nothing, each with 38,400 real transitions.** Our probe+margin arm buys 0.264
+with 4,160. And the margin of victory over the null is an order of magnitude
+smaller than the variation across IC draws: averaged over five draws instead of
+the single one those runs shared, do-nothing returns **−2.3822 and beats all
+four baselines and our own adaptive-α arm**.
+
+**So the sign of "does safe RL beat doing nothing on dar" depends on the IC
+draw, and the published table sits on the favourable one.** That is defect 46
+again, from a direction the footnote did not anticipate: the problem is not only
+that the ± is wrong, it is that the *ranking* is conditional on a single draw
+whose variation exceeds the effect being reported.
+
+**What this does and does not change.**
+
+* **Unchanged**: Proposition 3 and the `R(ρ)` validation to 0.003; the
+  model-based baseline comparison on violations (ours 5.00% against CAP 11.99%,
+  SMBPO 12.20%, SafeDreamer 13.17%, none distinguishable from applying no
+  margin); rdf's headline, which now has a floor beneath it.
+* **Weakened**: §8.3's model-free *return* comparison, and with it the sentence
+  "beats every baseline on return (t = +3.84 to +17.95)". Those t-values come
+  from an understated SE on one IC draw, and the baselines may not separate from
+  the null policy at all once the seeds vary.
+* **Still to run**: `scripts/tacc/vista_nullfloor20.slurm`, 20 seeds per testbed
+  with the null arm and the baselines capped at the planner's own real-sample
+  budget, which is what settles it.
+
+**Rule 62: every table of learned methods needs the do-nothing row.** It is free,
+it takes no samples, it cannot violate a constraint it never approaches, and it
+is the only row that distinguishes "this method controls the system" from "this
+method is near the null policy and its 0% violation is that fact restated."
+Four published safe-RL algorithms were reported here as respecting a limit our
+planner broke, for 38,400 real transitions each, and not one of them was ever
+compared against doing nothing. The row would have taken a minute to produce at
+any point in the last year.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -7101,7 +7183,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 53 defects, 61 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 53 defects, 62 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
