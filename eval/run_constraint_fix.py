@@ -80,7 +80,15 @@ def arms(probe_every: int, margin_k: float) -> dict[str, dict]:
         # about THIS arm's realised violation rate, so running it beside the
         # measured rho turns the closed form from a Gaussian simulation into a
         # test on a learned planner.
-        "probe+model-error": dict(real_cost_every=probe_every, cost_margin_k=0.0,
+        # cost_margin_k must be POSITIVE. In `_effective_limit` it is both a
+        # multiplier (non-conformal path) and an ENABLE GATE: the function
+        # returns the untightened limit when it is <= 0, before the conformal
+        # branch is reached. The first version of this arm set it to 0.0 because
+        # the conformal path ignores its value, and the arm silently produced a
+        # margin of exactly 0.0000 on 18 of 18 seeds -- identical to probe-only,
+        # which is what it was compared against without anyone noticing.
+        "probe+model-error": dict(real_cost_every=probe_every,
+                                  cost_margin_k=margin_k,
                                   margin_conformal=True,
                                   margin_mode="model_error"),
     }
@@ -279,6 +287,19 @@ def main() -> int:
             "final_lambda": round(s.get("final_lambda", 0.0), 3),
             "pre_tanh_abs": round(s.get("train/pre_tanh_mean_abs", 0.0), 3),
         })
+        # Sentinel: an arm that ASKED for a margin and got exactly zero is not a
+        # measurement of that recipe, it is a copy of the unmargined arm. This
+        # is how the probe+model-error arm ran 18 seeds against the wrong thing
+        # -- cost_margin_k = 0 short-circuits `_effective_limit` before the
+        # conformal branch. Loud, because the failure is numerically invisible:
+        # every column looks plausible and matches another arm exactly.
+        if overrides.get("margin_conformal") and rows[-1]["effective_limit"] >= \
+                rows[-1]["cost_limit"] - 1e-12:
+            print(f"  WARNING [{name}] requested a conformal margin and the "
+                  f"effective limit is untightened ({rows[-1]['effective_limit']} "
+                  f"vs {rows[-1]['cost_limit']}). This arm is NOT running its "
+                  f"recipe; check cost_margin_k > 0 and that the calibration "
+                  f"sample is large enough for delta.", flush=True)
         print(f"[{name}] return {rows[-1]['return']} "
               f"violating {rows[-1]['violating_evals']} "
               f"real samples {rows[-1]['real_samples']}"

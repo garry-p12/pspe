@@ -92,3 +92,48 @@ def test_every_arm_override_is_a_real_config_field():
     fields = {f.name for f in dc.fields(PlannerConfig)}
     for name, ov in cfx.arms(10, 2.0).items():
         assert not (set(ov) - fields), f"{name} has unknown keys"
+
+
+# --------------------------------------------------------------------------- #
+# The trap that cost 18 seeds: cost_margin_k is an ENABLE GATE as well as a
+# multiplier. `_effective_limit` returns the untightened limit when it is <= 0,
+# before the conformal branch is reached -- so an arm with margin_conformal=True
+# and cost_margin_k=0.0 produces a margin of exactly zero and becomes a copy of
+# the unmargined arm, with every reported column plausible.
+# --------------------------------------------------------------------------- #
+
+def test_conformal_arms_request_a_positive_margin_k():
+    """Any arm asking for a conformal margin must pass the enable gate."""
+    for name, ov in cfx.arms(10, 2.0).items():
+        if ov.get("margin_conformal"):
+            assert ov.get("cost_margin_k", 0.0) > 0, (
+                f"arm {name!r} sets margin_conformal=True with cost_margin_k="
+                f"{ov.get('cost_margin_k')}; _effective_limit short-circuits on "
+                "cost_margin_k <= 0 and the arm will silently apply NO margin"
+            )
+
+
+def test_effective_limit_short_circuits_on_zero_margin_k():
+    """Pin the gate itself, so the trap is documented by a test and not a comment."""
+    import inspect
+
+    from pspe.plan.trainer import HybridPlannerTrainer
+    src = inspect.getsource(HybridPlannerTrainer._effective_limit)
+    assert "cost_margin_k <= 0" in src, (
+        "the enable-gate behaviour this test documents has moved; re-check every "
+        "arm that sets margin_conformal"
+    )
+
+
+def test_model_error_arm_is_distinguishable_from_probe_only():
+    """The two arms must differ in configuration, not just in name.
+
+    They came back numerically identical on 18/18 seeds because the only
+    difference was a flag that had been short-circuited.
+    """
+    a = cfx.arms(10, 2.0)
+    probe, me = a["probe"], a["probe+model-error"]
+    assert me != probe
+    assert me["cost_margin_k"] > 0 and probe["cost_margin_k"] == 0.0, (
+        "probe-only must have no margin and the model-error arm must have one"
+    )
