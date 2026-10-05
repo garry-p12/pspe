@@ -2197,6 +2197,81 @@ rejects" without saying it is serial dependence, with a negative sign, would
 have left the one fact that explains why coverage survives entirely invisible.
 
 
+### 3.4q ρ on a learned planner: the theorem transfers, the closed form does not (2026-10-05)
+
+The audit's highest-value gap. `R(ρ) = 1 − Φ(z_δ/ρ)` was validated only in
+`runs/margin_synthetic/`, where σ and ε are dialled by hand. The two quantities
+it needs were computed at every probe on the real planner **and discarded**; they
+are now summarised, beside a new arm running the recipe the formula is about.
+
+`runs/rho_test_rdf/`, rdf, 17 of 20 seeds (3 pending; direction unchanged from
+10 → 15 → 17).
+
+| arm | margin applied | violating | return |
+|---|---|---|---|
+| no margin | 0.000 | 13.90% | −6.855 |
+| probe only | 0.000 | 10.16% | −6.856 |
+| **probe + model-error** (the recipe Prop 3 **excludes**) | **0.058** | **10.16%** | −6.938 |
+| **probe + conformal** (ours) | **0.575** | **4.81%** | −6.919 |
+
+**σ_ep = 0.436, ε = 0.0265, ρ: median 16.7, mean 23.4, range [7.4, 91.1] — ρ > 1
+on 17 of 17 seeds.**
+
+**1 · Proposition 3's precondition is measured, not assumed.** ρ exceeds 1 by an
+order of magnitude on every seed of a learned planner. Previously ρ was inferred
+from a fidelity sweep's endpoint; it is now a property of the runs the headline
+result is computed on.
+
+**2 · The excluded recipe's margin is 9.9× too small.** Ours minus theirs:
+**+0.5163, CI [+0.4634, +0.5768]**. Mechanism, concretely: the matched pair
+`c_i − g_i` is taken on common random numbers, so the policy's own spread
+cancels and ε collapses to 0.0265 against a σ_ep of 0.436. A conformal quantile
+of *that* is 0.058 of budget where 0.575 is needed.
+
+**3 · And it buys nothing.** 10.16% violating — **identical to probe-only to four
+decimals in aggregate, and exactly identical on 9 of 17 individual seeds.** The
+budget it spends is wasted. The recipe does not merely fail to attain δ; on this
+system it is indistinguishable from applying no margin at all, while costing
+return (−6.938 against probe-only's −6.856).
+
+**4 · The gap is significant.** Excluded minus ours: **+0.0535, CI [+0.0107,
++0.0909], t = +2.58**. Ours sits at **4.81% against δ = 0.1**, inside the stated
+level.
+
+**5 · The closed form does NOT transfer quantitatively.** R(ρ) predicts **0.468**
+against a measured **0.102** — **4.6× over-prediction.** This is a real negative
+and it is stated as one.
+
+**Why it over-predicts, and what that means.** `R(ρ)` is derived for a dual that
+drives `ĝ` exactly to `d_eff`, with Gaussian error; it tends to ½ as ρ → ∞. The
+measured rate cannot reach that, because it is **bounded above by the no-margin
+rate (13.90%)** — the margin is negligible, so the arm degenerates toward the
+unmargined planner rather than toward the Gaussian asymptote. **`R(ρ)` is an
+upper bound the real system does not approach, not a predictor of realised
+rates.**
+
+**The honest split, with evidence on both halves:**
+
+| | status |
+|---|---|
+| the separation **result** — a model-error margin cannot attain δ once ρ > 1 | **transfers emphatically.** ρ ≫ 1 on 17/17; the margin is 10× too small and buys nothing |
+| the **closed form** `R(ρ)` | **controlled-setting quantification.** Validated to 0.003 where σ and ε are dialled; over-predicts 4.6× on a learned planner |
+
+**What this retracts.** An earlier back-of-envelope matched `R(1.40) = 0.180`
+against a previously measured 0.182 and read as near-perfect agreement. **ρ = 1.40
+was chosen because it produced that match.** The measured ρ is 7.4–91.1, where
+R(ρ) is 0.42–0.49. The agreement was an artefact of fitting the input to the
+output, and the run that tested it is the reason it is not in the paper.
+
+**Rule 68: a theorem's conclusion and its closed form transfer independently.**
+The qualitative statement — *this statistic is insufficient, so a margin built
+from it must fail* — survived contact with a learned planner and is confirmed by
+a margin 10× too small that buys nothing. The quantitative curve, validated to
+0.003 in the setting it was derived for, is out by a factor of 4.6. Report the
+mechanism as the transferable claim and the closed form as what it is: exact
+where its assumptions hold, and an upper bound elsewhere.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -7539,7 +7614,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 55 defects, 67 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 55 defects, 68 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
