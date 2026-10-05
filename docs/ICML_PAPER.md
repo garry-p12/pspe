@@ -31,13 +31,14 @@ around **the quantity the dual actually controls**. A split-conformal quantile o
 reaction–diffusion hazard from **14.1% to 5.0%** (20 seeds, paired −9.1 points,
 95% CI [−11.8, −5.5], p = 0.0002) **at no cost in objective value**, and refuses
 to return a bound when its calibration set cannot support the requested level.
-Against four published model-free safe-RL algorithms given **4.6× more real
-transitions**, it returns more than three of them (seed-paired, intervals
-excluding zero) and is not separated from the fourth — while **violating more
-often than any of them**, which we report as the trade rather than a caveat:
-three reach 0% by operating at a quarter of the limit, below a do-nothing
-policy's own cost. Every arm is anchored to that zero policy, because a 0%
-violation rate is what inaction scores.
+Against four published model-free safe-RL algorithms **at a matched real-sample
+budget** it returns more than **all four**, seed-paired with every interval
+excluding zero; given 4.6× more data than us they close most of that gap and one
+of them draws level — so the sample-efficiency claim is stated as a quantity,
+not a ratio. It **violates more often than any of them**, which we report as the
+trade rather than a caveat: three reach 0% by operating at a quarter of the
+limit, below a do-nothing policy's own cost. Every arm is anchored to that zero
+policy, because a 0% violation rate is what inaction scores.
 
 Three published disagreement-based corrections — conformal ensemble disagreement,
 SMBPO's pessimism, SafeDreamer's cost critic — land at 11.99%, 12.20% and 13.17%,
@@ -206,8 +207,38 @@ claim a value for `Δ`, because miscoverage below `δ` is consistent with any
 | 10.0 | 0.449 | 0.449 | 0.0000 |
 
 Maximum error **0.003** over two decades in `ρ`, with the transition where the
-theory puts it. The figure is the paper's centre: a predicted phase boundary,
-measured.
+theory puts it — in a controlled CMDP where `σ` and `ε` are set by hand.
+
+**And on a learned planner?** We now measure both quantities on the real
+planner, at every probe, beside an arm running the excluded recipe. 20 seeds,
+reaction–diffusion:
+
+| quantity | measured |
+|---|---|
+| `σ_ep` — spread of realised episode cost | **0.454** |
+| `ε` — spread of the matched-pair model error | **0.0265** |
+| `ρ = σ/ε` | **median 17.9**, range [7.4, 91.1], **> 1 on 20/20 seeds** |
+
+**The separation result's precondition holds by an order of magnitude**, and the
+mechanism is visible: the matched pair `c − ĝ` is taken on common random numbers,
+so the policy's own spread cancels and `ε` collapses. The excluded recipe's
+margin is consequently **0.059 of budget where ours applies 0.583 — 9.9× too
+small** (paired difference +0.5245, CI [+0.4766, +0.5768]), and it recovers only
+about an eighth of what ours does: 10.45% violating against probe-only's 10.91%,
+and **exactly identical to probe-only on 11 of 20 individual seeds**.
+
+**But the closed form does not transfer.** `R(ρ)` predicts **0.470** at the
+measured `ρ`; the arm violates **0.105** — a **4.5× over-prediction**. `R(ρ)` is
+derived for a dual that drives `ĝ` exactly to `d_eff` and tends to ½ as `ρ → ∞`;
+a real planner's rate is bounded above by its own no-margin rate (14.09%),
+because a negligible margin degenerates the arm toward the unmargined planner
+rather than toward the asymptote.
+
+> **The theorem's conclusion and its closed form transfer independently.** The
+> qualitative statement — *this statistic is insufficient, so a margin built from
+> it must fail* — survives contact with a learned planner and is confirmed by a
+> margin 10× too small. The curve, exact to 0.003 where its assumptions hold, is
+> an **upper bound the real system does not approach**. We report it as such.
 
 `docs/figures/paper/fig0_calibration.png`, with the δ-sweep inset showing
 `R/δ` rising as `δ` tightens.
@@ -265,6 +296,32 @@ primal-dual NPG [+0.237, +0.361]**, **+0.299 over CPO [+0.236, +0.361]** — all
 excluding zero, at **4.6× fewer real transitions**. Against PPO-Lagrangian the
 difference is **+0.070, CI [−0.039, +0.167]: not resolved.**
 
+**At a matched real-sample budget we beat all four.** A sample-efficiency claim
+is a comparison, not a ratio, so we also cap each baseline at the planner's own
+real-transition count (~8,300) and re-run, 20 seeds, same pairing:
+
+| method | return | over null | seed-paired vs ours | violating |
+|---|---|---|---|---|
+| **ours** | **−6.899** | **+0.501** | — | 5.0% |
+| Sauté RL | −7.293 | +0.107 | **+0.394** [+0.318, +0.472] | 0.0% |
+| PPO-Lagrangian | −7.316 | +0.084 | **+0.417** [+0.358, +0.476] | 0.0% |
+| CPO | −7.198 | +0.041 | **+0.460** [+0.407, +0.513] | 0.0% |
+| primal-dual NPG | −7.199 | +0.041 | **+0.460** [+0.407, +0.513] | 0.0% |
+
+**Every interval excludes zero**, and the one baseline we could not separate from
+at full budget we separate from at matched budget: PPO-Lagrangian goes from
++0.070 [−0.039, +0.167] to **+0.417 [+0.358, +0.476]**.
+
+> **Stated as a quantity rather than a ratio: PPO-Lagrangian needs 4.6× our real
+> transitions to draw level with us.**
+
+**On diffusion–advection at matched budget, no baseline clears the null floor at
+all** — CPO +0.0052 [−0.0009, +0.0111], Sauté +0.0066 [−0.0021, +0.0158],
+primal-dual NPG +0.0052 [−0.0039, +0.0226], PPO-Lagrangian **+0.0001**
+[−0.0091, +0.0088] — while ours returns +0.0866 on 20/20 seeds, **13× the best
+baseline effect.** We registered the prediction "safe but not learning" before
+that run; all four came back at 0% violation and at the null.
+
 **We are the least safe arm in that table, and we state it as the result rather
 than a footnote.** Three of the four reach 0% by operating far from the
 constraint — Sauté's mean episode cost is 0.533 against a limit of 3.26, *below
@@ -280,14 +337,23 @@ while the violation *rate* falls from 14.1% to 5.0%. That is exactly what a
 guarantee on the expected episode cost promises and no more, and it means the
 method is not a substitute for a per-episode safety mechanism. The margin
 already consumes 17.9% of the budget at δ = 0.1 (effective limit 2.677 against
-3.260), and **a smaller δ does not buy a lower rate**: swept over 20 seeds, the
-realised violation rate is 5.00% at δ = 0.10, 5.00% at δ = 0.02 and 5.91% at
-δ = 0.01, while return over the null falls +0.501 → +0.420 → +0.335 and the
-margin grows to consume half the budget. The worst excursion is pinned at
-1.54–1.55× the limit throughout. **δ sets the margin's width, not how often the
-limit is crossed**, so this method should not be offered as a safety dial — and
-the comparison above does not depend on it being one, since +0.335 at δ = 0.01
-still exceeds every baseline's gain at 4.6× the data.
+3.260), and **a smaller δ does not buy a lower rate**. Swept over 20 seeds:
+
+| δ | violating | return over null | margin takes |
+|---|---|---|---|
+| 0.10 | 5.00% | **+0.501** | 18% of budget |
+| **0.05** | **4.09%** | +0.474 | 24% |
+| 0.02 | 5.00% | +0.420 | 33% |
+| 0.01 | 5.91% | +0.335 | **50%** |
+
+The rate is **non-monotone in δ**, with an interior minimum at δ = 0.05 that
+**dominates δ = 0.02 and δ = 0.01 on both axes**. Over a tenfold range it spans
+4.09–5.91% and never approaches 0%, while return falls monotonically and the
+worst excursion stays pinned at 1.54–1.55×. **δ sets the margin's width, not how
+often the limit is crossed**, so this method should not be offered as a safety
+dial. The comparison above does not depend on it being one: +0.335 at δ = 0.01,
+with half the budget surrendered, still exceeds every baseline's gain at 4.6×
+the data.
 
 **A testbed caveat that changes which comparison is meaningful.** On our
 diffusion–advection testbed, three of these four algorithms **cannot be
@@ -364,21 +430,37 @@ few pathological seeds.
 > beyond-exchangeability bound predicts.** Failing to reject `δ` is weaker than
 > attaining it. We do not write "validated on three families".
 
-**Exchangeability, tested where it fails.** Scores are collected *during* a
-learning run, which is a distribution shift by construction. Three seeds per
-testbed, 320 scores, 160/160 split:
+**Exchangeability, tested where it fails — 20 seeds per testbed.** Scores are
+collected *during* a learning run, which is a distribution shift by
+construction. 320 scores per seed, 160/160 split.
 
-| testbed | drift (Spearman) | shift (KS) | lag-1 dependence | miscoverage | shuffled | adaptive |
+| testbed | drift (Spearman) | shift (KS) | **lag-1 dependence** | coverage | shuffled | adaptive |
 |---|---|---|---|---|---|---|
-| dar | p 0.47–0.74 | p 0.40–0.98 | p 0.47–0.60 | 0.0771 | 0.0875 | 0.1000 |
-| rdf | p 0.16–0.90 | p 0.51–0.93 | **p ≈ 0, all seeds** | 0.0854 | 0.0729 | 0.0959 |
+| diffusion–advection | rejects 0/20 | rejects 0/20 | rejects **0/20** | 0.1125 | 0.1134 | 0.1013 |
+| reaction–diffusion | rejects 5/20 | rejects 1/20 | **rejects 20/20**, median p = 0.00175 | **0.0997** | 0.0944 | 0.0972 |
 
-On `rdf` exchangeability is **violated** — significant serial dependence with
-drift and distribution-shift tests both non-rejections: *dependent, not
-drifting*. Coverage is attained anyway, 0.0854 against δ = 0.1. Dependence of
-this kind inflates the quantile's variance without biasing it, which is the
-mechanism, and is why adaptive conformal inference is unnecessary on both
-testbeds — demonstrated rather than assumed.
+**The violation is specific, and naming it matters.** On reaction–diffusion the
+lag-1 permutation test rejects on **every seed** while the drift test rejects on
+5 and the distribution-shift test on 1: the scores are **dependent, not
+drifting**. Three tests disagreeing by an order of magnitude in rejection rate
+means "exchangeability fails" would have been true and nearly useless.
+
+**Coverage is attained anyway — 0.0997 against δ = 0.100 — on the family where
+the assumption is rejected on 20 of 20 seeds.**
+
+**And there is a mechanism rather than a coincidence.** The lag-1
+autocorrelation is **negative on 20 of 20 seeds**, mean **−0.181**, range
+[−0.246, −0.119]. Negatively correlated scores *alternate* rather than trend, so
+a sample spans its range faster than an i.i.d. one and the empirical order
+statistic is, if anything, conservative. **Exchangeability is violated in the
+direction that does not hurt.**
+
+That is falsifiable, and we say how: a family whose scores are *positively*
+serially correlated should degrade coverage. Gibbs–Candès adaptive conformal does
+not improve the mean here, but it does tighten the spread across seeds
+([0.0875, 0.1187] against the fixed arm's [0.0563, 0.1812]) — so it is the right
+instrument where the sign of the dependence is unknown, which is the honest
+recommendation rather than "unnecessary".
 
 ---
 
@@ -404,6 +486,35 @@ Burned-area reduction, planner against operational heuristic:
 The advantage **vanishes exactly where theory requires it to** and grows with the
 horizon over which sequential reasoning can act. A result that survives its own
 falsification test is worth more than one never exposed to it.
+
+**The 3-day comparison at 20 seeds**, re-run because 5 seeds (t = 11.15, df 4)
+was the thinnest evidence behind any headline here. Same runner and horizon; the
+1,500 held-out fires are a fixed archive, so the seed varies initialisation over
+a fixed test set rather than resampling evaluation conditions.
+
+| policy | burn reduction | 95% CI | over budget |
+|---|---|---|---|
+| none | 0.00% | — | 0 |
+| random placement | 4.32% | [4.11, 4.52] | 0 |
+| greedy — forecast, treat riskiest, repeat | 22.51% | [21.19, 23.75] | 0 |
+| **planner, per-instance** | **32.50%** | [31.30, 33.64] | **0** |
+| planner, amortised policy | 16.92% | [12.41, 21.48] | **0.371** |
+| unconstrained (reference) | 88.85% | [87.35, 90.22] | 1.000 |
+
+Seed-paired against the heuristic: **+9.99 points, CI [+9.15, +10.81],
+t = +23.0, 20/20 seeds improved.**
+
+**The effect is smaller than the 5-seed figure and far better established** —
++12.0 → +9.99 with t rising 11.15 → 23.0. `random` (4.32 against 4.5) and
+`greedy` (22.51 against 22.0) both reproduce, so the drift is in the treated arm:
+five seeds sampled a favourable tail. We report the 20-seed number.
+
+**And the amortised policy loses to the heuristic it was meant to replace** —
+16.92% against 22.51%, while exceeding the budget on 37% of evaluations. We
+include it because it is the fourth independent case in this work of a learned
+component losing to its non-learned alternative, and the pattern belongs in the
+paper rather than in a reader's inference: **the contribution is the calibration,
+not the learning.**
 
 An earlier version of this claim was measured on 8 fires at t = 3.0. At 607 fires
 the benefit is **a third the size** and holds on 76% of them.

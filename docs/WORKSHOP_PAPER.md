@@ -537,6 +537,15 @@ invisible from inside the results: every number was correct.
 recipe needs matched pairs from a periodic probe and nothing about the error
 distribution.
 
+**A margin that changes the decision, not just the caption.** Pooling
+calibration runs gives one band for every plan, and a constant cannot move an
+argmax — so a twin can display a correct conformal guarantee and choose its plan
+with the margin switched off. Conditioned on the stratum a plan lands in (§6.4a)
+the band becomes plan-dependent, refuses for strata the evidence cannot support,
+and **changes the recommended plan**: at A$20M the guarantee-optimal plan
+predicts 5.6 points less and promises 4.5 points more. The test for any twin is
+whether its chosen action would change if its margin were deleted.
+
 **Decisions a map cannot support.** The same flood, the same network: the
 standard peak-depth output reports no route on 96 of 96 decisions where a
 time-resolved solve gets 40 out and an oracle 82.
@@ -553,7 +562,15 @@ filter with its error term swept and show where the optimum sits.
   intervention arm is unvalidated in reality and no retrospective dataset can fix
   that.
 - **One validated flood event**, at CSI 0.53 against satellite.
-- **The guarantee is marginal, not per-step.**
+- **The guarantee is marginal, not per-step** — and **δ is not a dial an
+  operator can turn.** Swept over 20 seeds on the method paper's testbed, the
+  realised violation rate is non-monotone in δ (5.00% at 0.10, **4.09% at
+  0.05**, 5.00% at 0.02, 5.91% at 0.01) while the margin grows to consume half
+  the budget and the worst excursion stays pinned at 1.54–1.55× the limit. The
+  portal fixes δ = 0.1 and an operator who needs fewer violations cannot get
+  them by asking for a higher confidence: **δ sets the band's width, not how
+  often the limit is crossed.** The band is honest about what it covers; it is
+  not a safety control.
 - **The evacuation deadline is one realisation.** The ensemble spans *how big the
   flood is* and nothing else — not timing, not spatial pattern, not solver error.
   And it reproduces from the stated coordinates, not from the place names:
@@ -563,7 +580,12 @@ filter with its error term swept and show where the optimum sits.
 - **The calibration contributes nothing to route choice** (§5.3), and a trained
   policy over the same ensemble is an obvious arm we have not run.
 - **Exchangeability fails on one of two testbeds** in the method paper's
-  experiments, with coverage attained regardless.
+  experiments — now 20 seeds, rejected on **20/20** by the lag-1 test
+  specifically, with coverage attained regardless (0.0997 against δ = 0.100).
+  The autocorrelation is **negative** on every seed, which is why coverage
+  survives: alternating scores span their range faster than i.i.d. ones. A twin
+  whose scores *trend* instead should expect the band to degrade, and we state
+  that as the falsifier rather than as reassurance.
 - The model-adaptation benefit is **small** (d = 0.20 at day +1).
 
 ### On the methodology
