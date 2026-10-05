@@ -34,6 +34,30 @@ from .policy import FieldCritic, GaussianFieldPolicy
 Tensor = torch.Tensor
 
 
+def _rho_summary(episode_dev: "list[float]", model_err: "list[float]") -> dict:
+    """sigma_ep, epsilon and rho from the probe's accumulated samples.
+
+    Both lists are empty when no probe ran (the unprobed arms), and rho is then
+    undefined rather than zero -- reporting 0.0 would read as "no spread", which
+    is the opposite of "not measured".
+    """
+    import statistics as _st
+
+    out: dict[str, float] = {}
+    if len(episode_dev) > 1:
+        out["probe/sigma_ep"] = float(_st.pstdev(episode_dev))
+        out["probe/n_episode_dev"] = float(len(episode_dev))
+    if len(model_err) > 1:
+        # Centred: the systematic bias is reported separately as
+        # dual/final_cost_bias, and epsilon is the per-instance spread only.
+        out["probe/epsilon"] = float(_st.pstdev(model_err))
+        out["probe/bias_model_err"] = float(_st.fmean(model_err))
+        out["probe/n_model_err"] = float(len(model_err))
+    if "probe/sigma_ep" in out and out.get("probe/epsilon", 0.0) > 1e-12:
+        out["probe/rho"] = out["probe/sigma_ep"] / out["probe/epsilon"]
+    return out
+
+
 @dataclass
 class PlannerConfig:
     iterations: int = 200
@@ -598,6 +622,27 @@ class HybridPlannerTrainer:
                 if on_surrogate else rollout_steps
             ),
             "samples_real_probe": self.real_probe_transitions,
+            # --- rho = sigma_ep / epsilon, on the REAL planner ----------------
+            #
+            # Proposition 3's closed form R(rho) = 1 - Phi(z_delta / rho) is
+            # validated in `runs/margin_synthetic/` to 0.003, where sigma and
+            # epsilon are dialled by hand. It has never been tested against a
+            # learned planner, because the two quantities it needs were computed
+            # at every probe and then discarded. They are the same objects the
+            # synthetic harness defines:
+            #
+            #   sigma_ep  spread of REAL episode costs            std(probe_episode_dev)
+            #   epsilon   spread of the matched-pair model error  std(probe_model_err)
+            #
+            # The matched pair is c_i - g_i on common random numbers, so its
+            # spread is exactly the synthetic setup's e_i ~ N(0, eps^2) and
+            # nothing else: the policy's own spread cancels.
+            #
+            # Reporting these turns "the theory matches a Gaussian simulation"
+            # into a prediction that can be checked against this run's own
+            # realised violation rate -- which is the difference between a
+            # closed form and a confirmed one.
+            **_rho_summary(self.probe_episode_dev, self.probe_model_err),
             "dual/final_cost_bias": self.cost_bias,
             "alpha/final_pathwise_bias_sq": self.pathwise_bias_sq,
             "dual/effective_limit": self._effective_limit(),

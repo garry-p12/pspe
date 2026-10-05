@@ -47,12 +47,42 @@ from pspe.simulate import (  # noqa: E402
 from pspe.simulate.solvers import make_testbed  # noqa: E402
 from pspe.utils import RunLogger, get_device, project_path, seed_everything  # noqa: E402
 
+def _r_of_rho(rho: float | None, delta: float) -> float:
+    """R(rho) = 1 - Phi(z_delta / rho): Proposition 3's closed-form failure rate.
+
+    The prediction, computed from THIS run's measured rho, so the realised
+    violation rate beside it is a test rather than an illustration.
+    """
+    import math
+    if not rho or rho <= 0:
+        return float("nan")
+    # z_delta: the (1 - delta) normal quantile, by bisection to avoid SciPy.
+    lo, hi = -10.0, 10.0
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if 0.5 * (1 + math.erf(mid / math.sqrt(2))) < 1 - delta:
+            lo = mid
+        else:
+            hi = mid
+    z = 0.5 * (lo + hi)
+    return 1.0 - 0.5 * (1 + math.erf((z / rho) / math.sqrt(2)))
+
+
 def arms(probe_every: int, margin_k: float) -> dict[str, dict]:
     return {
         "baseline":     dict(real_cost_every=0,           cost_margin_k=0.0),
         "probe":        dict(real_cost_every=probe_every, cost_margin_k=0.0),
         "margin":       dict(real_cost_every=0,           cost_margin_k=margin_k),
         "probe+margin": dict(real_cost_every=probe_every, cost_margin_k=margin_k),
+        # The recipe Proposition 3 EXCLUDES: a conformal quantile of the
+        # matched-pair model error, which is what the field's default
+        # instantiation does. R(rho) = 1 - Phi(z_delta / rho) is a prediction
+        # about THIS arm's realised violation rate, so running it beside the
+        # measured rho turns the closed form from a Gaussian simulation into a
+        # test on a learned planner.
+        "probe+model-error": dict(real_cost_every=probe_every, cost_margin_k=0.0,
+                                  margin_conformal=True,
+                                  margin_mode="model_error"),
     }
 
 
@@ -204,10 +234,12 @@ def main() -> int:
                               dual_normalize=args.dual_normalize, lr_policy=args.lr_policy,
                               kp=args.kp, ki=args.ki, kd=args.kd,
                               margin_episode_std=args.margin_episode_std,
-                              margin_conformal=args.margin_conformal,
-                              margin_mode=args.margin_mode,
-                              margin_delta=args.margin_delta,
-                              **overrides),
+                              **{  # arm overrides win over the global flags,
+                                   # so an arm can select its own recipe
+                                   "margin_conformal": args.margin_conformal,
+                                   "margin_mode": args.margin_mode,
+                                   "margin_delta": args.margin_delta,
+                                   **overrides}),
             eval_env=eval_env,
             logger=RunLogger(root / name, use_tensorboard=False),
             device=device,
@@ -233,6 +265,15 @@ def main() -> int:
             "margin_exceeds_limit": bool(
                 s.get("dual/effective_limit", s["cost_limit"]) <= 1e-9
                 and s["cost_limit"] > 1e-9),
+            # rho = sigma_ep / epsilon on this run, and the closed form's
+            # prediction for it. The margin arm is the one R(rho) is ABOUT: it
+            # is the model-error recipe Proposition 3 excludes, so its realised
+            # violation is what the formula must match.
+            "sigma_ep": round(s.get("probe/sigma_ep", float("nan")), 5),
+            "epsilon": round(s.get("probe/epsilon", float("nan")), 5),
+            "rho": round(s.get("probe/rho", float("nan")), 4),
+            "R_rho_predicted": round(_r_of_rho(s.get("probe/rho"), args.margin_delta), 4)
+                if s.get("probe/rho") else float("nan"),
             "real_samples": s["samples_real_env"],
             "probe_samples": s.get("samples_real_probe", 0),
             "final_lambda": round(s.get("final_lambda", 0.0), 3),
