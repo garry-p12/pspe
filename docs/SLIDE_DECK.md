@@ -72,11 +72,11 @@ Not an empirical regularity — a predicted phase boundary, with the crossing at
 **Maximum error 0.003 over two decades in `ρ`** — the Monte-Carlo noise of the
 harness. Validated in a controlled CMDP where `σ` and `ε` are dialled by hand.
 
-**And on a learned planner?** Measured, 17 seeds, with the arm the formula is
-about: **σ_ep = 0.436, ε = 0.0265, ρ median 16.7, range 7.4–91.1 — ρ > 1 on
-17 of 17.** The precondition holds by an order of magnitude.
+**And on a learned planner?** Measured, 20 seeds, with the arm the formula is
+about: **σ_ep = 0.454, ε = 0.0265, ρ median 17.9, range 7.4–91.1 — ρ > 1 on
+20 of 20.** The precondition holds by an order of magnitude.
 
-But `R(ρ)` predicts **0.468** where the arm measures **0.102** — **4.6× over**.
+But `R(ρ)` predicts **0.470** where the arm measures **0.105** — **4.5× over**.
 It is derived for a dual that drives `ĝ` exactly to `d_eff` and tends to ½; the
 real rate is capped by the no-margin rate because the margin is negligible.
 
@@ -197,12 +197,12 @@ Paired **−9.1 points, 95% CI [−11.8, −5.5], p = 0.0002**, 15/20 seeds impr
 prediction, not a baseline that lost.
 
 **And we can now say why, mechanically.** Run as its own arm with ρ measured per
-seed, the model-error recipe produces a margin of **0.058 against the 0.575 ours
+seed, the model-error recipe produces a margin of **0.059 against the 0.583 ours
 applies — 9.9× too small** — because the matched pair `c_i − g_i` is taken on
 common random numbers, so the policy's own spread cancels and `ε` collapses to
-0.027 against a `σ_ep` of 0.436. It then reduces violations by **nothing**:
-10.16%, identical to probe-only in aggregate and *exactly* identical on 9 of 17
-individual seeds, while costing return.
+0.027 against a `σ_ep` of 0.454. It then recovers almost nothing: **10.45%
+against probe-only's 10.91%**, *exactly* identical on 11 of 20 individual seeds,
+while costing return.
 
 *Every arm is anchored to a zero policy, because a 0% violation rate is what
 **inaction** scores.*
