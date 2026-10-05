@@ -240,6 +240,16 @@ says how many more runs that would need.
 > That is not a detail of the method. It is the reason to prefer it, and why
 > stage 4 is in the loop at all.
 
+**But the band is not a safety control, and we say so in the tool.** Swept over
+20 seeds on the method paper's testbed, the realised violation rate is
+**non-monotone in δ**: 5.00% at δ = 0.10, **4.09% at 0.05**, 5.00% at 0.02,
+5.91% at 0.01 — while the margin grows to consume **half the budget** and the
+worst excursion stays pinned at 1.54–1.55× the limit.
+
+The portal fixes δ = 0.1. **An operator who needs fewer violations cannot get
+them by asking for higher confidence**: δ sets the band's *width*, not how often
+the limit is crossed. The band is honest about what it covers. It is not a dial.
+
 ---
 
 ## 12 · The trade-off is a control, and the limits have a page
@@ -429,6 +439,18 @@ trusting the twin, or treat it as a sign to invest in forecasts first.**
 counterfactual interventions. No archive shows what a flood *would have done* had
 the levee been built.
 
+**And the assumption underneath the band is tested, not assumed.** On the method
+paper's reaction–diffusion family, exchangeability is **rejected on 20 of 20
+seeds** — specifically serial dependence, by a lag-1 permutation test, while
+drift rejects on 5 and distribution shift on 1. Coverage holds anyway at
+**0.0997 against δ = 0.100**, and the reason is measurable: the autocorrelation
+is **negative on every seed**, so scores *alternate* rather than trend and a
+sample spans its range faster than an i.i.d. one.
+
+> **Exchangeability is violated in the direction that does not hurt.** A twin
+> whose scores *trend* instead should expect the band to degrade — which is the
+> falsifier, stated rather than hoped for.
+
 ---
 
 ## 20 · Inferences for twin builders
@@ -458,8 +480,9 @@ inert. Timing on a monotone hazard: no headroom exists.
 
 **The twin**
 - **Per-episode safety.** The margin bounds how *often* a limit is crossed, not
-  how badly — the worst excursion is unchanged. A bounded worst case needs a
-  different mechanism.
+  how badly — the worst excursion is unchanged at 1.54× across a tenfold sweep
+  in δ, so **tightening the stated confidence is not a substitute**. A bounded
+  worst case needs a different mechanism.
 - **A margin for discrete feasibility.** The 0.000 m result says a continuous
   margin cannot express *"this road may not be there"*. What can?
 - **Non-monotone hazards.** A timing policy earns its keep only where

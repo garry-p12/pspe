@@ -162,6 +162,21 @@ An earlier version of this claim was measured on 8 fires at t = 3.0. At 607 the
 benefit is **a third the size** and holds on 76% of them. The 8-fire number was
 not wrong; it was underpowered, and we re-ran it rather than publish it.
 
+**The same correction applied again, to the 3-day row.** Re-run at **20 seeds**:
+the planner reaches **32.50%** burn reduction [31.30, 33.64] against the
+heuristic's **22.51%** [21.19, 23.75] — seed-paired **+9.99 points**
+[+9.15, +10.81], **t = 23.0, 20/20 seeds improved**, with a do-nothing floor at
+0% and random placement at 4.32%. The gap is **smaller** than the earlier
+figure and far better established. *Twice now, a thin sample flattered us and a
+rerun shrank the effect while tightening the interval; we have stopped treating
+a small-n result as provisional-but-probably-fine.*
+
+**And the amortised policy loses to the heuristic it was built to replace** —
+16.92% against 22.51%, exceeding the budget on 37% of evaluations. For a twin
+this is the operational point: the thing we would actually deploy is the greedy
+search with a calibrated margin, not a learned policy, and we would rather say
+so than ship a policy for the look of it.
+
 ### 3.4 Why a solver stays in the loop
 
 The obvious objection is to train a policy and skip the search. We tested the
