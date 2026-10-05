@@ -1921,6 +1921,76 @@ comparison against it, and check it on the testbed the comparison is made on:
 the same four algorithms clear the floor comfortably on rdf.
 
 
+### 3.4m The head-to-head on rdf, null-anchored, 20 common seeds (2026-10-04)
+
+The comparison §8.3 should have been. No new planner run was needed: the 20-seed
+rdf planner arms already exist (`runs/constraint_fix_conf_rdf_20/`, the
+14.1% → 5.0% result, from a runner that passes the seed), and §3.4l supplied the
+null floor and the four baselines on the **same seeds 0–19**. Everything below
+is paired per seed against the zero policy evaluated on that seed's own initial
+conditions.
+
+| arm | real transitions | return | vs null | bootstrap 95% CI | violating % | > null |
+|---|---|---|---|---|---|---|
+| do-nothing | **0** | −7.4001 | — | — | **0.0%** | — |
+| baseline (no fix) | 6,400 | −6.8220 | +0.5782 | [+0.514, +0.651] | 14.1% | 20/20 |
+| probe only | 8,320 | −6.8114 | +0.5887 | [+0.520, +0.660] | 10.9% | 20/20 |
+| margin only | 6,400 | −6.8219 | +0.5782 | [+0.514, +0.651] | 14.1% | 20/20 |
+| **probe + conformal** | **8,320** | **−6.8995** | **+0.5006** | [+0.451, +0.556] | **5.0%** | 20/20 |
+| PPO-Lagrangian | 38,400 | −6.9699 | +0.4302 | [+0.354, +0.517] | 2.3% | 20/20 |
+| CPO | 38,400 | −7.1984 | +0.2017 | [+0.166, +0.240] | 0.0% | 20/20 |
+| primal-dual NPG | 38,400 | −7.1993 | +0.2008 | [+0.165, +0.239] | 0.0% | 20/20 |
+| Sauté RL | 38,400 | −7.2530 | +0.1472 | [+0.107, +0.188] | 0.0% | 19/20 |
+
+**Seed-paired, against each baseline directly:**
+
+| comparison | Δ return | bootstrap 95% CI | verdict |
+|---|---|---|---|
+| probe+conformal − **Sauté RL** | **+0.354** | [+0.286, +0.427] | **excludes 0** |
+| probe+conformal − **primal-dual NPG** | **+0.300** | [+0.237, +0.361] | **excludes 0** |
+| probe+conformal − **CPO** | **+0.299** | [+0.236, +0.361] | **excludes 0** |
+| probe+conformal − PPO-Lagrangian | +0.070 | [−0.039, +0.167] | **not resolved** |
+
+**What can be claimed.** On rdf, where all four baselines do clear the null floor
+(§3.4l) and are therefore real opponents: **probe+conformal beats Sauté RL,
+CPO and primal-dual NPG on return, seed-paired with intervals excluding zero,
+using 4.6× fewer real transitions.** It is **not separated from
+PPO-Lagrangian** (+0.070, interval straddling zero).
+
+**And what cannot.** **We are the least safe arm in the table.** 5.0% against
+PPO-Lagrangian's 2.3% and 0.0% for the other three and the null. The §3.2 story
+is a reduction from *our own* untreated arm's 14.1%, not a claim to match the
+model-free methods' constraint satisfaction — and three of them achieve 0% while
+beating the null, so on rdf their 0% is not the inaction artefact it is on dar.
+
+**Two figures corrected.** The sample ratio on rdf is **4.6×** (8,320 against
+38,400), not the 9.2× quoted elsewhere — that is dar's 4,160, carried across by
+mistake. And our real-transition count on rdf is 6,400 for the untreated arms
+and 8,320 with probes, not 3,072/4,160.
+
+**The honest headline sentence**, which replaces §8.3's "beats every baseline on
+return (t = +3.84 to +17.95)":
+
+> On a reaction–diffusion hazard, closing the surrogate/reality gap on the
+> constraint cuts violations from 14.1% to 5.0% (20 seeds, paired −9.1 points,
+> CI [−11.8, −5.5], p = 0.0002) while returning 0.50 above a do-nothing policy —
+> better return than three of four published safe-RL methods, seed-paired with
+> intervals excluding zero, from 4.6× fewer real transitions, and
+> indistinguishable from the fourth. All four satisfy the constraint more often
+> than we do.
+
+That is a weaker claim than the paper currently makes and a far stronger one
+than it can support, because every number in it is anchored to a null policy and
+paired across seeds that vary.
+
+**Rule 64: pair against the null on the same seed, not against the mean.** Every
+interval in this section is a bootstrap over per-seed differences from the zero
+policy *on that seed's own initial conditions*. Comparing arm means to a pooled
+null mean would have hidden the dar result entirely: there the null's spread
+across IC draws (sd 0.206) is six times the largest baseline effect, so the
+pairing is what makes a 0.01 effect measurable and a 0.3 effect credible.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -7263,7 +7333,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 54 defects, 63 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 54 defects, 64 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
