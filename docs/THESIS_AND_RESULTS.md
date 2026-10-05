@@ -1991,6 +1991,85 @@ across IC draws (sd 0.206) is six times the largest baseline effect, so the
 pairing is what makes a 0.01 effect measurable and a 0.3 effect credible.
 
 
+### 3.4n At a matched sample budget we beat all four (2026-10-05)
+
+Job 1049073, both tasks COMPLETED (40 and 60 minutes). The model-free baselines
+capped at **the planner's own real-sample count** rather than the 38,400 they
+are normally given, 20 seeds, every arm paired against the zero policy on its
+own initial conditions. This is the sample-efficiency claim made as a
+comparison rather than as a ratio in a caption.
+
+**rdf — matched at ~8,300 transitions each.**
+
+| arm | real transitions | return | vs null | bootstrap 95% CI | violating | worst/limit |
+|---|---|---|---|---|---|---|
+| do-nothing | **0** | −7.4001 | — | — | **0.0%** | — |
+| no fix | 6,400 | −6.8218 | +0.5783 | [+0.515, +0.652] | 14.1% | 1.55× |
+| **probe + conformal** | **8,320** | **−6.8993** | **+0.5008** | [+0.451, +0.556] | **5.0%** | 1.54× |
+| Sauté RL | 8,256 | −7.2928 | +0.1073 | [+0.062, +0.156] | 0.0% | 0.23× |
+| PPO-Lagrangian | 8,256 | −7.3158 | +0.0843 | [+0.046, +0.126] | 0.0% | 0.33× |
+| CPO | 8,256 | −7.3596 | +0.0405 | [+0.019, +0.064] | 0.0% | 0.24× |
+| primal-dual NPG | 8,256 | −7.3596 | +0.0405 | [+0.019, +0.065] | 0.0% | 0.24× |
+
+Seed-paired against each: **+0.460 over CPO** [+0.407, +0.513], **+0.460 over
+primal-dual NPG** [+0.407, +0.513], **+0.417 over PPO-Lagrangian** [+0.358,
++0.476], **+0.394 over Sauté RL** [+0.318, +0.472]. **All four, intervals
+excluding zero.**
+
+**The one baseline we could not separate from at full budget, we separate from
+at matched budget.** PPO-Lagrangian is +0.070 [−0.039, +0.167] when given 38,400
+transitions (§3.4m) and +0.417 [+0.358, +0.476] when given ours. It needs
+**4.6× more data to draw level**, which is the sample-efficiency claim stated as
+a quantity rather than as a ratio.
+
+**dar — matched at ~4,000 transitions each.**
+
+| arm | real transitions | return | vs null | bootstrap 95% CI | violating |
+|---|---|---|---|---|---|
+| do-nothing | **0** | −2.3996 | — | — | **0.0%** |
+| no fix | 3,200 | −2.2961 | +0.1035 | [+0.089, +0.118] | 5.9% |
+| **probe + margin** | **4,160** | **−2.3130** | **+0.0866** | [+0.077, +0.096] | **0.5%** |
+| Sauté RL | 4,032 | −2.3929 | +0.0066 | **[−0.002, +0.016]** | 0.0% |
+| CPO | 4,032 | −2.3944 | +0.0052 | **[−0.001, +0.011]** | 0.0% |
+| primal-dual NPG | 4,032 | −2.3944 | +0.0052 | **[−0.001, +0.011]** | 0.0% |
+| PPO-Lagrangian | 4,032 | −2.3995 | +0.0001 | **[−0.009, +0.009]** | 0.0% |
+
+**At equal data on dar, not one of the four clears the null floor** — every
+interval straddles zero, and PPO-Lagrangian is +0.0001, literally at it. Ours is
++0.0866 on 20/20 seeds, **13× the best baseline effect**. The prediction
+registered in the job script before the run — "safe and not learning, at or
+below the null floor, because an undertrained policy does almost nothing and
+doing nothing is safe" — is confirmed in both parts: all four at the null, all
+at 0% violation.
+
+**So dar is usable after all, at the right budget.** §3.4l concluded it was a
+weak testbed because three of four baselines cannot beat inaction there *at full
+budget*. At matched budget it discriminates cleanly: the separation between
++0.0866 and +0.0001 is unambiguous. Its weakness is specific to giving the
+baselines 9.5× the data on a task easy enough that the extra data buys 0.03.
+
+**A presentational error in our own disfavour.** §8.3 reports 7.3% violating for
+"PSPE (adaptive α)" on dar, and that figure has been carried as *our* violation
+rate on that family. It is a different arm from a different driver: the
+configuration this project actually advocates, `probe+margin`, sits at **0.5%**
+over 20 varied seeds (and 0% over the earlier 5). The paper has been quoting a
+violation rate fourteen times higher than the arm it recommends.
+
+**What does not change.** We remain the least safe arm wherever the comparison
+is run — 5.0% on rdf and 0.5% on dar against 0.0% for all four baselines — and
+the worst excursion on rdf is 1.54× the limit against their 0.23–0.33×. They
+stay far from the constraint; we cross it occasionally. That is the trade, and
+the δ sweep (job 1049555) is what will say whether it is one we control.
+
+**Rule 65: a sample-efficiency claim is a comparison, not a ratio.** "12.5×
+fewer real transitions" was stated for two years as though the ratio were the
+result. The ratio is an input; the result is what each method achieves at the
+same budget, and that comparison reverses one verdict (PPO-Lagrangian, unresolved
+at full budget and beaten at matched) and creates another (on dar, no baseline
+clears the null at matched budget). Run the baselines at your budget before
+quoting a ratio about theirs.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -7333,7 +7412,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 54 defects, 64 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 54 defects, 65 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
