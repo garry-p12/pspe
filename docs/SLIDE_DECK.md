@@ -4,7 +4,8 @@
 PSPE — Perceive · Simulate · Plan · Explain
 
 *Figures referenced from `docs/figures/paper/` and `runs/portal_shots/`.
-Numbers current to 2026-10-05; items marked **[in flight]** have jobs running.*
+Numbers current to 2026-10-05. Every result below is measured; nothing is
+pending.*
 
 ---
 
@@ -71,8 +72,18 @@ Not an empirical regularity — a predicted phase boundary, with the crossing at
 **Maximum error 0.003 over two decades in `ρ`** — the Monte-Carlo noise of the
 harness. Validated in a controlled CMDP where `σ` and `ε` are dialled by hand.
 
-**[in flight]** Whether `R(ρ)` predicts a *learned* planner's violation rate is
-being measured now, on the arm the formula is about.
+**And on a learned planner?** Measured, 17 seeds, with the arm the formula is
+about: **σ_ep = 0.436, ε = 0.0265, ρ median 16.7, range 7.4–91.1 — ρ > 1 on
+17 of 17.** The precondition holds by an order of magnitude.
+
+But `R(ρ)` predicts **0.468** where the arm measures **0.102** — **4.6× over**.
+It is derived for a dual that drives `ĝ` exactly to `d_eff` and tends to ½; the
+real rate is capped by the no-margin rate because the margin is negligible.
+
+> **The theorem's conclusion and its closed form transfer independently.**
+> The *mechanism* survives contact with a learned planner. The *curve*, exact to
+> 0.003 where its assumptions hold, is an **upper bound the real system does not
+> approach.**
 
 ---
 
@@ -184,6 +195,14 @@ Paired **−9.1 points, 95% CI [−11.8, −5.5], p = 0.0002**, 15/20 seeds impr
 
 **The naive recipe makes it worse** (18.2% against 14.1%) — the theorem's
 prediction, not a baseline that lost.
+
+**And we can now say why, mechanically.** Run as its own arm with ρ measured per
+seed, the model-error recipe produces a margin of **0.058 against the 0.575 ours
+applies — 9.9× too small** — because the matched pair `c_i − g_i` is taken on
+common random numbers, so the policy's own spread cancels and `ε` collapses to
+0.027 against a `σ_ep` of 0.436. It then reduces violations by **nothing**:
+10.16%, identical to probe-only in aggregate and *exactly* identical on 9 of 17
+individual seeds, while costing return.
 
 *Every arm is anchored to a zero policy, because a 0% violation rate is what
 **inaction** scores.*
@@ -316,8 +335,17 @@ Exchangeability is required. We test it rather than assume it.
 - **Diffusion–advection, 20 seeds:** not rejected on any seed — Spearman median
   p = 0.57, KS 0.79, lag-1 0.63. **Coverage: fixed 0.113, adaptive 0.101**
   against `δ = 0.1`.
-- **Reaction–diffusion:** the lag-1 permutation test **rejects**, and coverage
-  holds regardless. **[in flight]** at 20 seeds.
+- **Reaction–diffusion, 20 seeds:** the lag-1 permutation test **rejects on
+  20/20** (median p = 0.00175), while the KS test rejects on 1/20 and the trend
+  test on 5/20 — the violation is **serial dependence**, specifically. Coverage
+  holds anyway at **0.0997 against δ = 0.100**.
+
+  **And there is a mechanism, not luck.** Lag-1 autocorrelation is **negative on
+  20 of 20 seeds** (mean −0.181). Negatively correlated scores *alternate* rather
+  than trend, so a sample spans its range faster than i.i.d. and the order
+  statistic is if anything conservative. **Exchangeability is violated in the
+  direction that does not hurt** — which predicts that a family with *positive*
+  serial correlation should degrade coverage.
 
 Where exchangeability fails, **Gibbs–Candès adaptive conformal** is promoted from
 diagnostic to arm — it lands on 0.1013 against a requested 0.1.
@@ -532,11 +560,16 @@ exists.
 ## 25 · Future work
 
 **Near term**
-- **Does `R(ρ)` predict a learned planner?** `σ` and `ε` are now measured on the
-  real planner beside the recipe the formula is about. **[in flight]**
-- **Exchangeability at 20 seeds** on the family where it rejects. **[in flight]**
-- **Per-episode safety.** The margin bounds the rate; a bounded worst case needs
-  a different mechanism — the honest next instrument, not a tuning of this one.
+- **Per-episode safety.** The margin bounds the rate — and `δ` does not change
+  that. A bounded worst case needs a different mechanism: the honest next
+  instrument, not a tuning of this one.
+- **A family with positive serial correlation.** Our exchangeability violation is
+  *negative* autocorrelation, which is why coverage survives. The falsifying
+  experiment is a hazard whose scores trend rather than alternate.
+- **Why the closed form over-predicts by 4.6×.** The gap between `R(ρ)`'s
+  asymptote and a real planner's rate is itself a measurable object: the dual
+  does not drive cost to the limit as hard as the derivation assumes. Quantifying
+  that would turn an upper bound into a usable one.
 
 **Medium term**
 - **A margin for discrete feasibility.** The 0.000 m result says a continuous
