@@ -2117,9 +2117,24 @@ null still exceeds CPO's +0.202, primal-dual NPG's +0.201 and Sauté's +0.147 at
 **4.6× the data** (§3.4m). The sample-efficiency result stands; the
 controllability claim does not.
 
-**Pending**: δ = 0.05 fills the middle of the curve and will say whether the
-violation rate is genuinely flat or weakly U-shaped. Either way the headline
-conclusion is fixed by the three points in hand.
+**COMPLETED 2026-10-05 — the curve is non-monotone, with an interior minimum.**
+δ = 0.05 landed and it refines the "flat" reading above:
+
+| δ | violating % | return over null | margin takes | worst/limit |
+|---|---|---|---|---|
+| 0.10 | 5.00% | **+0.5006** | 18% | 1.54× |
+| **0.05** | **4.09%** | +0.4737 | 24% | 1.54× |
+| 0.02 | 5.00% | +0.4197 | 33% | 1.55× |
+| 0.01 | 5.91% | +0.3350 | **50%** | 1.55× |
+
+**δ = 0.05 dominates δ = 0.02 and δ = 0.01 outright** — a lower violation rate
+*and* a higher return. Tightening past it is strictly harmful on both axes.
+Against δ = 0.10 it buys 0.91 points of violation for 0.027 of return.
+
+So the conclusion stands and sharpens: over a tenfold range the realised rate
+spans **4.09–5.91%**, never approaches 0%, and **is not monotone in δ**. There is
+an operating point (0.05) and everything tighter is dominated — which is a more
+useful statement than "flat", and still not a safety dial.
 
 | # | defect | effect | how it was caught | § |
 |---|---|---|---|---|
@@ -2132,6 +2147,54 @@ for more safety" feel like a statement about the method rather than a claim
 about the world. It is a claim about the world and it is wrong here. Before
 offering a parameter as a trade-off an operator can make, sweep it and publish
 the curve, including when the curve is flat.
+
+
+### 3.4p Exchangeability on rdf: rejected 20/20, and coverage holds anyway (2026-10-05)
+
+The assumption the entire guarantee rests on, tested at 20 seeds on the family
+where it fails. Published evidence was 3 seeds (p = 0.000/0.002/0.000).
+
+| test | median p | rejects at 0.05 | rejects at 0.01 |
+|---|---|---|---|
+| **lag-1 permutation** | **0.00175** | **20/20** | 17/20 |
+| Spearman &#124;score&#124; vs index | 0.1297 | 5/20 | 3/20 |
+| KS, first vs last third | 0.7356 | 1/20 | 0/20 |
+
+**The rejection is unanimous and specific.** It is **serial dependence**, not
+drift and not a trend: lag-1 rejects on every seed while the KS test for
+distributional change rejects on one and the Spearman trend test on five. A
+vaguer claim — "exchangeability fails" — would have been true and much less
+useful.
+
+| coverage | mean | range |
+|---|---|---|
+| fixed split-conformal | **0.0997** | [0.0563, 0.1812] |
+| shuffled control | 0.0944 | [0.0437, 0.1688] |
+| Gibbs–Candès adaptive | 0.0972 | [0.0875, 0.1187] |
+
+**Coverage is attained — 0.0997 against δ = 0.100 — on the family where the
+assumption is rejected on every seed.** At 20 seeds this stops being a lucky
+observation and becomes the headline of this section.
+
+**And there is now a mechanism rather than luck.** The lag-1 autocorrelation is
+**consistently negative**: mean **−0.181**, range [−0.246, −0.119], negative on
+**20 of 20** seeds. Negatively correlated scores *alternate* rather than trend,
+so a sample spans its range faster than an i.i.d. one and the empirical order
+statistic is, if anything, conservative. **Exchangeability is violated in the
+direction that does not hurt.** That is a far stronger statement than "violated
+but coverage held", and it is falsifiable: a family with *positive* serial
+correlation should degrade coverage, and that is the experiment this result
+points at.
+
+The adaptive arm's tighter range ([0.0875, 0.1187] against the fixed arm's
+[0.0563, 0.1812]) is the secondary finding: Gibbs–Candès does not improve the
+mean, it reduces the spread across seeds.
+
+**Rule 67: name which exchangeability assumption failed, not that one did.**
+Three tests disagree here by an order of magnitude in rejection rate — 20/20,
+5/20, 1/20 — and only the lag-1 result is real. Reporting "the permutation test
+rejects" without saying it is serial dependence, with a negative sign, would
+have left the one fact that explains why coverage survives entirely invisible.
 
 
 #### 3.4e Provenance, stated rather than implied
@@ -7476,7 +7539,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 55 defects, 66 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 55 defects, 67 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
