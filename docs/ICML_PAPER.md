@@ -280,8 +280,14 @@ while the violation *rate* falls from 14.1% to 5.0%. That is exactly what a
 guarantee on the expected episode cost promises and no more, and it means the
 method is not a substitute for a per-episode safety mechanism. The margin
 already consumes 17.9% of the budget at δ = 0.1 (effective limit 2.677 against
-3.260); whether a smaller δ trades return for a lower rate is a sweep we report
-as outstanding, not as settled.
+3.260), and **a smaller δ does not buy a lower rate**: swept over 20 seeds, the
+realised violation rate is 5.00% at δ = 0.10, 5.00% at δ = 0.02 and 5.91% at
+δ = 0.01, while return over the null falls +0.501 → +0.420 → +0.335 and the
+margin grows to consume half the budget. The worst excursion is pinned at
+1.54–1.55× the limit throughout. **δ sets the margin's width, not how often the
+limit is crossed**, so this method should not be offered as a safety dial — and
+the comparison above does not depend on it being one, since +0.335 at δ = 0.01
+still exceeds every baseline's gain at 4.6× the data.
 
 **A testbed caveat that changes which comparison is meaningful.** On our
 diffusion–advection testbed, three of these four algorithms **cannot be

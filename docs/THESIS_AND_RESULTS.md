@@ -2070,6 +2070,70 @@ clears the null at matched budget). Run the baselines at your budget before
 quoting a ratio about theirs.
 
 
+### 3.4o δ is not a dial: tightening it costs return and buys no safety (2026-10-05)
+
+Job 1049555, tasks 0–1 complete (δ = 0.01, 0.02); δ = 0.05 pending; δ = 0.10 from
+the existing 20-seed rdf run. Same configuration throughout, only
+`--margin-delta` varying, every arm paired against the zero policy on its own
+seed.
+
+| δ | violating % | return | over null | 95% CI | effective limit | margin takes | worst/limit |
+|---|---|---|---|---|---|---|---|
+| 0.10 | **5.00%** | −6.8995 | +0.5006 | [+0.451, +0.556] | 2.677 | 18% | 1.54× |
+| 0.02 | **5.00%** | −6.9804 | +0.4197 | [+0.333, +0.514] | 2.196 | 33% | 1.55× |
+| 0.01 | **5.91%** | −7.0651 | +0.3350 | [+0.269, +0.401] | 1.637 | **50%** | 1.55× |
+
+**A tenfold tightening of δ does not reduce the realised violation rate.** It
+sits at 5–6% across the whole range and is *higher* at δ = 0.01 than at δ = 0.10.
+Return falls monotonically — +0.50, +0.42, +0.34 — so the budget surrendered to
+the margin buys nothing measurable, and the worst excursion is pinned at
+1.54–1.55× the limit at every δ.
+
+**This is not a refusal mistaken for a null effect.** At δ = 0.01 the rank
+condition needs 99 calibration points and the probe supplies ~160, so the margin
+is attainable; the effective limit of 1.637 against 3.260 confirms it is being
+applied and is consuming half the budget. The arm is doing what it is asked and
+the rate does not move.
+
+**What this retracts.** §3.4m argued that we offer "a stated level we meet while
+they offer unstated conservatism", with the implication that an operator needing
+0% could tighten δ. **That implication is false on this family and was advanced
+before it was tested.** The sentence "set δ lower and buy the safety back" must
+not appear anywhere: δ controls how wide the margin is, not how often the limit
+is crossed.
+
+**What it means mechanically.** The flat worst/limit is the informative part. A
+conformal quantile of realised episode cost bounds the *rate* at which the
+expected cost exceeds the limit under exchangeability; it says nothing about the
+tail of individual episodes, and on rdf the violations are evidently driven by
+excursions the margin's own calibration set does not represent — consistent with
+the measured exchangeability gap (§3.4b-ii, Δ̂ = 0.024) and with §3.4m's finding
+that the margin cuts frequency and not severity. Widening the margin shifts the
+operating point down the return axis and leaves that mechanism untouched.
+
+**What survives.** The comparison against the baselines does not depend on δ
+being a dial. Even at δ = 0.01, with half the budget surrendered, +0.335 over the
+null still exceeds CPO's +0.202, primal-dual NPG's +0.201 and Sauté's +0.147 at
+**4.6× the data** (§3.4m). The sample-efficiency result stands; the
+controllability claim does not.
+
+**Pending**: δ = 0.05 fills the middle of the curve and will say whether the
+violation rate is genuinely flat or weakly U-shaped. Either way the headline
+conclusion is fixed by the three points in hand.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 55 | Claimed, before testing, that a smaller δ would trade return for a lower violation rate — the "we offer a frontier, they offer a point" argument | the implication that an operator needing 0% could tighten δ is false on rdf: a tenfold tightening leaves the rate at 5–6% and costs 0.17 of return, half the budget | running the sweep that the claim had been asserted without | 3.4o |
+
+**Rule 66: a knob is not a dial until its response curve is measured.** δ is a
+parameter of the method, it visibly changes the margin's width, and the
+effective limit moves exactly as the theory says — all of which made "tighten δ
+for more safety" feel like a statement about the method rather than a claim
+about the world. It is a claim about the world and it is wrong here. Before
+offering a parameter as a trade-off an operator can make, sweep it and publish
+the curve, including when the curve is flat.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -7412,7 +7476,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 54 defects, 65 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 55 defects, 66 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
