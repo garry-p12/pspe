@@ -31,6 +31,13 @@ around **the quantity the dual actually controls**. A split-conformal quantile o
 reaction–diffusion hazard from **14.1% to 5.0%** (20 seeds, paired −9.1 points,
 95% CI [−11.8, −5.5], p = 0.0002) **at no cost in objective value**, and refuses
 to return a bound when its calibration set cannot support the requested level.
+Against four published model-free safe-RL algorithms given **4.6× more real
+transitions**, it returns more than three of them (seed-paired, intervals
+excluding zero) and is not separated from the fourth — while **violating more
+often than any of them**, which we report as the trade rather than a caveat:
+three reach 0% by operating at a quarter of the limit, below a do-nothing
+policy's own cost. Every arm is anchored to that zero policy, because a 0%
+violation rate is what inaction scores.
 
 Three published disagreement-based corrections — conformal ensemble disagreement,
 SMBPO's pessimism, SafeDreamer's cost critic — land at 11.99%, 12.20% and 13.17%,
@@ -225,6 +232,67 @@ An earlier draft reported this on 5 seeds with a z-value that did not survive
 recomputation over the correct unit of analysis. The 20-seed rerun is the number
 above.
 
+**Anchored to a do-nothing policy.** "No loss in objective" compares the treated
+arm to the untreated one, which says nothing about whether either controls the
+system. We therefore evaluate the **zero policy** under the identical protocol —
+same grid, same 8 evaluation episodes, same initial conditions per seed — and
+pair every arm against it on its own seed:
+
+| arm | real transitions | return | over do-nothing | 95% CI | violating |
+|---|---|---|---|---|---|
+| do-nothing | **0** | −7.400 | — | — | **0.0%** |
+| no margin | 6,400 | −6.822 | +0.578 | [+0.514, +0.651] | 14.1% |
+| **probe + conformal** | **8,320** | **−6.900** | **+0.501** | [+0.451, +0.556] | **5.0%** |
+
+The zero policy never violates — a 0% violation rate is what *inaction* scores,
+so it certifies nothing on its own, and every constraint-side number in this
+paper should be read against that floor.
+
+**Against model-free safe RL, at their budget and ours.** Four published
+algorithms, each given **38,400** real transitions against our 8,320, 20 seeds,
+paired against the same null:
+
+| method | real transitions | return | over null | violating | worst cost / limit |
+|---|---|---|---|---|---|
+| Sauté RL | 38,400 | −7.253 | +0.147 | 0.0% | 0.25× |
+| CPO | 38,400 | −7.198 | +0.202 | 0.0% | 0.30× |
+| primal-dual NPG | 38,400 | −7.199 | +0.201 | 0.0% | 0.30× |
+| PPO-Lagrangian | 38,400 | −6.970 | +0.430 | 2.3% | 1.22× |
+| **ours** | **8,320** | **−6.900** | **+0.501** | **5.0%** | **1.54×** |
+
+Seed-paired on return: **+0.354 over Sauté RL [+0.286, +0.427]**, **+0.300 over
+primal-dual NPG [+0.237, +0.361]**, **+0.299 over CPO [+0.236, +0.361]** — all
+excluding zero, at **4.6× fewer real transitions**. Against PPO-Lagrangian the
+difference is **+0.070, CI [−0.039, +0.167]: not resolved.**
+
+**We are the least safe arm in that table, and we state it as the result rather
+than a footnote.** Three of the four reach 0% by operating far from the
+constraint — Sauté's mean episode cost is 0.533 against a limit of 3.26, *below
+the do-nothing policy's 0.565*, with a worst case at a quarter of the limit.
+That conservatism is what costs them 0.30–0.35 of return, and it is the trade
+this paper's margin makes in the opposite direction. PPO-Lagrangian is the one
+baseline that uses its budget (mean cost 1.703) and it is the one we do not
+separate from.
+
+**The margin reduces how often the limit is exceeded, not how badly.** Our worst
+excursion over the run is 1.54× the limit against the untreated arm's 1.55×,
+while the violation *rate* falls from 14.1% to 5.0%. That is exactly what a
+guarantee on the expected episode cost promises and no more, and it means the
+method is not a substitute for a per-episode safety mechanism. The margin
+already consumes 17.9% of the budget at δ = 0.1 (effective limit 2.677 against
+3.260); whether a smaller δ trades return for a lower rate is a sweep we report
+as outstanding, not as settled.
+
+**A testbed caveat that changes which comparison is meaningful.** On our
+diffusion–advection testbed, three of these four algorithms **cannot be
+distinguished from the do-nothing policy** over 20 seeds at full budget — CPO
++0.012 [−0.001, +0.024], PPO-Lagrangian +0.014 [−0.005, +0.034], primal-dual NPG
++0.010 [−0.004, +0.023], with only Sauté clearing it (+0.028 [+0.022, +0.034]).
+The zero policy is near-optimal there, so a comparison on that family measures
+very little; the table above is on reaction–diffusion, where all four clear the
+floor by 0.15–0.43 and are genuine opponents. We report the weaker testbed
+rather than omitting it.
+
 **Three published corrections, all in the excluded class.** Each reimplemented
 inside *our* planner, so the only difference is how model error is corrected for:
 
@@ -358,9 +426,43 @@ the benefit is **a third the size** and holds on 76% of them.
   feasible set. A feasibility theorem cuts both ways — Corollary 3 says which
   distribution a margin must use, not that a margin exists for every decision.
   (Developed in the systems paper.)
+- **The margin bounds the rate, not the severity.** Violations fall from 14.1%
+  to 5.0% while the worst excursion over the run is unchanged at 1.54× the
+  limit against 1.55%. Anything needing a bounded worst case needs a different
+  mechanism.
+- **Every baseline we compare against satisfies the constraint more often than
+  we do** (§5): 0.0% for three of four, 2.3% for the fourth, against our 5.0%.
+  Our advantage is return per real transition, not safety, and a deployment that
+  requires zero violations should not use this method at δ = 0.1.
+- **A do-nothing policy is a competitive baseline on one of our testbeds.** On
+  diffusion–advection three of four published safe-RL algorithms cannot be
+  distinguished from inaction over 20 seeds at full budget. We report it because
+  it means a comparison on that family measures almost nothing, including ours.
+- **The explanation module's own mechanism is net harmful.** With the brief
+  length cap lifted from 96 to 160 tokens — the reference briefs average 136,
+  so every arm had been truncated before its footer — a supervised generator
+  reaches the parser's ceiling (F = 0.901 against a reference of 0.901) while
+  adding our faithfulness objective *drops* it to 0.505, on all three seeds and
+  at 2.3× the training cost. Prompting an off-the-shelf 0.5B instruction model
+  with no training scores 0.353, statistically the same as our generator trained
+  on a different policy's briefs (0.350). No arm produces state-specific briefs:
+  the aligned-minus-shuffled permutation gap is within ±0.006 everywhere. We
+  report the faithfulness term as a measured negative and do not include it in
+  any headline configuration.
+- **One safe-RL baseline's own correctness canary fails on 1 seed in 3.** Sauté
+  RL collapses to the action boundary on a closed-form CMDP for seed 0,
+  returning −3.24 where −0.16 was available; the cost assertion passes there
+  because the collapsed policy spends nothing. It is not collapsed on either PDE
+  family. We report it as validated on 2 of 3 canary seeds.
+- **Dispersion from one sweep is not seed variance.** An ablation driver passed
+  its `--seed` only to the global RNG, so five "seeds" shared one evaluation
+  initial-condition set; intervals from that sweep measure initialisation
+  variance and are five to six times too narrow. The contrasts stand, the ±
+  does not, and every interval quoted in this paper comes from drivers that pass
+  the seed.
 - **Five original claims of our own did not survive**, three results were
-  retracted during development — all three initially favouring us — and 41
-  measurement defects are catalogued with the check that caught each.
+  retracted during development — all three initially favouring us — and **54
+  measurement defects** are catalogued with the check that caught each.
 
 ---
 

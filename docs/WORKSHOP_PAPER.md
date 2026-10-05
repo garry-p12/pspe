@@ -333,6 +333,52 @@ waiting is permitted**: edge availability is non-monotone once the flood recedes
 and without holding, a two-road test case differs by more than a factor of two
 (300 minutes against 127.5).
 
+### 5.4 We trained the departure policy, and proved it cannot help
+
+The filtered arm departs at the **first** slot where a margin-feasible route
+exists, which is myopic by construction, and the failure modes say there is room
+in the timing: it is **caught by water 14 times in 96 where the oracle is caught
+none**. Waiting narrows the belief — observed depths rule members out — but roads
+close while you wait. So we added a learned arm over the belief state: go when a
+feasible route exists *and* either the surviving fraction of the ensemble has
+fallen to θ or τ of the window has elapsed, fitted by exhaustive search under
+**nested leave-one-out** so the member a fold is scored against never enters its
+training set. Two parameters, because 96 decisions leave ~84 per fold; capacity
+chosen from the sample size rather than from ambition.
+
+It scores **56.2%**, exactly what the myopic rule scores, and converged to
+θ = 0, τ = 0 — *depart immediately* — on **all eight folds**.
+
+On its own that null is uninformative: the policy, the features, the sample size
+and the task are all candidate explanations. So we also compute the **best
+departure slot in hindsight**, reading the arrival outcome. It is not an arm and
+no causal policy can reach it; it bounds what *any* timing rule could achieve on
+these belief trajectories. **It also scores 56.2%** — with 0 caught against 14,
+converting every catch into a refusal to travel.
+
+| arm | got through | caught | no route |
+|---|---|---|---|
+| filtered (myopic) | 56.2% | 14 | 28 |
+| learned timing policy | **56.2%** | 14 | 28 |
+| best timing, in hindsight | **56.2%** | **0** | 42 |
+| oracle (plans on the true member) | 85.4% | 0 | 14 |
+
+Equal arrival counts force the statement that **whenever some feasible departure
+arrives, the earliest feasible departure also arrives**, so we measured why
+rather than asserting it: of 96 decisions, 68 have a feasible slot; in **68 of
+68** the feasible window is contiguous, **0** reopen after closing, and there are
+**0** decisions where a later departure arrives and the earliest does not. The
+flood rises monotonically across the modelled window — roads close and none
+reopen — so earliest-feasible is optimal by construction and the 29-point gap to
+the oracle is **not a timing gap**. It is about *which route*, meaning
+information about which member is being lived in, which is the same wall the
+0.000 m margin hit from the other side.
+
+A timing policy would earn its keep on a hazard whose feasibility is
+**non-monotone**: a flood receding inside the window, a second peak, or a
+forecast sharpening faster than the network degrades. We state that as the
+falsifiable condition and ship the diagnostic that tests it.
+
 ---
 
 ## 6. The portal: the loop, operable
@@ -390,6 +436,65 @@ how many more runs that would need. That is not a detail of the method; it is th
 reason to prefer it, and it is why stage 4 is in the loop at all.
 
 **Figure 12** `runs/portal_shots/52_refusal.png`
+
+### 6.4a A margin that does not depend on the plan cannot change the plan
+
+The band the tool displayed was pooled over all 30 calibration runs and returned
+**one number for every height vector**. A constant offset cannot move an argmax,
+so `effect(h) − band` and `effect(h)` are maximised by the same plan: the margin
+was decorative, in the same way it is provably inert for route choice (§5.3).
+This is worth stating plainly because a tool can display a correct conformal
+guarantee and still choose its plan with the margin switched off.
+
+It stops being a constant once it is conditioned on what the plan commits to.
+Surrogate error grows with the number of sites a plan activates — mean
+|measured − predicted| of **4.74** over 21 two-site runs, **8.57** over 8
+three-site runs, **11.50** on the single six-site run, correlation **+0.371** —
+so a planner maximising predicted effect prefers more sites and walks into the
+stratum its own margin covers worst, while the pooled number still looks valid.
+
+The fix is **Mondrian conformal**: stratify the calibration set by a function of
+the *input* (`n_active`, a property of the height vector and never of the
+outcome) and apply split conformal within each cell, each of which must satisfy
+the rank condition on its own.
+
+| stratum | runs | band at 90% |
+|---|---|---|
+| **pooled — what the tool displayed** | 30 | **13.37** |
+| two sites | 21 | **10.01** |
+| three sites | 8 | **refuses** — 9 needed |
+| six sites | 1 | **refuses** |
+
+The pooled band was wrong in **both** directions: too wide for the two-site plan
+the tool recommends, and displayed at all for plans of three or more sites where
+the evidence supports no band. Two strata are in no calibration file and both
+matter: a single site at **full height** owes **no margin**, because `alpha[i]`
+*is* a solver run of exactly that configuration; a single site at a **partial**
+height is not exact, because the prediction scales that run linearly and nothing
+checks it, so it refuses rather than borrow the two-site band.
+
+**And now the recommendation changes.** Exhaustive over 7⁶ height vectors:
+
+| budget | best predicted effect | best *guaranteed* floor |
+|---|---|---|
+| A$10M | 1 site, 31.0 — **no valid band** | 2 sites, 27.2 → floor **17.2** |
+| A$15M | 1 site at full height, 46.5 | same plan, floor 46.5 |
+| **A$20M** | 2 sites, **52.1** → floor 42.0 | 1 site at full height → floor **46.5** |
+| A$30M | 3 sites, 52.5 — **no valid band** | 1 site → floor **46.5** |
+
+At A$20M the framework's plan **predicts 5.6 points less and promises 4.5 points
+more**, because its prediction is a solver measurement rather than an
+extrapolation. At A$10M and A$30M the prediction-optimal plan cannot be
+guaranteed at all. This is the method's own thesis executed on the twin's own
+task — bound the quantity the decision commits to, and the decision changes —
+and it is the complement to §5.3: a discrete decision where the margin is
+provably inert, and a continuous allocation where conditioning makes it
+decision-relevant.
+
+Both implementations of this guarantee are checked against each other:
+`portal/scripts/verify-margin-parity.mjs` agrees on five quantities, the
+conditional band **6/6** across the strata, the exactness rule and both
+refusals.
 
 ### 6.5 An explanation the service will not ship unless it matches the plan
 
