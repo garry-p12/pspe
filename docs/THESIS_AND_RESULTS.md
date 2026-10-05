@@ -1841,6 +1841,86 @@ compared against doing nothing. The row would have taken a minute to produce at
 any point in the last year.
 
 
+### 3.4l Three of the four safe-RL baselines do not beat doing nothing on dar (2026-10-04)
+
+Job 1048517, tasks 2–3: the four model-free baselines re-measured at **their own
+full budget** — 200 iterations × batch 16 × horizon 12 = **38,400 real
+transitions**, exactly what §8.3 gave them — over **20 seeds that actually
+vary**, each seed-paired against the zero policy evaluated on the same initial
+conditions. 18 and 20 minutes of wall clock, both COMPLETED 0:0.
+
+**dar** (§8.3's testbed). Do-nothing: return **−2.3996 ± 0.2060**, 0% violating,
+worst episode cost 0.827 against a limit of 0.936.
+
+| arm | return | vs null (paired) | bootstrap 95% CI | violating % | seeds above null |
+|---|---|---|---|---|---|
+| CPO | −2.3880 | +0.0116 | **[−0.0012, +0.0238]** | 0.0% | 14/20 |
+| PPO-Lagrangian | −2.3854 | +0.0141 | **[−0.0050, +0.0322]** | 0.0% | 13/20 |
+| primal-dual NPG | −2.3900 | +0.0096 | **[−0.0039, +0.0226]** | 0.0% | 13/20 |
+| **Sauté RL** | −2.3715 | **+0.0280** | **[+0.0224, +0.0334]** | 0.0% | **20/20** |
+
+**Three of the four cannot be shown to outperform a do-nothing policy**, at full
+budget, over 20 seeds, with 20 000-resample bootstrap intervals that straddle
+zero. Only Sauté clears the floor, and it does so on 20 of 20 seeds — a small
+effect (+0.028) but a consistent one, which is what its known conservative bias
+would produce.
+
+**rdf.** Do-nothing: return **−7.4001 ± 0.6688**, 0% violating.
+
+| arm | return | vs null (paired) | bootstrap 95% CI | violating % | seeds above null |
+|---|---|---|---|---|---|
+| CPO | −7.1984 | +0.2017 | [+0.1659, +0.2402] | 0.0% | 20/20 |
+| **PPO-Lagrangian** | −6.9699 | **+0.4302** | [+0.3542, +0.5183] | **2.3%** | 20/20 |
+| primal-dual NPG | −7.1993 | +0.2008 | [+0.1652, +0.2394] | 0.0% | 20/20 |
+| Sauté RL | −7.2530 | +0.1472 | [+0.1070, +0.1874] | 0.0% | 19/20 |
+
+**All four clear the floor on rdf**, by 0.15 to 0.43, and PPO-Lagrangian is the
+only arm anywhere in this table that violates at all (2.3%) — it buys the
+largest return gain and pays for it, which is the behaviour a Lagrangian method
+is supposed to show.
+
+**What this does to §8.3.** That table reports the planner beating all four on
+return at 12.5× fewer real transitions, and it is measured on **dar**. The
+correction is not that the baselines are badly implemented — on rdf they work —
+but that **dar is a weak testbed for this comparison, because the zero policy is
+already near-optimal on it.** Beating a method that cannot be distinguished from
+inaction is not evidence of control, and three of the four are in that position
+on dar. The sentence "beats every baseline on return (t = +3.84 to +17.95)"
+should not be repaired; it should be replaced by the null-anchored table, on rdf.
+
+**And it explains the IC sensitivity.** Do-nothing over 20 varied seeds returns
+−2.3996 against **−2.5645** on the single draw §8.3's runs all shared (defect
+46). The published draw is 0.16 below the mean — roughly six times the largest
+baseline effect in the dar table — which is why the ranking there was conditional
+on the draw and why every interval in this section is seed-paired against the
+null evaluated on *the same* initial conditions.
+
+**Convenient, and not a coincidence**: rdf is where the comparison is real, and
+rdf is already where the headline lives (14.1% → 5.0%, §3.2b, 20 seeds, p =
+0.0002, return +0.95 over the null by §3.4k). The paper should lead with rdf and
+present dar as what it is — a testbed where the constraint binds but the task is
+easy enough that inaction is competitive.
+
+**Still open**: the planner's own arms on these same 20 varied seeds (job
+1049073, tasks 0–1, pending). Until that lands, this section states the
+baselines' side of the corrected table and nothing about the head-to-head: our
+published numbers come from the single favourable draw and are not comparable to
+the 20-seed figures above.
+
+| # | defect | effect | how it was caught | § |
+|---|---|---|---|---|
+| 54 | §8.3 reported the planner beating four safe-RL baselines on return without ever comparing any of them to a do-nothing policy; on dar three of the four cannot be distinguished from inaction at full budget over 20 seeds | the headline sample-efficiency comparison was made on a testbed where the null policy is near-optimal, so "beats every baseline on return" carried far less than it appeared to; the effect sizes (+0.010 to +0.028) are a sixth of the IC-draw variation (0.16) | adding the null row and re-running the baselines at full budget with seeds that vary | 3.4l |
+
+**Rule 63: a baseline that cannot beat the null policy is not a baseline, it is a
+second null.** Four published algorithms were run for 38,400 real transitions
+each and reported as respecting a limit our planner broke. Three of them, on
+that testbed, do no better than refusing to act — so their constraint
+satisfaction was never evidence of safe control, and our advantage over them was
+never evidence of ours. Check every baseline against the null before reading a
+comparison against it, and check it on the testbed the comparison is made on:
+the same four algorithms clear the floor comfortably on rdf.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -7183,7 +7263,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 53 defects, 62 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 54 defects, 63 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative

@@ -331,7 +331,11 @@ def main() -> int:
             )
             bs = agent.train()
             rows.append({
-                "arm": f"{alg} @matched",
+                # Label by the budget actually used, not by the flag name: the
+                # full-budget run came out labelled "@matched" at 38,400
+                # transitions, which is exactly the confusion this table exists
+                # to remove.
+                "arm": f"{alg} @{actual}",
                 "return": round(bs["return"], 4),
                 "episode_cost": round(bs.get("episode_cost", float("nan")), 4),
                 "violating_evals": round(
@@ -340,7 +344,7 @@ def main() -> int:
                 "real_samples": bs.get("samples", actual),
                 "model_free": True,
             })
-            print(f"[{alg} @matched] return {rows[-1]['return']} "
+            print(f"[{alg} @{actual}] return {rows[-1]['return']} "
                   f"violating {rows[-1]['violating_evals']} "
                   f"real samples {rows[-1]['real_samples']}", flush=True)
 
