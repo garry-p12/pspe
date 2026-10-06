@@ -583,6 +583,36 @@ the benefit is **a third the size** and holds on 76% of them.
 
 ---
 
+## The learned model, named
+
+The paper's claims are about what a dual is fed, not about an architecture, but
+"planning through a learned surrogate" should say which one. A **Fourier Neural
+Operator** throughout, selected against two alternatives on the planning testbed
+at 20 seeds:
+
+| operator | `rel L2` (final) | sd | 95% CI |
+|---|---|---|---|
+| **FNO** | **0.2168** | 0.1324 | **[0.1625, 0.2760]** |
+| DeepONet | 0.3090 | 0.0042 | [0.3072, 0.3108] |
+| GNOT | 0.4325 | 0.0824 | [0.4005, 0.4697] |
+
+FNO's upper bound sits below DeepONet's lower bound, so the ordering is
+established rather than assumed. **FNO is also far more seed-sensitive** — sd
+0.132 against DeepONet's 0.004 — which a single-seed comparison would have
+hidden in either direction, and which matters here because `ρ` is a property of
+the surrogate as much as of the policy.
+
+On the published **PDEBench 2-D shallow water** benchmark the same model reaches
+`rel L2` 0.0018 one-step and 0.0098 on rollout, against a published FNO nRMSE of
+0.0044 — an anchor rather than a like-for-like comparison, since the metrics
+differ, and single-seed.
+
+**The physics-informed loss is reported as buying convergence speed only** — no
+asymptotic effect, −0.0127 at 20 seeds with CI [−0.0886, +0.0650]. We include
+the null because the term is cheap to add and widely assumed to help.
+
+---
+
 ## Reproducibility
 
 `eval/run_constraint_fix.py` (main result, all arms, all three families),

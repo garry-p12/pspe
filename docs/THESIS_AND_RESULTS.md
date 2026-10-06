@@ -426,12 +426,21 @@ named, and transitions is the unit this document uses.
 | method | return | cost | violating evals | worst | real samples |
 |---|---|---|---|---|---|
 | **PSPE (adaptive α)** | **−2.448 ± 0.029**<sup>†</sup> | 0.412 ± 0.37 | **7.3%** | 1.109 | 3,072 |
-| PSPE (fixed α) | −2.738 ± 0.365 | 2.752 ± 3.6 | 12.7% | 2.758 | 3,072 |
+| PSPE (fixed α) | −2.738 ± 0.365<sup>‡</sup> | 2.752 ± 3.6 | 12.7% | 2.758 | 3,072 |
 | PPO-Lagrangian | −2.558 ± 0.039 | 0.266 ± 0.009 | 0% | 0.297 | 38,400 |
 | CPO | −2.541 ± 0.035 | 0.263 ± 0.011 | 0% | 0.277 | 38,400 |
 | Sauté RL | −2.537 ± 0.024 | 0.264 ± 0.008 | 0% | 0.275 | 38,400 |
 | Primal-dual NPG | −2.544 ± 0.026 | 0.263 ± 0.008 | 0% | 0.275 | 38,400 |
 
+> <sup>‡</sup> **Superseded by §3.4r.** This row is one diverged seed. On the
+> single shared IC draw the fixed-α arm had a seed run away to cost 8.1 with
+> λ = 19.1, which is what produces −2.738 and the ±0.365. At **20 varied seeds**
+> both α arms return **≈ −2.39** and differ by **+0.007, CI [−0.007, +0.021] —
+> not significant on the mean.** §4.2's reading was already the right one:
+> *adaptive α is a variance effect, not a mean effect* — fixed α violates on 5
+> seeds of 20 where the adaptive rules violate on 1 and 0. Quote the 20-seed
+> figures and the violation counts, not this row's return gap.
+>
 > <sup>†</sup> **The ± on this row is not seed variance** and must not be quoted
 > as such. `run_ablations.py` passed `--seed` only to the global RNG, so all five
 > seeds were evaluated on an identical initial-condition set and this interval
