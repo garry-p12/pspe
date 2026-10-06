@@ -1483,6 +1483,28 @@ real-sample column — `constraint_fix` reports 3,200 (states) for the same data
 
 ### 12.6 Smaller points a reviewer will ask
 
+> **STATUS 2026-10-06.** Four of the seven are closed; three remain and are
+> listed honestly rather than marked done.
+>
+> **Closed.** The HF Explain path being a frozen encoder over a closed
+> vocabulary rather than free-text Qwen generation — found independently as
+> defect 49 (§3.4f) and now stated in both papers, neither of which describes
+> the briefs as natural language. The 12.5× ratio and the t-values of +3.84 to
+> +17.95 — both retired in §8.3, replaced by the matched-budget table. The
+> "0% on 5/5" figure — annotated, with ~1% over 15 seed-runs and 0.5% at 20
+> varied seeds given as the honest rates, and Corollary 1 pointed at the former.
+> Adaptive α saturating at 0.992 — covered by §4.2a and now by §3.4r's null
+> result on the mean.
+>
+> **Still open.** (1) `F`'s reference distribution uses the post-tanh mean with
+> the pre-tanh std; the approximation is still unstated. (2) `swe` returns are
+> ~−0.17 with almost no reward/cost tension, which explains the small
+> planning-transfer gaps as much as anything else does — worth one sentence
+> where swe transfer is discussed. (3) **The equity constraint has never been
+> exercised in a reported run.** It appears in neither paper, so it is an
+> untested feature rather than a false claim, but shipping a constraint nobody
+> has run is the kind of thing this catalogue exists to surface.
+
 * The reference distribution for $F$ uses the post-tanh mean with the pre-tanh
   std; state the approximation.
 * The HF Explain path uses the LM as a frozen encoder with a *closed 900-token

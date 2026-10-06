@@ -450,9 +450,22 @@ named, and transitions is the unit this document uses.
 > *dispersion* does not. The sweep is pending a rerun; until then report the mean
 > without the ±.
 
-Beats every baseline on return (t = +3.84 to +17.95) at **12.5× fewer real
-transitions** — but violates a limit they all respect. Part of the advantage
-was bought.
+> **RETIRED, 2026-10-05 (Rule 65, §3.4l–n).** This sentence previously read
+> *"beats every baseline on return (t = +3.84 to +17.95) at 12.5× fewer real
+> transitions"*. Three things are wrong with it. The **t-values** come from the
+> understated SE of a single shared IC draw (defect 46). The **12.5× ratio**
+> omits the probe's 960 real transitions, so it is 9.2× once the fix is on — and
+> a ratio is an input, not a result. And on **dar** three of these four
+> baselines cannot be distinguished from a do-nothing policy at full budget, so
+> beating them there carried far less than it appeared to.
+>
+> **Replace it with §3.4n's null-anchored, matched-budget table**, where every
+> baseline gets the planner's own real-transition count and the comparison is
+> seed-paired against the zero policy: we beat all four on rdf (+0.394 to
+> +0.460, every interval excluding zero), and on dar no baseline clears the null
+> while ours returns +0.0866 on 20/20 seeds.
+>
+> What survives from this row unchanged: **we violate a limit they all respect.**
 
 > **A caveat that must be stated.** Every baseline here is **model-free**
 > [Achiam et al., 2017; Stooke et al., 2020; Sootla et al., 2022; Ding et al.,
@@ -476,7 +489,14 @@ limit `d_eff < d`.
 | baseline | −2.302 ± 0.16 | 1.8% | 0.75 (max 1.73) | 3,200 |
 | probe only | −2.307 ± 0.16 | 1.8% | 0.56 | 4,160 |
 | margin only | −2.302 ± 0.16 | 1.8% | 0.75 | 3,200 |
-| **probe + margin** | **−2.301 ± 0.17** | **0% (5/5 seeds)** | **0.29** | 4,160 |
+| **probe + margin** | **−2.301 ± 0.17** | **0% (5/5 seeds)**<sup>§</sup> | **0.29** | 4,160 |
+
+> <sup>§</sup> **Do not quote "0%" as the rate.** It is one draw of five, and
+> the honest figure is stated two paragraphs below: across all 15 seed-runs using
+> probe+margin, 13 are clean and two had a single excursion, so **≈1%**. At 20
+> varied seeds on dar (§3.4n) the arm reads **0.5%**. A zero from five seeds on a
+> shared IC set is a sampling outcome, not a guarantee — and Corollary 1's
+> statement should be read at the probe+margin rate of ~1%, not at 0%.
 
 **Neither half works alone.** Margin-only is *identical* to baseline, because
 with no probe there is no measured error from which to derive a margin.
