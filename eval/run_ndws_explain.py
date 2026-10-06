@@ -192,6 +192,10 @@ def main() -> int:
     parser.add_argument("--deltas", type=float, nargs="+", default=[0.2, 0.1, 0.05])
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--max-len", type=int, default=160,
+                        help="brief length cap. The reference briefs average 136 "
+                             "tokens, so ExplainConfig's default of 96 truncates "
+                             "every arm before its footer and caps F (defect 47)")
     parser.add_argument("--out", default="runs/ndws_explain")
     args = parser.parse_args()
 
@@ -243,7 +247,8 @@ def main() -> int:
         seed_everything(args.seed)
         env = PlanBank(train_bank, args.patches, cost_limit_pct, device)
         trainer = ExplainTrainer(
-            env, PlanPolicy(env), ExplainConfig(backbone=args.backbone),
+            env, PlanPolicy(env), ExplainConfig(backbone=args.backbone,
+                                               max_len=args.max_len),
             ExplainTrainConfig(iterations=args.iterations, batch=args.explain_batch,
                                seed=args.seed, log_dir=str(root / name),
                                per_dim_kl=True, brief_top_k=args.top_k,

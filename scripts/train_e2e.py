@@ -121,7 +121,7 @@ def main(cfg: DictConfig) -> None:
 
     # ---- Explain ----------------------------------------------------------- #
     explain_trainer = ExplainTrainer(
-        eval_env, policy, ExplainConfig(),
+        eval_env, policy, ExplainConfig(max_len=160),
         ExplainTrainConfig(
             iterations=cfg.budgets.explain_iterations,
             use_faithfulness=cfg.ablations.use_faithfulness, seed=cfg.seed,

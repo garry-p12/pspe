@@ -49,6 +49,10 @@ def main() -> int:
     parser.add_argument("--deltas", type=float, nargs="+", default=[0.2, 0.1, 0.05])
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--max-len", type=int, default=160,
+                        help="brief length cap. The reference briefs average 136 "
+                             "tokens, so ExplainConfig's default of 96 truncates "
+                             "every arm before its footer and caps F (defect 47)")
     parser.add_argument("--out", default="runs/conformal")
     args = parser.parse_args()
 
@@ -70,7 +74,7 @@ def main() -> int:
         policy.load_state_dict(state["policy"] if "policy" in state else state)
 
     trainer = ExplainTrainer(
-        env, policy, ExplainConfig(backbone=args.backbone),
+        env, policy, ExplainConfig(backbone=args.backbone, max_len=args.max_len),
         ExplainTrainConfig(iterations=args.iterations, seed=args.seed,
                            log_dir=str(root / "train")),
         RunLogger(root / "train", use_tensorboard=False), device,
