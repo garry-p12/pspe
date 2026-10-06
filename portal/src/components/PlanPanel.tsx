@@ -41,6 +41,34 @@ interface Plan {
   harmful: { site: number; alone_pct: number }[];
   verify: { required: boolean; why: string };
   method: string;
+  /** The band conditioned on the stratum this plan lands in, which is the only
+   *  one that describes THIS plan. `band_pct` above is pooled over every
+   *  calibration run and is wrong in both directions: too wide for a two-site
+   *  plan and unsupported for anything larger. */
+  conditional?: {
+    band_pct: number | null;
+    attainable: boolean;
+    n_active: number;
+    exact: boolean;
+    guaranteed_pct: number | null;
+    runs_in_stratum: number;
+    runs_needed: number;
+    why: string;
+  };
+  /** The plan with the best GUARANTEED floor rather than the best estimate.
+   *  Differs from the recommendation whenever conditioning bites. */
+  best_guaranteed?: {
+    heights: number[];
+    cost_aud: number;
+    reduction_pct: number;
+    guaranteed_pct: number;
+    band_pct: number;
+    n_active: number;
+    exact: boolean;
+    floor_gain_vs_greedy: number | null;
+    estimate_given_up: number;
+    why: string;
+  } | null;
 }
 
 /** 90 -> "9 times in 10". Percentages mean little to most readers; counts do. */
@@ -202,6 +230,79 @@ export function PlanPanel({
                     ? `Being more sure costs you: the figure we'll stand behind drops as you raise the bar. It sits ${plan.band_pct.toFixed(0)} points below our estimate here, measured against ${plan.n_calibration_runs} past floods we tested on. Write the business case against the lower number.`
                     : (plan.refusal ?? plan.band_note)}
                 </p>
+
+                {/* The band for THIS plan, not pooled over all of them.
+                    Surrogate error grows with the number of sites a plan
+                    activates, so one number for every plan is too wide for a
+                    small plan and unsupported for a large one. Showing the
+                    pooled figure was not a rounding issue: it let the search
+                    pick a plan the evidence could not cover. */}
+                {plan.conditional && (
+                  <div className="mt-3 border-t border-line-soft pt-3">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-[12px] text-ink">
+                        Checked against {plan.conditional.n_active}-site floods only
+                      </span>
+                      <span className="tnum text-[13px] font-semibold text-accent">
+                        {plan.conditional.exact
+                          ? "exact"
+                          : plan.conditional.attainable
+                            ? `${plan.conditional.guaranteed_pct!.toFixed(0)}%`
+                            : "can't say"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[12px] leading-snug text-ink-faint">
+                      {plan.conditional.why}
+                    </p>
+                    {!plan.conditional.attainable && !plan.conditional.exact && (
+                      <p className="mt-1 text-[12px] leading-snug text-warn">
+                        We have {plan.conditional.runs_in_stratum} past flood
+                        {plan.conditional.runs_in_stratum === 1 ? "" : "s"} with
+                        this many sites built and need{" "}
+                        {plan.conditional.runs_needed}. The figure above it is the
+                        pooled one and does not cover this plan.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* The plan that maximises what we can PROMISE, which is not the
+                    plan that maximises what we predict. A pooled band is a
+                    constant and cannot change this choice; a band conditioned on
+                    the plan can, and does. */}
+                {plan.best_guaranteed &&
+                  plan.best_guaranteed.floor_gain_vs_greedy !== null &&
+                  plan.best_guaranteed.floor_gain_vs_greedy > 0.5 && (
+                  <div className="mt-3 rounded border border-accent/40 bg-accent/5 p-2.5">
+                    <p className="text-[12px] font-semibold text-ink">
+                      A plan we can promise more for
+                    </p>
+                    <p className="mt-1 text-[12px] leading-snug text-ink-faint">
+                      {plan.best_guaranteed.n_active === 1
+                        ? "One site at full height"
+                        : `${plan.best_guaranteed.n_active} sites`}
+                      , A${(plan.best_guaranteed.cost_aud / 1e6).toFixed(1)}M:
+                      we'd estimate{" "}
+                      <span className="tnum">
+                        {plan.best_guaranteed.reduction_pct.toFixed(0)}%
+                      </span>{" "}
+                      — <span className="tnum">
+                        {plan.best_guaranteed.estimate_given_up.toFixed(0)} points
+                      </span>{" "}
+                      less than the plan above — but stand behind{" "}
+                      <span className="tnum font-semibold text-accent">
+                        {plan.best_guaranteed.guaranteed_pct.toFixed(0)}%
+                      </span>
+                      , which is{" "}
+                      <span className="tnum">
+                        {plan.best_guaranteed.floor_gain_vs_greedy.toFixed(0)} points
+                      </span>{" "}
+                      more.
+                      {plan.best_guaranteed.exact &&
+                        " Its prediction is a flood we actually ran, not an estimate between two."}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {plan.attribution?.length > 1 && (
