@@ -2276,6 +2276,80 @@ mechanism as the transferable claim and the closed form as what it is: exact
 where its assumptions hold, and an upper bound elsewhere.
 
 
+### 3.4r The ablations at twenty varied seeds, and the Explain floor off the cap (2026-10-06)
+
+Two reruns of fixes committed on 2026-10-02 and never exercised. Both landed in
+minutes once scheduled — the ablation seeds took **3:28–4:29** each.
+
+**The ablations (`runs/ablations_20/`, 20 seeds, seed now reaching all six
+configs).** Every contrast is seed-paired with a 20 000-resample bootstrap.
+
+| ablation | metric | arm A | arm B | paired A−B | 95% CI | separates? |
+|---|---|---|---|---|---|---|
+| physics-informed loss | `rel_l2_final` | 0.2168 | 0.2295 | −0.0127 | [−0.0886, +0.0650] | **no** |
+| adaptive vs fixed α | `return` | −2.3875 | −2.3945 | +0.0071 | [−0.0074, +0.0214] | **no** |
+| faithfulness objective | `eval/faithfulness` | 0.5864 | 0.5724 | +0.0140 | [−0.0065, +0.0490] | **no** |
+
+**All three confirm readings the document already had, and that is the outcome
+worth noting.** §8.1 already said the physics loss has "no asymptotic effect"
+(t = +0.52) and buys convergence speed only. §4.2 already said **adaptive α is a
+variance effect, not a mean effect** (+0.290 but t = +1.66, with the tail doing
+the separating). §3.4j established the faithfulness term as net harmful on a real
+backbone. **Nothing is retracted; three claims that were correctly hedged now
+have intervals that mean what they say.**
+
+**The operator comparison separates cleanly and is newly solid:**
+
+| operator | `rel_l2_final` | sd | 95% CI |
+|---|---|---|---|
+| **FNO** | **0.2168** | 0.1324 | **[0.1625, 0.2760]** |
+| DeepONet | 0.3090 | 0.0042 | [0.3072, 0.3108] |
+| GNOT | 0.4325 | 0.0824 | [0.4005, 0.4697] |
+
+FNO's upper bound (0.276) sits below DeepONet's lower bound (0.307), so the
+ordering is established rather than asserted. Note DeepONet's sd of 0.004
+against FNO's 0.132: FNO is better **and far more seed-sensitive**, which a
+single-seed comparison would have hidden in either direction.
+
+**What changes in §8.3's table.** Its fixed-α row reported **−2.738 ± 0.365**,
+dominated by one seed that diverged to cost 8.1 with λ = 19.1 on the single
+shared IC draw. At 20 varied seeds both α arms return ≈ **−2.39** and differ by
++0.007, n.s. The *reading* in §4.2 was right; the *numbers* in §8.3 were a
+property of one draw and are superseded by this run.
+
+**The Explain certificate, off the truncation ceiling
+(`runs/conformal_real_160/`, 3 seeds, 200 calibration / 400 test).** §4.4's
+conformal floors were measured with `ExplainConfig`'s 96-token default against
+136-token reference briefs (defect 47), so every brief was cut before its footer.
+
+| δ | nominal | empirical coverage (3 seeds) | certified `F` floor | holds |
+|---|---|---|---|---|
+| 0.20 | 0.80 | 0.788 / 0.833 / 0.833 | **0.913** | 3/3 |
+| 0.10 | 0.90 | 0.908 / 0.903 / 0.913 | **0.913** | 3/3 |
+| 0.05 | 0.95 | 0.943 / 0.945 / 0.965 | **0.913** | 3/3 |
+
+**The certified floor is 0.9134** (range 0.9127–0.9139), against the published
+**≈0.57**. Coverage holds on **9 of 9** δ×seed combinations and tracks nominal
+within ≈0.015. The figure is consistent with §3.4j's controls run, where
+supervised-only reached 0.901 against a reference of 0.901 — so the certificate
+and the generator now agree about what the parser's ceiling is.
+
+**This separates two things the document had been conflating.** The *faithfulness
+REINFORCE objective* is net harmful and is dropped (§3.4j). The *conformal
+certificate on faithfulness* is valid, holds 9/9, and its floor is **0.913 rather
+than 0.57** — the earlier figure was the token cap, not the method. The Explain
+stage's defensible contribution is therefore: **a supervised generator at the
+parser's ceiling, with a conformal certificate on its faithfulness that holds at
+three levels on every seed.**
+
+**Rule 69: a fix that is committed and not rerun is a fix that has not happened.**
+Both of these were corrected on 2026-10-02 and left for four days while four
+ablation claims kept quoting intervals five to six times too narrow and §4.4 kept
+quoting a floor 0.34 below the truth. The commit closed the defect; only the
+rerun closed the result. Track reruns the fix implies as separate work items,
+because the diff looks finished and the paper does not.
+
+
 #### 3.4e Provenance, stated rather than implied
 
 Audit item 12.5, recorded here so a reviewer does not have to ask.
@@ -7618,7 +7692,7 @@ the honest standing of our claim against that line, not a score.
 | 9.6 | Wildfire intervention planning | firebreak / fuel-treatment optimisation | optimise placement, usually in simulation | horizon ablation on observed fire data | null at 1 day where theory requires, +14.3 at 5 days | **Novel as evidence.** No firebreak paper reports this ablation |
 | 9.9 | Sequential wildfire benchmarks | WildfireSpreadTS (Gerard 2023); WSTS+; WildfireSpreadBench | 607 fires, 23 channels, year-wise CV recommended | ported to it; 1 of 23 channels used | eight-fire estimate was ~3× too generous; "8/8" became 62–76% (§5.2a) | **Closed, and it cost us a claim.** Channel use is the remaining gap |
 | 9.5 | PDE surrogates | FNO; Poseidon; DPOT; BCAT | frontier operator architectures | FNO, a 2021 baseline | not benchmarked against the frontier | **Behind, and not our contribution.** The claim is about what the margin bounds, not the operator |
-| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 55 defects, 68 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
+| 9.11 | Evaluation rigour | Henderson 2018; Agarwal 2021; WildfireSpreadBench | the metric outranks the architecture | 55 defects, 69 rules, each with the measurement that caught it | — | **Converging with an established line.** Our instance is constrained model-based planning |
 | 9.12 | Explanation faithfulness | faithfulness metrics for post-hoc explanation | score explanation against model behaviour | permutation control against another state | F = 0.47 vs post-hoc 0.18, t = +21, yet **zero** state-specific information | **Withdrawn claim.** The control killed our own result |
 
 ### 9.15 Comparison with related work — quantitative
