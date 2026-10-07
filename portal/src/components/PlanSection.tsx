@@ -193,32 +193,49 @@ export function PlanSection({
             onChange={(e) => onBudget(Number(e.target.value))}
             className="mt-2 w-full accent-[var(--ink)]"
           />
-          <BudgetTrace options={measures} budgetM={budgetM} />
         </div>
 
-        <p className="mt-3 text-[12px] leading-snug text-ink-faint">
-          Each row is a wall you could build. The number on the right is how much
-          less land floods if you build it — bigger is better, and a red one makes
-          things worse. The numbers match the markers on the map.
-        </p>
-
-        <OptionList
-          options={measures}
-          budgetM={budgetM}
-          chosen={chosen}
-          onChoose={onChoose}
-        />
-
-        <div className="mt-1 flex justify-end">
-          <button
-            onClick={onBuildYourOwn}
-            className="text-[13px] text-ink underline underline-offset-2 hover:no-underline"
-          >
-            Build your own
-          </button>
-        </div>
-
+        {/* ---- the answer, first ------------------------------------------
+            The result used to render after the option list and three
+            paragraphs of instructions, which put the tool's entire output
+            below the fold: an engineer had to scroll past the teaching
+            material to reach the number they came for. Everything that is an
+            INPUT or an EXPLANATION now folds away beneath it. */}
         {children}
+
+        <details className="fold mt-4 border-t border-line-soft pt-1">
+          <summary>
+            Other options
+            <span className="count">{affordable.length} of {measures.length} fit</span>
+          </summary>
+          <div className="pb-1">
+            <p className="mb-2 text-[12px] leading-snug text-ink-faint">
+              Each row is a wall you could build; the number is how much less
+              land floods. Bigger is better, red makes it worse.
+            </p>
+            <OptionList
+              options={measures}
+              budgetM={budgetM}
+              chosen={chosen}
+              onChoose={onChoose}
+            />
+            <div className="mt-1 flex justify-end">
+              <button
+                onClick={onBuildYourOwn}
+                className="text-[13px] text-ink underline underline-offset-2 hover:no-underline"
+              >
+                Build your own
+              </button>
+            </div>
+          </div>
+        </details>
+
+        <details className="fold border-t border-line-soft pt-1">
+          <summary>What more money buys</summary>
+          <div className="pb-2">
+            <BudgetTrace options={measures} budgetM={budgetM} />
+          </div>
+        </details>
 
         <p className="anno mt-4 leading-relaxed">
           Appraised against the design event; road cut at{" "}

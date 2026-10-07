@@ -84,6 +84,43 @@ body {
   text-transform: none;
 }
 
+/* Collapsed section. The panel teaches on first use and is operated on every
+ * use after that, so the teaching material folds away rather than being read
+ * past each time. Native <details>, so keyboard and screen-reader behaviour
+ * comes free and no state has to be managed. */
+.fold > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  padding: 7px 0;
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 120ms ease;
+  flex: none;
+}
+.fold[open] > summary::before { transform: rotate(90deg); }
+.fold > summary:hover { color: var(--accent); }
+.fold > summary .count {
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fold > summary::before { transition: none; }
+}
+
 /* Technical annotation: thresholds, axis labels, provenance. */
 .anno {
   font-family: var(--font-mono-stack);
