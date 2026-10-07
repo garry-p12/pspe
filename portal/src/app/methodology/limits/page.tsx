@@ -36,8 +36,18 @@ const GAPS = [
   },
   {
     title: "Explanation: the certificate holds, faithfulness does not",
-    body: "The explanation module emits a certificate that can be checked mechanically, and it does check out. The stronger claim — that the explanation reflects the planner's actual reasoning — did not survive testing and is not made.",
+    body: "The explanation module emits a certificate that can be checked mechanically, and it does check out — a split-conformal floor of 0.913 that held at three confidence levels on every seed tested. The stronger claim, that the explanation reflects the planner's actual reasoning, did not survive testing and is not made: a brief written for one situation scores as well against another, which is a randomisation control the method fails in its original form. Explanation of a specific decision is therefore delivered by leave-one-out attribution — remove this measure from this plan and you lose X — which depends on what else is in the plan and so cannot be reused for a different one.",
     closes: "An explanation method with a faithfulness guarantee, which is an open problem.",
+  },
+  {
+    title: "The certainty slider sets the band's width, not how often the limit is crossed",
+    body: "Raising the confidence widens the margin, and the tool shows the figure it will stand behind dropping accordingly. That is honest about the band. It is not a safety control, and the slider should not be read as one. Swept across a tenfold range of confidence levels on the controlled testbed, the rate at which the real system exceeded its limit did not fall — it was 5.0% at nine-times-in-ten, 4.1% at nineteen-in-twenty, 5.0% at forty-nine-in-fifty and 5.9% at ninety-nine-in-a-hundred, while the margin grew to consume half the available budget. The best rate sits in the middle of the range, not at the strict end, and asking for more certainty past that point costs achievable gain and buys nothing measurable.",
+    closes: "A mechanism that controls the violation rate itself rather than the width of the interval reported around it.",
+  },
+  {
+    title: "The band bounds how often, not how badly",
+    body: "A margin calibrated on realised cost controls the frequency with which a limit is exceeded. It says nothing about the size of the worst exceedance. Measured on the controlled testbed, applying the margin cut the violation rate from 14.1% to 5.0% while the single worst excursion stayed at 1.54 times the limit — against 1.55 times with no margin at all, and unchanged across every confidence level swept. Anyone planning against a worst case rather than an average is not served by this figure, and tightening the slider will not change that.",
+    closes: "A per-episode or per-timestep safety mechanism. This is a different instrument, not a tuning of this one.",
   },
 ];
 
