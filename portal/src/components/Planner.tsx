@@ -11,6 +11,7 @@ import { PlanSection } from "./PlanSection";
 import { ObservePanel, type Observation } from "./ObservePanel";
 import { RoutePanel } from "./RoutePanel";
 import { TripPanel, type TripResult } from "./TripPanel";
+import { SectionPanel, type SectionEnds, type SectionOverlay } from "./SectionPanel";
 import type { RoadQuery } from "@/lib/roadquery";
 import { loadManifest } from "@/lib/data";
 import type { Manifest } from "@/lib/types";
@@ -61,7 +62,7 @@ export function Planner() {
    *  the wrong one. */
   const [vehicle, setVehicle] = useState(0.25);
   const [routeLines, setRouteLines] = useState<{
-    forTab: "district" | "anywhere" | "trip";
+    forTab: "district" | "anywhere" | "trip" | "section";
     quickest: { coords: [number, number][]; minutes: number } | null;
     robust: { coords: [number, number][]; minutes: number } | null;
     dest: { lat: number; lon: number } | null;
@@ -72,9 +73,19 @@ export function Planner() {
   const [roadQ, setRoadQ] = useState<RoadQuery | null>(null);
   const [adHocRoads, setAdHocRoads] = useState<GeoJSON.FeatureCollection | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [tab, setTab] = useState<"district" | "anywhere" | "trip">("district");
+  const [tab, setTab] = useState<"district" | "anywhere" | "trip" | "section">("district");
   /** A trip's own result: its own box, its own flood, its own network. */
   const [trip, setTrip] = useState<TripResult | null>(null);
+  /** The two ends of a cross-section, picked on the map rather than searched:
+   *  a section is drawn across a floodplain, which is a place no gazetteer has
+   *  a name for. */
+  const [sectionEnds, setSectionEnds] = useState<SectionEnds>({ a: null, b: null });
+  /** Whether the next map click goes to the section. Armed, not latched: a
+   *  complete pair disarms it by itself, so the click after the second end --
+   *  typically on the map, to look at something -- cannot throw the line away,
+   *  and nothing has to be unset in an effect. */
+  const [sectionArmed, setSectionArmed] = useState(true);
+  const [sectionOverlay, setSectionOverlay] = useState<SectionOverlay | null>(null);
   const [placed, setPlaced] = useState<PlacedLevee[]>([]);
   const [placing, setPlacing] = useState(false);
   const [observed, setObserved] = useState<Observation | null>(null);
@@ -185,8 +196,21 @@ export function Planner() {
     setFocus("town");
   }, []);
 
+  const sectionPicking =
+    sectionArmed && !(sectionEnds.a && sectionEnds.b);
+
   const onPick = useCallback(
     (lon: number, lat: number) => {
+      // A section's two ends come off the map in order: first click is A,
+      // second is B, and a third starts a new line rather than silently
+      // moving one of the two -- which is what "pick two points" means to
+      // everyone who has used a ruler tool.
+      if (tab === "section") {
+        if (!sectionPicking) return;
+        setSectionEnds((e) => (e.a ? { a: e.a, b: { lat, lon } }
+                                   : { a: { lat, lon }, b: null }));
+        return;
+      }
       if (tab === "anywhere") {
         if (!placing) return;
         setPlaced((l) => [...l, { lat, lon, height_m: 2.5, width_m: 600 }]);
@@ -196,7 +220,7 @@ export function Planner() {
       if (!grids || !manifest) return;
       setPoint(sampleAt(grids, manifest.bounds, lon, lat));
     },
-    [grids, manifest, tab, placing],
+    [grids, manifest, tab, placing, sectionPicking],
   );
 
   const near = useMemo(
@@ -234,22 +258,24 @@ export function Planner() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-b border-line px-5 py-3">
+        <div className="border-b border-line px-5 py-3">
           <span className="text-[13px] text-ink-mute">Area</span>
-          <div className="flex gap-1">
-            {(["district", "anywhere", "trip"] as const).map((k) => (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {(["district", "anywhere", "trip", "section"] as const).map((k) => (
               <button
                 key={k}
-                className="pill"
+                className="pill whitespace-nowrap"
                 data-on={tab === k}
                 onClick={() => {
                   setTab(k);
                   if (k === "district") setAnalysis(null);
                   if (k !== "trip") setTrip(null);
+                  if (k === "section") setSectionArmed(true);
                 }}
               >
                 {k === "district" ? "This district"
-                  : k === "anywhere" ? "Anywhere" : "Plan a trip"}
+                  : k === "anywhere" ? "Anywhere"
+                    : k === "trip" ? "Plan a trip" : "Cross-section"}
               </button>
             ))}
           </div>
@@ -260,6 +286,16 @@ export function Planner() {
             onResult={setTrip}
             onRoutes={(r) => setRouteLines(
               r ? { ...(r as object), forTab: "trip" } as typeof routeLines : null)}
+          />
+        )}
+
+        {tab === "section" && (
+          <SectionPanel
+            ends={sectionEnds}
+            picking={sectionPicking}
+            onPicking={setSectionArmed}
+            onClearEnds={() => setSectionEnds({ a: null, b: null })}
+            onOverlay={setSectionOverlay}
           />
         )}
 
@@ -521,6 +557,7 @@ export function Planner() {
             placed={tab === "anywhere" ? placed : []}
             placedHeights={tab === "anywhere" ? adHocHeights : null}
             routes={routeLines?.forTab === tab ? routeLines : null}
+            section={tab === "section" ? sectionOverlay : null}
             place={tab === "anywhere" ? place : null}
             observed={observed}
               analysis={tab === "trip"

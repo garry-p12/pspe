@@ -6292,6 +6292,95 @@ as stronger evidence than no test at all. Pick inputs that make each term of
 the expression carry weight, and include the regime boundaries — here `rest = 0`
 and `rest ≫ S`, where a wrong form is most likely to still look plausible.
 
+### 5.14d A levee priced off a cross-section, and the dam I almost shipped (2026-10-08)
+
+The cross-section view (`/section` backend, `SectionPanel`, `lib/section.ts`).
+The user draws a line across the floodplain; the service samples the Copernicus
+DEM and the solved peak water surface along it; the panel sizes an embankment
+on what comes back. Measured on a genuine 7.06 km line across the Wilsons River
+floodplain at Lismore, 80 m cells, river driver at 18,750 m³/s, solved in 28 s.
+
+**Three findings, each of which changed the product.**
+
+**1. The whole-line peak is not a design stage.** That line crosses **nine**
+separate bodies of water, with peak surfaces from 8.80 m to 20.67 m: the main
+channel reach, a backwater, three single-cell puddles, and a gorge 4 km away at
+the far end. `/section` returns `peak_water_m` as the maximum over all of them.
+Taking it as the stage for the town reach would have been the obvious reading
+and is wrong by 9.1 m — the water that sets it sits behind a 67 m hill. So the
+panel works per **reach**: a contiguous wet run, with its own stage. Single-
+sample runs are filtered out of the selector (three of the nine); a one-cell
+puddle in a 30 m DEM is not something to design against.
+
+**2. What I first priced was a dam.** The first implementation searched for the
+cheapest crest that clears the reach and ties into ground at both ends. It
+returned a 2.59 km wall at **AUD 29.7 M** — and its middle 760 m ran straight
+across the river, over a bed sitting at 3.2–4.5 m under 8.8 m of water. Every
+number in it was arithmetically correct. The chart is what caught it: the
+embankment was drawn as a solid body spanning the whole valley floor, which is
+what the formula had actually been asked to price.
+
+The fix is to find the channel first, as the belt where the water is at least
+2 m deeper than over the floodplain either side, and refuse an alignment that
+crosses one. Measured against the reach's **own median depth** rather than an
+absolute: the threshold lands at 5.0 m on the main reach and picks the braided
+channel between 1,676 m and 2,386 m, and lands at 3.5 m on the 200 m backwater
+further along, above that reach's 2.49 m deepest point, so a backwater is not
+called a channel. A fixed depth cut-off gets one of those two wrong whichever
+value you choose.
+
+With the channel removed, the honest answer on the same line is a **1.62 km
+tie-back embankment from high ground to the west bank, crest 11.57 m, max
+height 3.91 m, mean 2.65 m, AUD 11.2 M** — ends classified `tied` and `river`.
+Note the stage, too: **11.57 m, not the reach's 12.14 m**, because the channel
+splits the reach and the water standing on the far floodplain is not what this
+wall holds back.
+
+**3. A section fixes a wall's height, not its plan.** This is stated on the
+face of the panel rather than buried: the line is read as the **alignment**, so
+length is distance along the line and height at each station is crest minus
+ground. That is a tie-back embankment, not a levee following the river, and the
+panel says so. Three end conditions follow — `tied` (ground reaches the crest),
+`river` (it stops at the channel bank, which is where a tie-back is meant to
+stop), and `open` (it stopped mid-floodplain at an elevation water walks around,
+reported as an **incomplete design with the shortfall in metres**, not as a
+failure, because a section cannot see around its own ends).
+
+**What the search is for.** The cheapest holding crest is searched, not set to
+"stage plus freeboard", because raising the crest lengthens the run needed to
+tie in. Verified on the real profile: the same alignment cut 6 samples short
+but raised 1.9 m costs **more** than the longer, lower design that holds.
+
+**Honesty statements the panel carries, unfolded.** The water drawn is the
+flood solved **without** the wall — this sizes a crest against the unmitigated
+peak and does not re-solve, and a reader looking at a wall standing in the water
+it is meant to stop is entitled to assume otherwise unless told. The default
+crest carries **zero freeboard** and says so, against the 0.3–0.6 m real design
+would use. And the driver that actually ran is printed on the answer, not in the
+provenance fold: a river driver whose derived box contains no through-channel
+falls back to rainfall, and a dry profile then means "this rain did not reach
+here", not "this river does not reach here". The first live end-to-end run hit
+exactly that case.
+
+**Verification.** `portal/scripts/verify-section-math.mjs` — 46 checks of
+`lib/section.ts`, compiled to JS and run against the saved real response, every
+figure pinned against an independent Python computation from the same JSON.
+`portal/scripts/verify-section.mjs` — 33 checks driving the real UI
+(two map clicks to draw the line, sliders, reach and panel switching), serving
+that same real response. Both pass. The old 2.59 km alignment is pinned as
+`crosses-channel` so the regression cannot return.
+
+**Defect 52: arithmetic correctness is not the same as modelling a buildable
+thing.** The AUD 29.7 M figure was right for what it computed, and what it
+computed was a dam. Nothing in the numbers said so; the drawing did. When a
+quantity is a cost, a length or a height of something physical, render the
+object before trusting the total.
+
+**Rule 70: a threshold that separates two classes of terrain should be measured
+against the terrain, not fixed.** "Channel" as "deeper than 5 m" classifies a
+backwater as a channel on one section and half an estuary as floodplain on the
+next. Against the reach's own median it means the same thing on both.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

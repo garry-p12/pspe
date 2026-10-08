@@ -38,6 +38,7 @@ export function PlannerMap({
   placedHeights,
   pins,
   routes,
+  section,
   place,
   focus,
   grids,
@@ -74,6 +75,16 @@ export function PlannerMap({
     quickest: { coords: [number, number][]; minutes: number } | null;
     robust: { coords: [number, number][]; minutes: number } | null;
     dest: { lat: number; lon: number } | null;
+  } | null;
+  /** A line cut across the floodplain, and the stretch of it a levee covers.
+   *  `crest` is given as fractions along the line rather than coordinates: the
+   *  panel works in distance along the section, and converting once here keeps
+   *  one definition of where the wall is. */
+  section?: {
+    a: { lat: number; lon: number };
+    b: { lat: number; lon: number };
+    crest: { from: number; to: number } | null;
+    verdict: string;
   } | null;
   /** The town the user searched for, marked like the archive settlement. */
   place?: { lat: number; lon: number; name: string } | null;
@@ -138,6 +149,10 @@ export function PlannerMap({
   const routeKey = routes
     ? `${routes.quickest?.minutes ?? -1}:${routes.robust?.minutes ?? -1}:` +
       `${routes.quickest?.coords.length ?? 0}:${routes.dest?.lat ?? 0}`
+    : "none";
+  const sectionKey = section
+    ? `${section.a.lat},${section.a.lon},${section.b.lat},${section.b.lon},` +
+      `${section.crest?.from ?? -1},${section.crest?.to ?? -1},${section.verdict}`
     : "none";
 
   const layers = useMemo(() => {
@@ -491,6 +506,100 @@ export function PlannerMap({
       );
     }
 
+    // ---- the cross-section --------------------------------------------
+    // The line is thin and the WALL is thick, because the line is a question
+    // and the wall is the answer: an operator glancing at the map should see
+    // how far the embankment runs without reading the panel. The halo is not
+    // decoration -- this sits on satellite imagery that is sometimes pale sand
+    // and sometimes dark water, and a single-colour line disappears into one
+    // or the other.
+    if (section) {
+      const { a: sa, b: sb } = section;
+      const at = (f: number): [number, number] => [
+        sa.lon + (sb.lon - sa.lon) * f,
+        sa.lat + (sb.lat - sa.lat) * f,
+      ];
+      out.push(
+        new PathLayer({
+          id: "section-line-halo",
+          data: [{ path: [[sa.lon, sa.lat], [sb.lon, sb.lat]] }],
+          getPath: (d: { path: [number, number][] }) => d.path,
+          getColor: [10, 14, 20, 200],
+          getWidth: 5,
+          widthUnits: "pixels",
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new PathLayer({
+          id: "section-line",
+          data: [{ path: [[sa.lon, sa.lat], [sb.lon, sb.lat]] }],
+          getPath: (d: { path: [number, number][] }) => d.path,
+          getColor: [255, 255, 255, 235],
+          getWidth: 2,
+          widthUnits: "pixels",
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+      if (section.crest) {
+        const crest = [at(section.crest.from), at(section.crest.to)];
+        // A crest that is overtopped is drawn narrower, so a wall that does
+        // not do its job does not read as the heaviest thing on the map.
+        const holds = section.verdict === "holds";
+        out.push(
+          new PathLayer({
+            id: "section-crest-halo",
+            data: [{ path: crest }],
+            getPath: (d: { path: [number, number][] }) => d.path,
+            getColor: [10, 14, 20, 220],
+            getWidth: holds ? 13 : 9,
+            widthUnits: "pixels",
+            capRounded: true,
+            parameters: { depthCompare: "always" as const },
+          }) as unknown as Layer,
+          new PathLayer({
+            id: "section-crest",
+            data: [{ path: crest }],
+            getPath: (d: { path: [number, number][] }) => d.path,
+            getColor: holds ? [255, 255, 255, 250] : [255, 255, 255, 170],
+            getWidth: holds ? 8 : 4,
+            widthUnits: "pixels",
+            capRounded: true,
+            parameters: { depthCompare: "always" as const },
+          }) as unknown as Layer,
+        );
+      }
+      const ends = [{ ...sa, label: "A" }, { ...sb, label: "B" }];
+      out.push(
+        new ScatterplotLayer({
+          id: "section-ends",
+          data: ends,
+          radiusUnits: "pixels",
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getRadius: 7,
+          getFillColor: [255, 255, 255, 245],
+          stroked: true,
+          getLineColor: [10, 14, 20, 235],
+          getLineWidth: 2,
+          lineWidthUnits: "pixels",
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new TextLayer({
+          id: "section-end-labels",
+          data: ends,
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getText: (d: { label: string }) => d.label,
+          getSize: 12,
+          getColor: [255, 255, 255, 255],
+          fontWeight: 700,
+          getTextAnchor: "start",
+          getPixelOffset: [11, 0],
+          outlineWidth: 2,
+          outlineColor: [10, 14, 20, 220],
+          fontSettings: { sdf: true },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+
     // The place the user searched for, marked the same way the archive town is.
     if (place) {
       out.push(
@@ -606,7 +715,7 @@ export function PlannerMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [b, frame, ext, roads, markers, onMarker, pin, cutFraction, cutKey,
       observed, analysis, placed, place, settle, solid, grids,
-      heightKey, placedKey, routeKey, pins]);
+      heightKey, placedKey, routeKey, sectionKey, pins]);
 
   if (!size) return <div ref={host} className="h-full w-full bg-bg-inset" />;
 
