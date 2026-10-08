@@ -10,8 +10,29 @@ import { decodeGrids as decode, type InspectGrids } from "@/lib/inspect";
 import { depthTexture, withDepth } from "@/lib/depthtex";
 import type { RoadQuery } from "@/lib/roadquery";
 
+/** What a shipped study says about itself: where, which storm, and how well
+ *  it did against an independent map of the same flood. */
+export interface StudyMeta {
+  id: string;
+  place: string;
+  short: string;
+  event: string;
+  evidence: string;
+  terrain: string;
+  caveats: string[];
+  skill: {
+    csi: number; pod: number; far: number; threshold_m: number;
+    ours_km2: number; reference: string; reference_km2: number;
+    reference_polygons: number;
+  } | null;
+}
+
 export interface AnalysisResult {
   name: string;
+  /** Which elevation model the solve actually ran on. */
+  terrain_source?: string;
+  terrain_source_label?: string;
+  study?: StudyMeta;
   driver?: string;
   driver_note?: string;
   roads?: GeoJSON.FeatureCollection | null;
@@ -118,6 +139,7 @@ export function AnywherePanel({
   section,
   onRoadQuery,
   onRoads,
+  initial,
 }: {
   /** Which of the three panel sections is open. Everything below the place
    *  chrome belongs to exactly one of them; before this, all three rendered
@@ -143,10 +165,17 @@ export function AnywherePanel({
   onHeights?: (h: number[] | null) => void;
   /** The way out, so the map can draw it. */
   onRoutes?: (r: unknown) => void;
+  /** A study the portal opened on, already solved and shipped with the app.
+   *
+   *  Seeded by DERIVATION rather than by an effect that calls setState: the
+   *  panel reads `res` and `chosen`, and those now fall back to the study
+   *  until the user searches for somewhere else. An effect would have put one
+   *  render on screen with the study's map and the panel's empty state. */
+  initial?: (AnalysisResult & { study?: StudyMeta }) | null;
 }) {
   const [q, setQ] = useState("");
   const [places, setPlaces] = useState<Place[]>([]);
-  const [chosen, setChosen] = useState<Place | null>(null);
+  const [picked, setPicked] = useState<Place | null>(null);
   const [storm, setStorm] = useState(1);
   const [plan, setPlan] = useState<AnywherePlan | null>(null);
   const [planning, setPlanning] = useState(false);
@@ -158,7 +187,18 @@ export function AnywherePanel({
   const [vehicle, setVehicle] = useState(0.25);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [res, setRes] = useState<AnalysisResult | null>(null);
+  const [ownRes, setRes] = useState<AnalysisResult | null>(null);
+  /** The study until the user picks somewhere, then whatever they solved. */
+  const res = ownRes ?? initial ?? null;
+  const initialPlace = useMemo<Place | null>(() => {
+    if (!initial) return null;
+    const b = initial.bounds;
+    return { name: initial.study?.place ?? initial.name,
+             short: initial.study?.short ?? initial.name,
+             lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2,
+             kind: "study" };
+  }, [initial]);
+  const chosen = picked ?? initialPlace;
   const [err, setErr] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -366,7 +406,7 @@ export function AnywherePanel({
             <li key={`${p.lat},${p.lon}`}>
               <button
                 onMouseEnter={() => onPreview({ lat: p.lat, lon: p.lon })}
-                onClick={() => { setChosen(p); setPlaces([]); setQ(p.short); run(p); }}
+                onClick={() => { setPicked(p); setPlaces([]); setQ(p.short); run(p); }}
                 className="w-full truncate rounded px-2 py-1 text-left text-[13px] text-ink-mute hover:bg-bg-inset hover:text-ink"
                 title={p.name}
               >
@@ -502,6 +542,61 @@ export function AnywherePanel({
       )}
 
       {/* ---- what doing nothing costs here ---------------------------- */}
+      {section === "plan" && res?.study && !ownRes && !busy && (
+        <div className="mx-4 mt-4 rounded-lg border border-line bg-bg-raised p-3">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="chip-harm">{res.study.evidence}</span>
+            <span className="text-[13px] font-semibold text-ink">{res.study.place}</span>
+          </div>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
+            {res.study.event}, solved here on {res.study.terrain}. This is our
+            solver&apos;s answer, not a reference flood.
+          </p>
+          {res.study.skill && (
+            <>
+              <div className="mt-2 border-t border-line-soft pt-2">
+                <div className="flex items-baseline justify-between py-0.5">
+                  <span className="text-[13px] text-ink-mute">
+                    Overlap with FEMA&apos;s 1% floodplain
+                  </span>
+                  <span className="tnum text-[13px] font-medium text-ink">
+                    CSI {res.study.skill.csi.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between py-0.5">
+                  <span className="text-[13px] text-ink-mute">Of it we find</span>
+                  <span className="tnum text-[13px] font-medium text-ink">
+                    {(res.study.skill.pod * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between py-0.5">
+                  <span className="text-[13px] text-ink-mute">
+                    Of what we call wet, outside it
+                  </span>
+                  <span className="tnum text-[13px] font-medium text-ink">
+                    {(res.study.skill.far * 100).toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+              <p className="anno mt-1.5 leading-relaxed">
+                {res.study.skill.ours_km2} km² against {res.study.skill.reference_km2} km²
+                over {res.study.skill.reference_polygons} mapped polygons. Total extent
+                agrees far better than the overlap does, which is why the overlap is the
+                number shown.
+              </p>
+            </>
+          )}
+          <details className="fold mt-1">
+            <summary>What this answer is not</summary>
+            <ul className="flex flex-col gap-1 pb-2">
+              {res.study.caveats.map((c) => (
+                <li key={c} className="text-[13px] leading-relaxed text-ink-mute">{c}</li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      )}
+
       {section === "plan" && res && !busy && chosen && (
         <div className="mt-4 rounded-xl border border-line px-4 py-3.5">
           <div className="flex items-baseline justify-between">
@@ -524,7 +619,9 @@ export function AnywherePanel({
           </div>
           <p className="anno mt-3">
             {res.extent_km[0].toFixed(1)}x{res.extent_km[1].toFixed(1)} km at{" "}
-            {res.dx_m.toFixed(0)} m · terrain from Copernicus DEM · solved in{" "}
+            {res.dx_m.toFixed(0)} m · {res.terrain_source === "3dep"
+              ? "USGS 3DEP bare earth"
+              : "Copernicus GLO-30, a surface model"} · solved in{" "}
             {res.timing.seconds.toFixed(0)}s
           </p>
         </div>

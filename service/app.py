@@ -16,6 +16,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import urllib.parse
 import urllib.request
 import math
@@ -284,6 +285,22 @@ def observe(req: ObserveRequest) -> dict:
 # Overpass is free, public and frequently overloaded -- the main instance
 # returns 504 often enough that a single endpoint is not a dependency, it is a
 # coin flip. Tried in order; the first that answers wins.
+# Bare earth where a bare-earth model exists.
+#
+# Copernicus GLO-30 is a SURFACE model: measured against 37,624 City of Austin
+# building ground elevations it reads a median 3.54 m high and is high at 93.8%
+# of them, and against 2,512 council-surveyed levels at Lismore, 2.21 m high at
+# 97.2% (sections 5.14e-f). In a town that is more than the difference between
+# a flood that enters a house and one that does not. "auto" takes USGS 3DEP
+# bare earth inside the United States, where the same comparison gives a median
+# of +0.14 m, and falls back to Copernicus everywhere else.
+TERRAIN = os.environ.get("PSPE_TERRAIN", "auto")
+TERRAIN_LABEL = {
+    "copernicus": "Copernicus DEM GLO-30 (a SURFACE model: includes canopy "
+                  "and buildings)",
+    "3dep": "USGS 3DEP bare earth, 1 m",
+}
+
 OVERPASS_MIRRORS = (
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass-api.de/api/interpreter",
@@ -689,7 +706,7 @@ def plan_anywhere(req: PlanRequest) -> dict:
 
     t0 = time.time()
     dom = build_domain(req.west, req.south, req.east, req.north,
-                       dx=req.dx, name=req.name)
+                       dx=req.dx, name=req.name, source=TERRAIN)
     z0 = torch.as_tensor(dom.z, dtype=torch.float32)
     masks = site_masks(dom, req.sites)
     k = len(req.sites)
@@ -1010,7 +1027,7 @@ def section(req: SectionRequest):
     hit = SOLVE_CACHE.get(skey)
     if hit is None:
         dom = build_domain(box["west"], box["south"], box["east"], box["north"],
-                           dx=dx, name=req.name)
+                           dx=dx, name=req.name, source=TERRAIN)
         fx = build_forcing(dom, rr)
         z0 = torch.as_tensor(dom.z, dtype=torch.float32)[None]
         peak, steps, snaps = solve_beds(dom, rr, z0, fx, snap_hours=[])
@@ -1150,7 +1167,7 @@ def route_between(req: RouteRequest) -> dict:
     reused = hit is not None
     if hit is None:
         dom = build_domain(box["west"], box["south"], box["east"], box["north"],
-                           dx=dx, name=req.name)
+                           dx=dx, name=req.name, source=TERRAIN)
         fx = build_forcing(dom, req)
         z0 = torch.as_tensor(dom.z, dtype=torch.float32)[None]
         peak, steps, snaps = solve_beds(dom, req, z0, fx, snap_hours=snap_h)
@@ -1338,7 +1355,7 @@ def analyse(req: AnalyseRequest) -> dict:
 
     t0 = time.time()
     dom = build_domain(req.west, req.south, req.east, req.north,
-                       dx=req.dx, name=req.name)
+                       dx=req.dx, name=req.name, source=TERRAIN)
     t_dem = time.time() - t0
 
     lat = (req.south + req.north) / 2
@@ -1403,7 +1420,9 @@ def analyse(req: AnalyseRequest) -> dict:
                 "a path one can block, which is measured by running it."
             ),
         },
-        "sources": ["Terrain: Copernicus DEM GLO-30",
+        "terrain_source": dom.source,
+        "terrain_source_label": TERRAIN_LABEL.get(dom.source, dom.source),
+        "sources": [f"Terrain: {TERRAIN_LABEL.get(dom.source, dom.source)}",
                     "Forecast: Open-Meteo / GloFAS"],
     }
     if len(CACHE) > 24:

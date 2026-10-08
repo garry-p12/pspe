@@ -6592,6 +6592,99 @@ lidar removed it outright — a median of +0.14 m — and took the pressure off
 three other approximations at the same time. The question to ask of a stubborn
 error is whether it belongs to the instrument.
 
+### 5.14g Austin opens the portal, with a skill score attached (2026-10-08)
+
+The portal opened on the Richmond valley because that is where the reference
+depths were: FloodCastBench supplied a validated flood to draw and the district
+tab's levee options were precomputed against it. Austin has no archive. What it
+has is a bare-earth DEM, a regulatory floodplain to be scored against, and
+gauges — so the default study is **our own solver, run once at build time and
+shipped with its skill score**, not a reference flood being replayed.
+
+That difference is the point, and the portal states it. Richmond keeps the
+VALIDATED MODEL badge because its depths were compared to a reference solution.
+Austin carries **PROJECTION** with the number underneath.
+
+**The default study.** Onion Creek — the reach that flooded in October 2013 and
+on Halloween 2015, and the one with a mapped floodplain to check against.
+Downtown is more recognisable and has more buildings, and nothing to check the
+answer with. A 300 mm, 6-hour storm, near the 1% annual chance 6-hour depth for
+Travis County, at 40 m on USGS 3DEP bare earth: 276×313 cells, 18.71 km² wet,
+peak 12.96 m, 76 s.
+
+**Scored against FEMA, and the first score was wrong.** Comparing to the 1%
+annual chance floodplain (zones A/AE/AO) in the same box:
+
+| | |
+|---|---|
+| CSI | **0.389** |
+| POD — of FEMA's floodplain, how much we find | 0.511 |
+| FAR — of what we call wet, how much is outside it | 0.379 |
+| ours / reference | 19.51 km² / 23.69 km² over 116 polygons |
+
+The first version of this scored the overlay's non-zero alpha, which is the
+1 cm extent: 63 km² against an 18 km² flood, and a FAR of 0.75. The alpha
+channel encodes depth as `132 + 118·(d/vmax)^0.42`, so it inverts exactly, and
+the score is taken at the threshold that maximises CSI (0.08 m). The recovered
+0.1 m extent, 18.42 km², matches the service's own `flooded_km2` of 18.71,
+which is the check that the inversion is right.
+
+**Resolution is not the limit.** At 30, 40 and 60 m cells the CSI is 0.370,
+0.389 and 0.415. The small rise with coarser cells is the reference polygon
+rasterising fatter (ref 22.28 → 26.62 km²), not the physics improving. So
+roughly **CSI 0.37–0.42, flat across a factor of two in grid spacing**. What
+limits it is the forcing — uniform rain over an open box — against a regulatory
+product built from surveyed channel geometry with bridges and culverts in it.
+For an uncalibrated general-purpose solver against a regulatory map that is a
+fair result; calling it a validated twin would not be. Total extent agrees far
+better than the overlap does, which is exactly why the panel shows the overlap.
+
+**A river driver would have been worse, and why.** The first attempt forced it
+as a river and produced **1.62 km²** against a 17.9–23.7 km² reference. Two
+causes, both worth recording. `river_inflow` takes the two lowest edge
+crossings and calls the higher of them upstream; on a catchment that tilts
+steadily to the east, the north-east corner is lower than the true western
+inflow, so it injected the Colorado valley corner instead of Onion Creek.
+And bankfull estimated from DEM geometry came out at 4,146 m³/s — against a
+2013 flood of record near 3,400 — because **bare earth incises the channel
+properly and inflates the geometric estimate**. At Lismore the same estimator
+*under*-read by an order of magnitude on a surface model. The estimator is
+calibrated to the wrong instrument in both directions; Austin's 34 gauges are
+the answer to it, and the fix is to force from the gauge rather than from the
+geometry.
+
+**One inconsistency left on screen.** The map paints every cell over 1 cm,
+which is 63 km², while the panel quotes 18.71 km² at 0.1 m. Both are honest
+numbers and they are three times apart, which a careful reader will notice.
+This is pre-existing behaviour of `depth_png` and applies equally to Richmond
+and to every Anywhere solve; it is recorded here rather than quietly left.
+
+**What shipped.** `build_domain(source=...)` with the service defaulting to
+`"auto"`; `Domain` now carries which model it came from, because the response
+previously said "Terrain: Copernicus DEM GLO-30" while the solve had run on
+3DEP — a provenance claim that was simply false. A study row above the section
+tabs, Austin selected, Richmond one click away. `AnywherePanel` takes the
+shipped study as `initial` and seeds itself by **derivation** rather than by an
+effect, so there is no render where the map shows Austin and the panel shows
+its empty state. 14 checks in `portal/scripts/verify-austin-default.mjs`, all
+asserted against the bundle on disk rather than typed-in numbers, so a rebuilt
+study cannot drift away from what the page claims.
+
+**Reproduce:**
+```
+python3 scripts/fetch_austin_data.py  --out data/austin_onion --bbox="-97.820,30.110,-97.690,30.210"
+python3 scripts/build_austin_study.py --out portal/public/data/austin
+node   portal/scripts/verify-austin-default.mjs
+```
+
+**Rule 73: a default view needs a skill score more than a search page does.**
+The Anywhere tab has solved arbitrary places for months and never said how well.
+That was defensible while it was something the user asked for; it is not
+defensible as the first thing the portal shows, because a map with no number on
+it reads as authoritative. What made Austin usable as a default was not that
+the model got better — it is the same solver — but that there was finally
+something independent to score it against.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

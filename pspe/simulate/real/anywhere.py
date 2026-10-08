@@ -85,6 +85,11 @@ class Domain:
     epsg: int                # projected CRS used
     name: str
     nodata_frac: float
+    # Which elevation model this came from. Carried on the Domain rather than
+    # inferred by the caller, because the caller asking for "auto" does not
+    # know which one it got, and a response that names the wrong DEM is a
+    # provenance claim that is simply false.
+    source: str = "copernicus"
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -168,7 +173,7 @@ def build_domain_3dep(
     return Domain(
         z=z, dx=dx,
         bounds={"west": west, "south": south, "east": east, "north": north},
-        epsg=epsg, name=name, nodata_frac=nodata_frac,
+        epsg=epsg, name=name, nodata_frac=nodata_frac, source="3dep",
     )
 
 
@@ -279,7 +284,7 @@ def build_domain(
     return Domain(
         z=dst, dx=dx,
         bounds={"west": west, "south": south, "east": east, "north": north},
-        epsg=epsg, name=name, nodata_frac=nodata_frac,
+        epsg=epsg, name=name, nodata_frac=nodata_frac, source="copernicus",
     )
 
 

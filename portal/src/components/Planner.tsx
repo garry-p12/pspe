@@ -5,7 +5,8 @@ import { PlannerMap, type MeasureMarker } from "./PlannerMap";
 import { ForecastPanel } from "./ForecastPanel";
 import { MeasureBuilder } from "./MeasureBuilder";
 import { RoadQueryPanel } from "./RoadQueryPanel";
-import { AnywherePanel, type AnalysisResult, type PlacedLevee } from "./AnywherePanel";
+import { AnywherePanel, type AnalysisResult, type PlacedLevee,
+         type StudyMeta } from "./AnywherePanel";
 import { PlanPanel } from "./PlanPanel";
 import { PlanSection } from "./PlanSection";
 import { ObservePanel, type Observation } from "./ObservePanel";
@@ -73,7 +74,18 @@ export function Planner() {
   const [roadQ, setRoadQ] = useState<RoadQuery | null>(null);
   const [adHocRoads, setAdHocRoads] = useState<GeoJSON.FeatureCollection | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [tab, setTab] = useState<"district" | "anywhere" | "trip" | "section">("district");
+  // Austin opens the portal, not the Richmond archive.
+  //
+  // The archive was the default because it was the only place with reference
+  // depths. Austin has no archive -- it has a bare-earth DEM, a regulatory
+  // floodplain to be scored against, and gauges -- so the default study here
+  // is our own solver, run once at build time and shipped with its skill
+  // score, rather than a reference flood being replayed. The two are labelled
+  // differently on purpose: Richmond is a VALIDATED MODEL, Austin a
+  // PROJECTION that recovers about half of FEMA's mapped 1% floodplain.
+  const [tab, setTab] = useState<"district" | "anywhere" | "trip" | "section">("anywhere");
+  const [study, setStudy] = useState<(AnalysisResult & { study?: StudyMeta }) | null>(null);
+  const [studyErr, setStudyErr] = useState(false);
   /** A trip's own result: its own box, its own flood, its own network. */
   const [trip, setTrip] = useState<TripResult | null>(null);
   /** The two ends of a cross-section, picked on the map rather than searched:
@@ -124,10 +136,19 @@ export function Planner() {
 
   // Keep the header honest about which place is on screen.
   useEffect(() => {
-    setRegion(tab === "anywhere" ? (analysis?.name ?? "Anywhere") : null);
-  }, [tab, analysis?.name, setRegion]);
+    setRegion(tab === "anywhere"
+      ? (analysis?.name ?? study?.study?.place ?? "Anywhere")
+      : null);
+  }, [tab, analysis?.name, study, setRegion]);
 
   useEffect(() => {
+    // The default study ships with the app, so the first view is a solved
+    // flood rather than a search box. The archive still loads underneath:
+    // the map's terrain and the district tab need it either way.
+    fetch("/data/austin/study.json")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => { setStudy(d); setAdHocRoads(d.roads ?? null); })
+      .catch(() => setStudyErr(true));
     loadManifest().then(setManifest).catch(() => {});
     fetch("/data/roads.geojson").then((r) => r.json()).then(setRoads).catch(() => {});
     loadInspect().then(setGrids).catch(() => {});
@@ -242,6 +263,30 @@ export function Planner() {
     <div className="flex h-full min-h-0">
       {/* ---- decision panel ------------------------------------------- */}
       <aside className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-r border-line bg-bg">
+        {/* Which study. A different axis from the three sections below it --
+            those ask what you want to know, this asks about where -- so it
+            sits above them rather than becoming a fifth area pill. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-5 py-2.5">
+          <span className="text-[13px] text-ink-mute">Study</span>
+          <button
+            className="pill whitespace-nowrap"
+            data-on={tab !== "district"}
+            onClick={() => { setTab("anywhere"); setAnalysis(null); }}
+          >
+            Austin, Texas
+          </button>
+          <button
+            className="pill whitespace-nowrap"
+            data-on={tab === "district"}
+            onClick={() => { setTab("district"); setAnalysis(null); setTrip(null); }}
+          >
+            Richmond Valley, NSW
+          </button>
+          {studyErr && (
+            <span className="anno">default study not built — run scripts/build_austin_study.py</span>
+          )}
+        </div>
+
         <div className="px-5 pt-4">
           <div className="seg" role="tablist">
             {(["forecast", "roads", "plan"] as const).map((k) => (
@@ -301,6 +346,7 @@ export function Planner() {
 
         {tab === "anywhere" && (
           <AnywherePanel
+            initial={study}
             section={section}
             onResult={setAnalysis}
             onRoadQuery={setRoadQ}
