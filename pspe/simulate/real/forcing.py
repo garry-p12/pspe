@@ -18,6 +18,7 @@ ground is, and water does not choose.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -102,7 +103,114 @@ def channel_crossings(z: np.ndarray, tol_m: float = 3.0,
     return out
 
 
+def _edge_of(lat: float, lon: float, bounds: dict, tol: float = 0.02) -> str | None:
+    """Which edge a point sits on, as a fraction of the box's own span."""
+    dlon = max(bounds["east"] - bounds["west"], 1e-12)
+    dlat = max(bounds["north"] - bounds["south"], 1e-12)
+    fx = (lon - bounds["west"]) / dlon
+    fy = (lat - bounds["south"]) / dlat
+    cand = [("west", abs(fx)), ("east", abs(1 - fx)),
+            ("south", abs(fy)), ("north", abs(1 - fy))]
+    edge, d = min(cand, key=lambda t: t[1])
+    return edge if d <= tol else None
+
+
+def channel_from_network(ways: list[dict], z: np.ndarray, bounds: dict,
+                         dx: float, tol_m: float = 3.0,
+                         half_width_cells: int = 3) -> tuple[Crossing, Crossing] | None:
+    """Inflow and outflow taken from the MAPPED stream, not from edge minima.
+
+    The edge heuristic below asks which boundary cells sit near their own edge's
+    minimum, then calls the two lowest of those the channel. That is a guess
+    about which low ground is a river, and it has now failed twice in different
+    ways. On a catchment that tilts steadily to the east -- Onion Creek at
+    Austin -- the north-east corner is lower than the true western inflow, so it
+    injected the Colorado valley corner and the creek never flooded: 1.62 km2
+    against a 17.9 km2 mapped floodplain. Rejecting corner-hugging crossings
+    does not repair it; measured, that rule moves Onion Creek from the wrong
+    edge to a different wrong edge, and at Lismore it rejects all four
+    crossings and breaks the case that works.
+
+    The mapped network settles it without guessing. OpenStreetMap has the
+    channel, named, nearly everywhere a town is: Onion Creek is recorded
+    crossing the west edge and leaving by the east, and the Wilsons River
+    crossing north, east and south as it meanders through Lismore. The main
+    stem is the named waterway with the most length inside the box, and its
+    boundary crossings are the inflow and the outflow.
+
+    Which end is upstream is read off the DEM rather than off the drawing
+    direction, because a way's direction is a mapping convention and the bed
+    elevation is a measurement: water runs downhill.
+
+    Returns None when nothing is mapped here, so the caller can fall back.
+    """
+    if z.size == 0:
+        return None
+    H, W = z.shape
+    by_name: dict[str, float] = {}
+    pts: dict[str, list[tuple[float, float]]] = {}
+    for w in ways:
+        name = (w.get("tags") or {}).get("name")
+        geom = w.get("geometry") or []
+        if not name or len(geom) < 2:
+            continue
+        length = 0.0
+        for i in range(len(geom) - 1):
+            a, b = geom[i], geom[i + 1]
+            length += math.hypot((b["lon"] - a["lon"]) * 111_320.0
+                                 * math.cos(math.radians(a["lat"])),
+                                 (b["lat"] - a["lat"]) * 110_540.0)
+            e = _edge_of(a["lat"], a["lon"], bounds) or _edge_of(b["lat"], b["lon"], bounds)
+            if e:
+                pts.setdefault(name, []).append(((a["lat"] + b["lat"]) / 2,
+                                                 (a["lon"] + b["lon"]) / 2))
+        by_name[name] = by_name.get(name, 0.0) + length
+    # The main stem is the one with the most channel inside the box, among
+    # those that actually reach the boundary twice. A tributary that enters and
+    # stops is not a through-channel and cannot carry a discharge across.
+    stems = [(l, n) for n, l in by_name.items() if len(pts.get(n, [])) >= 2]
+    if not stems:
+        return None
+    _, name = max(stems)
+
+    seen: dict[str, tuple[float, float]] = {}
+    for lat, lon in pts[name]:
+        e = _edge_of(lat, lon, bounds)
+        if e and e not in seen:
+            seen[e] = (lat, lon)
+    if len(seen) < 2:
+        return None
+
+    out: list[Crossing] = []
+    for edge, (lat, lon) in seen.items():
+        col = int(round((lon - bounds["west"])
+                        / max(bounds["east"] - bounds["west"], 1e-12) * (W - 1)))
+        row = int(round((bounds["north"] - lat)
+                        / max(bounds["north"] - bounds["south"], 1e-12) * (H - 1)))
+        col, row = min(max(col, 0), W - 1), min(max(row, 0), H - 1)
+        line = np.nan_to_num(_edge_cells(z, edge))
+        at = col if edge in ("north", "south") else row
+        lo = max(at - half_width_cells, 0)
+        hi = min(at + half_width_cells + 1, len(line))
+        # Widen to the channel actually there: cells near the local minimum
+        # around the mapped crossing, not a fixed number of cells.
+        local = line[lo:hi]
+        sel = np.zeros(len(line), dtype=bool)
+        sel[lo:hi] = local <= float(local.min()) + tol_m
+        if not sel.any():
+            sel[at] = True
+        out.append(Crossing(edge=edge, mask=_edge_mask(z.shape, edge, sel),
+                            bed_m=float(line[sel].mean()),
+                            width_cells=int(sel.sum())))
+    if len(out) < 2:
+        return None
+    inflow = max(out, key=lambda c: c.bed_m)
+    outflow = min(out, key=lambda c: c.bed_m)
+    return inflow, outflow
+
+
 def river_inflow(z: np.ndarray, tol_m: float = 3.0,
+
                  dx_m: float | None = None) -> Crossing | None:
     """The upstream end of the through-channel, or None if there is not one.
 

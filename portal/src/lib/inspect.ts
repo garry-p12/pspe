@@ -1,3 +1,4 @@
+import { WET_M } from "./wet";
 import type { Box } from "./types";
 
 /** Point-query grids: peak depth over the event, and ground elevation. */
@@ -63,7 +64,7 @@ export function sampleAt(
   const elev =
     g.meta.elev_min_m +
     (g.elev[i] / 65535) * (g.meta.elev_max_m - g.meta.elev_min_m);
-  return { lon, lat, depth_m: depth, elev_m: elev, flooded: depth > 0.1 };
+  return { lon, lat, depth_m: depth, elev_m: elev, flooded: depth > WET_M };
 }
 
 /** Nearest named road to a point, for orientation. */

@@ -111,6 +111,18 @@ class AnalyseRequest(BaseModel):
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
 
 
+# What counts as flooded, in metres, for everything that is drawn or counted.
+#
+# There were two numbers. The overlay painted every cell over 1 cm and the area
+# metric counted cells over 10 cm, so on the Austin study the map showed 63 km2
+# of water while the panel beside it said 18.71 km2 -- both honest, three times
+# apart, and the first thing a visitor sees. One centimetre over a 40 m cell is
+# 16 cubic metres; it is wet ground, not a flood. The solver keeps its own
+# `depth_min` of 1 mm, which is a numerical floor for wet/dry interfaces and a
+# different thing from a reporting threshold.
+WET_M = 0.10
+
+
 def depth_png(d: np.ndarray, vmax: float) -> str:
     """Depth as a base64 PNG overlay, on the same ramp the portal uses."""
     x = np.clip(np.nan_to_num(d) / max(vmax, 1e-6), 0.0, 1.0) ** 0.42
@@ -118,7 +130,7 @@ def depth_png(d: np.ndarray, vmax: float) -> str:
     out[..., 0] = (96 * (1 - x) + 4 * x).astype(np.uint8)
     out[..., 1] = (200 * (1 - x) + 28 * x).astype(np.uint8)
     out[..., 2] = (255 * (1 - x) + 128 * x).astype(np.uint8)
-    a = np.where(np.nan_to_num(d) > 0.01, 132 + 118 * x, 0.0)
+    a = np.where(np.nan_to_num(d) > WET_M, 132 + 118 * x, 0.0)
     out[..., 3] = np.clip(a, 0, 255).astype(np.uint8)
     buf = io.BytesIO()
     Image.fromarray(out).save(buf, format="PNG", optimize=True)
@@ -326,6 +338,42 @@ def _seg_km(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(dlat, dlon)
 
 
+_WATERWAY_CACHE: dict = {}
+
+
+def fetch_waterways(west: float, south: float, east: float, north: float,
+                    timeout: float = 60.0) -> list[dict]:
+    """Mapped rivers and streams over this box, from OpenStreetMap.
+
+    Used to find where the channel crosses the boundary, which the terrain
+    alone gets wrong on a tilted catchment. Cached per box and allowed to fail:
+    Overpass is a free public service and a 504 from it must not take a flood
+    solve down, so the caller falls back to the edge heuristic.
+    """
+    key = (round(west, 4), round(south, 4), round(east, 4), round(north, 4))
+    if key in _WATERWAY_CACHE:
+        return _WATERWAY_CACHE[key]
+    q = (f"[out:json][timeout:{int(timeout)}];"
+         f'way["waterway"~"^(river|stream)$"]'
+         f"({south},{west},{north},{east});out geom;")
+    payload = None
+    for url in OVERPASS_MIRRORS:
+        try:
+            req = urllib.request.Request(
+                url, data=urllib.parse.urlencode({"data": q}).encode(),
+                headers={"User-Agent": "PSPE-floodplain-planner/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                payload = json.loads(r.read().decode())
+            break
+        except Exception:                                  # noqa: BLE001
+            continue
+    els = (payload or {}).get("elements", [])
+    if len(_WATERWAY_CACHE) > 32:
+        _WATERWAY_CACHE.pop(next(iter(_WATERWAY_CACHE)))
+    _WATERWAY_CACHE[key] = els
+    return els
+
+
 def fetch_roads(west: float, south: float, east: float, north: float,
                 timeout: float = 90.0, rounds: int = 2) -> dict:
     """The road network over this box, from OpenStreetMap via Overpass.
@@ -481,7 +529,26 @@ def build_forcing(dom, req) -> dict:
         # dx matters: the channel cap is a physical width, and calling this
         # without a resolution reinstates the cell-count behaviour that made
         # the same river a channel at 200 m and flat ground at 130 m.
-        inflow = forcing.river_inflow(z, dx_m=dom.dx)
+        # The MAPPED channel first, the edge heuristic only as a fallback.
+        #
+        # Asking which boundary cells sit near their own edge's minimum is a
+        # guess about which low ground is a river, and it failed on Onion Creek
+        # at Austin: the catchment tilts east, so the north-east corner reads
+        # lower than the true western inflow and the discharge went into the
+        # Colorado valley corner. The creek flooded 1.62 km2 against a 17.9 km2
+        # mapped floodplain. OpenStreetMap has the channel, named, and says
+        # Onion Creek enters by the west and leaves by the east.
+        pair = None
+        try:
+            pair = forcing.channel_from_network(
+                fetch_waterways(dom.bounds["west"], dom.bounds["south"],
+                                dom.bounds["east"], dom.bounds["north"]),
+                z, dom.bounds, dom.dx)
+        except Exception:                                  # noqa: BLE001
+            pair = None                                    # Overpass is optional
+        inflow = pair[0] if pair else forcing.river_inflow(z, dx_m=dom.dx)
+        out["channel_from"] = "mapped network" if pair else "terrain edges"
+        _outflow = pair[1] if pair else forcing.river_outflow(z, dx_m=dom.dx)
         if inflow is None:
             out["driver"] = "rain"
             out["note"] = ("No through-channel crosses this box, so the storm "
@@ -529,8 +596,7 @@ def build_forcing(dom, req) -> dict:
         depth_bank = max(0.5, min(6.0, bank_m - inflow.bed_m))
         width_bank = max(inflow.width_cells * dom.dx, dom.dx)
         slope_bank = max(abs(
-            (inflow.bed_m - forcing.river_outflow(z, dx_m=dom.dx).bed_m)
-            if forcing.river_outflow(z, dx_m=dom.dx) else 1.0
+            (inflow.bed_m - _outflow.bed_m) if _outflow else 1.0
         ) / max(max(z.shape) * dom.dx, 1.0), 1e-4)
         q_bankfull = ((1.0 / 0.035) * (width_bank * depth_bank)
                       * depth_bank ** (2.0 / 3.0) * math.sqrt(slope_bank))
@@ -549,7 +615,7 @@ def build_forcing(dom, req) -> dict:
         # bed fall does that with no free parameters:
         #
         #     h = (Q n / (W sqrt(S)))^(3/5)
-        outflow = forcing.river_outflow(z, dx_m=dom.dx)
+        outflow = _outflow
         width_m = max(inflow.width_cells * dom.dx, dom.dx)
         fall = (inflow.bed_m - outflow.bed_m) if outflow else 1.0
         span = max(z.shape[0], z.shape[1]) * dom.dx
@@ -567,7 +633,8 @@ def build_forcing(dom, req) -> dict:
             # peak of 3,000 m3/s" directly beside a value of 7,500. A stated
             # multiple a reader can check in their head has to be the multiple
             # that was applied.
-            f"{q_design:,.0f} m3/s on the {inflow.edge} edge, {scale:g}x "
+            f"{q_design:,.0f} m3/s on the {inflow.edge} edge "
+            f"(channel from the {out['channel_from']}), {scale:g}x "
             + (f"the forecast peak of {q:,.0f} m3/s. "
                if q * scale >= q_bankfull * scale else
                f"bankfull for this channel (~{q_bankfull:,.0f} m3/s, estimated "
@@ -757,7 +824,7 @@ def plan_anywhere(req: PlanRequest) -> dict:
     # than the district one when it had done the same work. Shaped to match the
     # district's option records so one component renders both.
     cell_km2 = (dom.dx ** 2) / 1e6
-    wet = (peak > 0.10).sum(dim=(1, 2))
+    wet = (peak > WET_M).sum(dim=(1, 2))
     options = [
         {
             "id": "base" if not any(h > 0 for h in pl) else
@@ -1384,7 +1451,7 @@ def analyse(req: AnalyseRequest) -> dict:
     direct_share = min(1.0, direct_m / mean_wet) if mean_wet > 1e-6 else 1.0
 
     cell_km2 = (dom.dx ** 2) / 1e6
-    wet = peak > 0.10
+    wet = peak > WET_M
     out = {
         "name": req.name,
         "bounds": dom.bounds,
@@ -1394,6 +1461,7 @@ def analyse(req: AnalyseRequest) -> dict:
         "extent_km": [round(v, 1) for v in dom.extent_km],
         "elevation_range_m": [float(np.nanmin(dom.z)), float(np.nanmax(dom.z))],
         "flooded_km2": round(float(wet.sum()) * cell_km2, 2),
+        "wet_threshold_m": WET_M,
         "peak_depth_m": round(float(peak.max()), 2),
         "mean_depth_wet_m": round(float(peak[wet].mean()) if wet.any() else 0.0, 2),
         "depth_vmax_m": DEPTH_VMAX,

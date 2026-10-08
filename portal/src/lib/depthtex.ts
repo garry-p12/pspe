@@ -1,3 +1,5 @@
+import { WET_M } from "./wet";
+
 import type { InspectGrids } from "./inspect";
 
 /**
@@ -58,7 +60,7 @@ export function depthTexture(g: InspectGrids): string | null {
     img.data[o + 2] = 255 * (1 - x) + 128 * x;
     // Dry ground is transparent, not pale blue: a levee that keeps water off a
     // paddock has to leave the imagery showing through there.
-    img.data[o + 3] = u * vmax > 0.01 ? Math.min(255, 132 + 118 * x) : 0;
+    img.data[o + 3] = u * vmax > WET_M ? Math.min(255, 132 + 118 * x) : 0;
   }
   ctx.putImageData(img, 0, 0);
   return cv.toDataURL("image/png").split(",")[1] ?? null;
