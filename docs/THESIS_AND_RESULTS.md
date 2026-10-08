@@ -6497,6 +6497,101 @@ gauge rating -- each is an instrument with a bias, and "it is the standard
 product" is a provenance claim, not an accuracy claim. Find ground truth for it
 before quoting a result to a precision finer than its unmeasured error.
 
+### 5.14f Austin, and the terrain problem solved rather than measured (2026-10-08)
+
+§5.14e measured the terrain defect at Lismore and could only point at the fix,
+because NSW serves its bare-earth lidar by order-and-download. The target is
+Austin, Texas. Austin has the fix as a REST call, and it has something for every
+other layer the portal has been approximating.
+
+**The terrain.** USGS 3DEP publishes a **bare-earth** DEM at 1 m through a
+dynamic image service — free, no key, `exportImage` up to 8000 px a request,
+reprojected and resampled server-side. That last part matters more than it
+sounds: it returns the UTM grid the solver asks for directly, so the tile
+mosaic, the local reprojection and the wedge-shaped nodata gaps that the
+Copernicus path has to fill (the 247 m trench at Cedar Rapids, §3.4) never
+arise. Measured on Onion Creek: **0.0000 nodata against Copernicus's 0.0266**,
+2.2 s for a 295×321 grid.
+
+`build_domain` now takes `source`: `"copernicus"` (global, the default),
+`"3dep"` (United States, bare earth), or `"auto"`, which uses 3DEP inside the
+US and falls back elsewhere. Verified in all four directions, including that
+`"3dep"` refuses outside the footprint with a message naming the reason and
+`"auto"` silently serves Lismore from Copernicus.
+
+**And the fix is verified against an independent survey.** The City of Austin
+publishes 585,916 building footprints carrying `BASE_ELEVATION` — the ground at
+the structure, from 2012 lidar, in US survey feet. That is a ground-truth set
+from a different survey, a different vendor and a different year from 3DEP. Over
+one 8 × 9 km box of central Austin, 37,624 buildings:
+
+| terrain | median error | mean | RMSE | within 1 m | reads high |
+|---|---|---|---|---|---|
+| 3DEP, 10 m | +0.22 m | +0.31 | 2.12 m | 57.5% | 60.8% |
+| **3DEP, 30 m** | **+0.14 m** | +0.21 | **2.05 m** | 60.8% | **58.0%** |
+| Copernicus GLO-30 | **+3.54 m** | +3.56 | 4.42 m | 10.3% | **93.8%** |
+
+3DEP is unbiased — a median of +0.14 m and high at 58% of points is a coin
+flip. Copernicus is high at 93.8%, which is the same one-sided surface signature
+Lismore showed at 97.2%, now reproduced on another continent against a different
+kind of reference. A separate cell-by-cell comparison over downtown Austin puts
+Copernicus a median **+2.99 m** above 3DEP across 19,370 cells, higher at 87.9%
+of them and by more than 3 m at half.
+
+The residual 2.05 m RMSE is not bias: it is a 30 m cell averaging a sloped lot
+against a point value at the structure, and it halves nothing to go to 10 m
+because the limit is the comparison, not the DEM.
+
+**Every other layer, and what it replaces.**
+
+| layer | source | in one 8 × 9 km box | replaces |
+|---|---|---|---|
+| buildings with ground and roof elevation | City of Austin | 39,945, **99.4%** with a ground level | OSM footprints with no heights |
+| address points | City of Austin | 33,588 | a PDF parse joined at 85.9% |
+| regulatory floodplain, fully developed | City of Austin | 1,309 polygons | nothing |
+| FEMA floodplain | City of Austin / FEMA | 433 polygons | nothing |
+| FEMA base flood elevations | FEMA NFHL | 598 features | council design levels in a PDF |
+| instrumented low water crossings | City of Austin | 2 of 22 city-wide | roads inferred from solved depth |
+| real-time stream gauges | USGS NWIS | 6 of 34 in the metro | **a text box asking the user to type a discharge** |
+
+The gauge row is the one that changes what the interface can ask. At Lismore,
+bankfull derived from a 30 m DEM came out at 234 m³/s on the Wilsons River
+against a flood of record an order of magnitude larger, so the trip view had to
+offer a text box and a paragraph explaining why. Austin has 34 active real-time
+gauges — Shoal, Waller, Barton, Walnut, Boggy, Bear, Slaughter, Onion creeks and
+the Colorado River — returning discharge and stage on a 15-minute cadence. Live
+readings confirmed on 2026-10-08.
+
+Building heights come with the footprints: median **5.6 m**, p95 11.9 m, max
+210.3 m. That is mockup 1b's third dimension, measured rather than assumed.
+
+**What is still missing, stated plainly.** Finished floor elevation. Austin
+publishes ground at the structure, not the height of the floor above it, and
+the FEMA elevation certificates that carry it are not bulk-public. This is less
+damaging than it was at Lismore — Texas construction is predominantly
+slab-on-grade, where the floor sits a few tenths above grade, against the
+Lismore median of 1.95 m on stumps — but it is an assumption and will be labelled
+as one rather than folded into a depth figure. FEMA base flood elevations give
+the regulatory design stage, which is the other half of what the Lismore floor
+tables provided.
+
+**Reproduce:**
+```
+python3 scripts/fetch_austin_data.py --out data/austin --bbox="-97.78,30.20,-97.70,30.28"
+```
+Licences: 3DEP and USGS gauges are US Government public domain; City of Austin
+layers are city open data; FEMA NFHL is public; roads remain OSM under ODbL.
+Units: city and FEMA elevations are NAVD88 in US survey feet and are converted
+on fetch; 3DEP and USGS are metres.
+
+**Rule 72: when a result is a property of the data rather than the method,
+change the data before changing the method.** The 2.2 m terrain error at
+Lismore was not going to be modelled away, and no amount of calibration was
+going to beat 1.16 m against a surface model. Moving to a city with bare-earth
+lidar removed it outright — a median of +0.14 m — and took the pressure off
+three other approximations at the same time. The question to ask of a stubborn
+error is whether it belongs to the instrument.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

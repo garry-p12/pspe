@@ -21,3 +21,6 @@ outputs/
 
 # Third-party source PDFs, re-downloadable by the fetch script.
 data/lismore/pdf/
+
+# Austin layers: tens of MB, re-fetchable with scripts/fetch_austin_data.py.
+data/austin/*.geojson
