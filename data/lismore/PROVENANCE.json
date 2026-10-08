@@ -1,0 +1,16 @@
+{
+  "dataset": "Lismore flood and floor levels",
+  "publisher": "Lismore City Council",
+  "mirror": "https://bigrob.summerlandlegal.com.au/assets/files",
+  "files": [
+    "Floor-andFloodLevels-Lismore.pdf",
+    "Floor-andFloodLevels-NorthLismore.pdf",
+    "Floor-andFloodLevels-EastLismoreGirardsHill.pdf",
+    "Floor-andFloodLevels-SouthLismore.pdf"
+  ],
+  "properties": 2924,
+  "datum": "AHD (Australian Height Datum)",
+  "surveyed": "first recorded December 1996; updated March 2006 and at various times since, latest column August 2018",
+  "disclaimer": "Council states the information was provided from various sources, that only some was verified by Council survey, and that Council does not endorse it as free of error, omission or misdescription.",
+  "caution": "AHD is not the Copernicus DEM's EGM2008. Do not subtract one from the other without stating the offset."
+}

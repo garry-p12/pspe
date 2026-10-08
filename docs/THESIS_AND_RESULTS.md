@@ -6381,6 +6381,122 @@ against the terrain, not fixed.** "Channel" as "deeper than 5 m" classifies a
 backwater as a channel on one section and half an estuary as floodplain on the
 next. Against the reach's own median it means the same thing on both.
 
+### 5.14e The terrain is 2.2 m too high where the houses are (2026-10-08)
+
+Went looking for data to build the street-level view (mockup 1b), which needs
+building footprints and floor heights. Came back with the floor heights, and
+with a measurement that matters more than the view they were for.
+
+**What a DEM cannot tell you.** Everything the portal has said about depth is
+depth above the GROUND, because that is all a DEM can give. What a resident, an
+insurer and a council ask is depth above the FLOOR, and the gap is not a
+constant. Measured across 2,924 Lismore properties, the median floor stands
+**1.95 m above its own front gate**, with the middle 90% spanning 0.04 m to
+3.28 m. A slab-on-ground shop and a Queenslander on stumps in the same street
+flood at stages three metres apart, and no elevation model distinguishes them.
+
+**The source.** Lismore City Council surveyed those floors and publishes them
+per address as four suburb PDFs -- floor level, gate level, road centre and the
+council's own 1-in-10 and 1-in-100 design flood levels, all in metres AHD. The
+levels were first recorded in December 1996 and updated in March 2006 and at
+various times since (latest column August 2018). `scripts/fetch_lismore_floor_levels.py`
+parses **2,924 properties** over five suburbs and 161 streets. Two internal
+checks say the columns are assigned correctly: the gate sits a median **0.16 m
+below the road crown**, which is a kerbed street, and only 2 of 2,924 rows carry
+an out-of-range level.
+
+**Placing them.** The documents are address lists with no coordinates.
+OpenStreetMap was the obvious join and reached **15%**: it has the footprints
+(3,029 buildings over the same five suburbs) but not the addresses -- 2 of the
+155 council properties on Casino Street carry one, against 155 in the council
+list. NSW Spatial Services publishes the authoritative address point for every
+address in the state through an open ArcGIS service, no key and no bulk
+download; 10,825 points over the box, in the same address form the council
+writes. Full-address matching places 83.1%, a number-and-street fallback inside
+the box takes it to **85.9% (2,512 properties)**. Part of the remaining 14% is
+not a failure: the council list predates the 2022 flood and Lismore ran a
+voluntary house buyback afterward, so some of those addresses no longer exist.
+
+**Then the check nobody had run.** 2,512 surveyed ground elevations, inside a
+box the solver already runs on, from an instrument rather than from another
+model. Against the Copernicus GLO-30 terrain this project has used throughout:
+
+| | DEM − surveyed gate level |
+|---|---|
+| n | 2,512 |
+| median | **+2.21 m** |
+| mean | +2.55 m |
+| RMSE | **3.21 m** |
+| DEM above the surveyed ground | **97.2%** of points |
+| more than 1 m above | 89.7% |
+| more than 3 m above | 28.2% |
+
+Ninety-seven per cent one-sided is not noise, it is a surface. GLO-30 is a
+Digital SURFACE Model: it includes canopy and buildings, and in a leafy river
+town that is most of a storey. The bias tracks building density -- +2.04 m
+median where OSM maps no building within one 30 m cell, +3.38 m where it maps
+four or more -- and is the same on the floodplain (+2.21 m) as above it
+(+2.24 m), so it is not a floodplain artefact.
+
+**It is mostly not the datum, and we did not have to look that up.** AHD and
+the Copernicus EGM2008 differ, and in northern Australia AHD sits roughly half
+a metre above the geoid. Whatever that offset is exactly, it is a CONSTANT, so
+its explanatory power is bounded by what a constant can do. Fitted and scored
+out of fold on these points:
+
+| correction | out-of-fold RMSE | mean residual |
+|---|---|---|
+| none | 3.21 m | +2.55 |
+| best constant | 1.98 m | +0.35 |
+| 8 nearest surveyed points, inverse distance | **1.16 m** | −0.03 |
+| 24 nearest | 1.16 m | −0.04 |
+
+A constant cannot get past 1.98 m and the local fit reaches 1.16 m, so most of
+the bias is spatial and therefore most of it is surface, not datum. That is our
+own measurement rather than a literature value.
+
+**What this does and does not say.** Every one of these 2,512 points is at an
+ADDRESS, so this measures the bias where houses are. It says nothing about open
+paddock between towns, where canopy and buildings are absent and the bias may
+be much smaller. The claim is specific: *in the built-up parts of Lismore, the
+terrain the solver runs on sits about 2.2 m above the ground.* Urban depths and
+the road-cut figures through town are therefore biased toward under-flooding,
+and the direction is known even where the magnitude is not. The reach-scale
+results in §5.13 and §5.14d are drawn over floodplain rather than suburb and
+are not directly measured by this.
+
+**And 1.16 m is a floor, not a fix.** It is what calibrating a 30 m surface
+model against thousands of surveyed points buys, and it is still large beside
+the difference between a flood that enters a house and one that does not. The
+real fix is a bare-earth LiDAR DTM. NSW publishes 1 m LiDAR under CC-BY through
+ELVIS, free and without registration, but as an order-and-download service
+rather than an API, so adopting it is a deliberate step rather than a config
+change. The NSW and Geoscience Australia REST elevation services were checked
+and both serve the same ~30 m product, so there is no shortcut through them.
+
+**Reproduce:**
+```
+python3 scripts/fetch_lismore_floor_levels.py           --out data/lismore
+python3 scripts/locate_and_validate_floor_levels.py     --out data/lismore
+```
+producing `floor_levels.csv` (2,924), `floor_levels_located.csv` (2,512) and
+`terrain_audit.json`. Licences: council data carries Council's own disclaimer
+(most levels supplied to Council rather than surveyed by it, and not endorsed as
+free of error); NSW address points and ELVIS are CC-BY 4.0; OSM is ODbL.
+
+**Defect 53: the input nobody chose was never measured.** Every learned
+component in this project has an error bar, a calibration set and a null
+control. The terrain underneath all of them arrived as a given, was never
+compared to a survey, and is off by more than the quantity being predicted.
+Three months of sub-metre depth figures rested on it. The asymmetry is the
+lesson: effort followed the parts that felt like the contribution.
+
+**Rule 71: a dataset you did not choose is still a measurement, and needs an
+error bar before anything built on it gets one.** DEM, basemap, road network,
+gauge rating -- each is an instrument with a bias, and "it is the standard
+product" is a provenance claim, not an accuracy claim. Find ground truth for it
+before quoting a result to a precision finer than its unmeasured error.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
