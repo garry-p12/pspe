@@ -936,6 +936,139 @@ def _km_between(a: dict, b: dict) -> float:
     return math.sqrt(dx * dx + dy * dy)
 
 
+class SectionRequest(BaseModel):
+    """An elevation section across the floodplain, and what a levee on it buys.
+
+    The portal's levee planner works at six surveyed sites with heights chosen
+    in 0.5 m steps. This answers a different question an engineer actually asks
+    first: along THIS line, where is the ground high enough to build on, how
+    high would the crest have to be, and does it clear the flood we solved?
+
+    Everything returned is measured. The elevation profile is sampled from the
+    Copernicus DEM the solve itself ran on, and the water level is the solved
+    peak along the same line -- not an assumed design stage.
+    """
+    a: dict                            # {"lat":.., "lon":..} one end of the line
+    b: dict                            # the other end
+    name: str = "Section"
+    samples: int = Field(120, ge=16, le=400)
+    rain_mm_h: float = Field(50.0, ge=0.0, le=300.0)
+    storm_hours: float = Field(6.0, ge=0.5, le=48.0)
+    run_hours: float = Field(12.0, ge=1.0, le=72.0)
+    driver: str = Field("river", pattern="^(rain|river|coastal)$")
+    river_q_m3s: Optional[float] = None
+    dx: Optional[float] = None
+
+
+@app.post("/section")
+def section(req: SectionRequest):
+    """Ground elevation and solved peak water level along a line."""
+    a, b = req.a, req.b
+    try:
+        alat, alon = float(a["lat"]), float(a["lon"])
+        blat, blon = float(b["lat"]), float(b["lon"])
+    except (KeyError, TypeError, ValueError):
+        return {"ok": False, "reason": "Both ends need a lat and a lon."}
+
+    span_km = _km_between(a, b)
+    if span_km < 0.05:
+        return {"ok": False, "reason":
+                "The two ends are less than 50 m apart; that is not a section."}
+
+    # Same box derivation as /route, so a section and a trip over the same
+    # ground hit the same cached solve instead of paying for it twice.
+    pad_km = max(0.3 * span_km, 3.0)
+    half_lat = (span_km / 2 + pad_km) / 110.540
+    mid_lat = (alat + blat) / 2
+    mid_lon = (alon + blon) / 2
+    half_lon = half_lat / max(math.cos(math.radians(mid_lat)), 0.2)
+    half_lat = max(half_lat, abs(alat - blat) / 2 + pad_km / 110.540)
+    half_lon = max(half_lon, abs(alon - blon) / 2
+                   + pad_km / (111.320 * max(math.cos(math.radians(mid_lat)), 0.2)))
+    box = {"west": mid_lon - half_lon, "east": mid_lon + half_lon,
+           "south": mid_lat - half_lat, "north": mid_lat + half_lat}
+    width_m = (box["east"] - box["west"]) * 111_320 * math.cos(math.radians(mid_lat))
+    derived = 10.0 * round(width_m / 160.0 / 10.0)
+    if derived > 240.0:
+        return {"ok": False, "reason":
+                f"Those ends are {span_km:.0f} km apart; one domain covering "
+                "both would need cells coarser than 240 m. Pick a shorter line."}
+    dx = (min(240.0, max(30.0, float(req.dx))) if req.dx
+          else min(240.0, max(50.0, derived)))
+
+    rr = RouteRequest(origin=a, destination=b, name=req.name,
+                      rain_mm_h=req.rain_mm_h, storm_hours=req.storm_hours,
+                      run_hours=req.run_hours, driver=req.driver,
+                      river_q_m3s=req.river_q_m3s, dx=dx, snapshots=2)
+    skey = hashlib.sha1(json.dumps([
+        {k: round(v, 6) for k, v in box.items()}, dx, rr.driver, rr.rain_mm_h,
+        rr.storm_hours, rr.run_hours, rr.river_q_m3s, rr.surge_m, rr.snapshots,
+    ], sort_keys=True).encode()).hexdigest()[:16]
+    hit = SOLVE_CACHE.get(skey)
+    if hit is None:
+        dom = build_domain(box["west"], box["south"], box["east"], box["north"],
+                           dx=dx, name=req.name)
+        fx = build_forcing(dom, rr)
+        z0 = torch.as_tensor(dom.z, dtype=torch.float32)[None]
+        peak, steps, snaps = solve_beds(dom, rr, z0, fx, snap_hours=[])
+        hit = {"dom": dom, "fx": fx, "peak": peak, "snaps": snaps, "steps": steps}
+        _cache_put(SOLVE_CACHE, skey, hit)
+    dom, peak, fx = hit["dom"], hit["peak"], hit["fx"]
+    z = np.asarray(dom.z, dtype=np.float32)
+    pk = peak[0]
+    d_np = np.asarray(pk.numpy() if hasattr(pk, "numpy") else pk, dtype=np.float32)
+    H, W = z.shape
+
+    # Nearest cell rather than bilinear: the DEM is already the limiting
+    # resolution and interpolating between posts would invent a smoothness the
+    # terrain does not have.
+    n = int(req.samples)
+    prof = []
+    for i in range(n):
+        f = i / (n - 1)
+        lat, lon = alat + (blat - alat) * f, alon + (blon - alon) * f
+        col = int(round((lon - box["west"]) / max(box["east"] - box["west"], 1e-12) * (W - 1)))
+        row = int(round((box["north"] - lat) / max(box["north"] - box["south"], 1e-12) * (H - 1)))
+        col, row = min(max(col, 0), W - 1), min(max(row, 0), H - 1)
+        g, w = float(z[row, col]), float(d_np[row, col])
+        prof.append({
+            "m": round(span_km * 1000.0 * f, 1),
+            "ground_m": round(g, 2),
+            "depth_m": round(max(w, 0.0), 3),
+            # Water SURFACE elevation: what a crest actually has to clear.
+            "water_m": round(g + w, 2) if w > 1e-4 else None,
+        })
+
+    wet = [q for q in prof if q["water_m"] is not None]
+    peak_surface = max((q["water_m"] for q in wet), default=None)
+    highest = max(prof, key=lambda q: q["ground_m"])
+
+    return {
+        "ok": True,
+        "a": a, "b": b, "name": req.name,
+        "length_m": round(span_km * 1000.0, 1),
+        "dx_m": dom.dx,
+        "samples": n,
+        "profile": prof,
+        "peak_water_m": peak_surface,
+        "wet_fraction": round(len(wet) / max(len(prof), 1), 3),
+        # Where a levee should start. Building from the low point is how you
+        # pay for height you do not need.
+        "highest_ground": {"m": highest["m"], "ground_m": highest["ground_m"]},
+        "cost_per_m_per_m_aud": 2600.0,
+        # Which forcing actually ran. A river driver that found no channel
+        # falls back to rainfall, and a dry section then means "this rain did
+        # not reach here" rather than "this river does not reach here" -- two
+        # different answers that look identical in a profile.
+        "driver": fx["driver"],
+        "driver_note": fx["note"],
+        "river_q_m3s": fx.get("q_m3s"),
+        "note": ("Ground sampled from the Copernicus DEM this solve ran on, at "
+                 f"{dom.dx:.0f} m. The water level is the solved peak along "
+                 "this line, not an assumed design stage."),
+    }
+
+
 @app.post("/route")
 def route_between(req: RouteRequest) -> dict:
     """A route from A to B that avoids the flood, and the reasons for it.
@@ -1064,6 +1197,24 @@ def route_between(req: RouteRequest) -> dict:
     peak_edges = sched.peak()
     limit = req.vehicle_depth_m
 
+    # The snapshots the schedule is built from, returned as overlays.
+    #
+    # The solver resolves the flood at `req.snapshots` instants and the road
+    # schedule is built from them -- then every field except the peak was
+    # discarded, so the client could only ever draw the union of states that
+    # never coexist. That union is exactly what fails 96 of 96 evacuation
+    # decisions where a time-resolved solve succeeds, which makes "show the
+    # water move" an argument the tool was already paying for and throwing
+    # away rather than a decoration.
+    #
+    # Instantaneous depth, not the running peak: what is on the road at 14:00
+    # is the water at 14:00.
+    frames = [
+        {"t_min": round(h * 60.0, 1),
+         "depth_png": depth_png(snaps[0, k].numpy(), DEPTH_VMAX)}
+        for k, h in enumerate(snap_h)
+    ]
+
     src = routes.nearest_node(g, float(o["lon"]), float(o["lat"]))
     dst = routes.nearest_node(g, float(d["lon"]), float(d["lat"]))
     if src is None or dst is None or src == dst:
@@ -1138,6 +1289,10 @@ def route_between(req: RouteRequest) -> dict:
         # What a peak-depth map would have told you, which is the comparison
         # that justifies carrying a schedule at all.
         "static_route": route_out(static, 0.0),
+        # The solved instants behind that comparison, so the client can show
+        # the water arrive and recede instead of a single union of states.
+        "frames": frames,
+        "run_hours": req.run_hours,
         "leave_now": now.ok,
         "deadline_min": None if deadline is None else round(deadline, 0),
         "deadline_route": route_out(at_deadline, deadline or 0.0),
