@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PlannerMap, type MeasureMarker } from "./PlannerMap";
 import { ForecastPanel } from "./ForecastPanel";
+import { LayersPanel, DEFAULT_LAYERS, type LayerState,
+         type GaugeFeed } from "./LayersPanel";
+import { GaugeHeadline } from "./GaugeHeadline";
 import { MeasureBuilder } from "./MeasureBuilder";
 import { RoadQueryPanel } from "./RoadQueryPanel";
 import { AnywherePanel, type AnalysisResult, type PlacedLevee,
@@ -86,6 +89,9 @@ export function Planner() {
   const [tab, setTab] = useState<"district" | "anywhere" | "trip" | "section">("anywhere");
   const [study, setStudy] = useState<(AnalysisResult & { study?: StudyMeta }) | null>(null);
   const [studyErr, setStudyErr] = useState(false);
+  /** What is drawn over the terrain, and the live feed behind one of them. */
+  const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
+  const [gaugeFeed, setGaugeFeed] = useState<GaugeFeed | null>(null);
   /** A trip's own result: its own box, its own flood, its own network. */
   const [trip, setTrip] = useState<TripResult | null>(null);
   /** The two ends of a cross-section, picked on the map rather than searched:
@@ -132,7 +138,17 @@ export function Planner() {
   }, [budget, section]);
   const [planTrigger, setPlanTrigger] = useState(0);
   const [planning, setPlanning] = useState(false);
-  const { setRegion } = useRegion();
+  const { setRegion, setLive } = useRegion();
+
+  // The header says LIVE only when something on the page really is. A badge
+  // over a replayed archive would be a lie, and the Richmond study has no
+  // gauge feed at all.
+  useEffect(() => {
+    const n = gaugeFeed?.gauges.length ?? 0;
+    setLive(n
+      ? `${n} gauge${n === 1 ? "" : "s"} every ${gaugeFeed?.cadence_min ?? 15} min`
+      : null);
+  }, [gaugeFeed, setLive]);
 
   // Keep the header honest about which place is on screen.
   useEffect(() => {
@@ -244,6 +260,12 @@ export function Planner() {
     [grids, manifest, tab, placing, sectionPicking],
   );
 
+  /** The box the live feeds are asked about: whatever place is on screen. */
+  const liveBounds = useMemo(() => {
+    const b = analysis?.bounds ?? trip?.bounds ?? study?.bounds ?? manifest?.bounds;
+    return b ? { west: b.west, south: b.south, east: b.east, north: b.north } : null;
+  }, [analysis, trip, study, manifest]);
+
   const near = useMemo(
     () => (point ? nearestRoad(roads, point.lon, point.lat) : null),
     [point, roads],
@@ -332,6 +354,21 @@ export function Planner() {
             onRoutes={(r) => setRouteLines(
               r ? { ...(r as object), forTab: "trip" } as typeof routeLines : null)}
           />
+        )}
+
+        {section === "forecast" && (
+          <>
+            <GaugeHeadline feed={gaugeFeed} />
+            <LayersPanel
+              bounds={liveBounds}
+              layers={layers}
+              onLayers={setLayers}
+              onGauges={setGaugeFeed}
+              modelRunNote={analysis
+                ? `solved at ${analysis.dx_m.toFixed(0)} m · ${analysis.flooded_km2} km² over 10 cm`
+                : undefined}
+            />
+          </>
         )}
 
         {tab === "section" && (
@@ -604,6 +641,8 @@ export function Planner() {
             placedHeights={tab === "anywhere" ? adHocHeights : null}
             routes={routeLines?.forTab === tab ? routeLines : null}
             section={tab === "section" ? sectionOverlay : null}
+            gauges={layers.gauges ? (gaugeFeed?.gauges ?? null) : null}
+            radar={layers.radar ? liveBounds : null}
             place={tab === "anywhere" ? place : null}
             observed={observed}
               analysis={tab === "trip"

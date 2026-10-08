@@ -6685,6 +6685,71 @@ it reads as authoritative. What made Austin usable as a default was not that
 the model got better — it is the same solver — but that there was finally
 something independent to score it against.
 
+### 5.14h The first thing on the portal that the world can contradict (2026-10-08)
+
+Working toward the uploaded wireframes (`runs/mockui/`), starting with 1a, the
+live map. Its left column is a forecast headline, a layer list and a roads-out
+list; its map carries gauge callouts and a hydrograph scrubber.
+
+Building it surfaced something about the portal that the wireframe makes
+obvious and the old interface hid: **nothing on screen was an observation.**
+Depth came from a solve, the storm came from a preset, and the only thing that
+moved was a scrubber moving through a model. The Observe panel fetches SAR, but
+it is one panel behind a tab. A map that shows a model and does not say so
+invites the reader to treat it as an instrument.
+
+**What is live now.** A `/gauges` endpoint reading USGS instantaneous values —
+free, keyless, 15-minute cadence, three days of stage per site, converted from
+feet and cubic feet per second to metres and m³/s, because a portal that puts a
+gauge reading beside a solved depth and labels both "m" has to convert or it is
+comparing two different quantities. Austin has 34 gauged streams in the metro
+box: Shoal, Waller, Barton, Walnut, Boggy, Bear, Slaughter and Onion creeks and
+the Colorado.
+
+Outside the United States the endpoint returns `supported: false` with the
+reason, and the panel says *"Nothing live here"* rather than rendering an empty
+list. The Richmond study has no equivalent open feed and the interface now
+admits it instead of looking identical to a US box with the gauges switched off.
+
+**What the headline will not say.** It reports the reading, the hourly trend,
+the discharge and the highest value in the last three days, and it explicitly
+declines to say "minor flood" or "major flood": those are NWS flood categories,
+set per gauge, and we have not fetched them. That sentence would have been the
+most quotable thing on the page and the least defensible, and the wireframe
+asks for it ("Above the minor flood level"). It is the one place the
+implementation deliberately departs from the design.
+
+**The layer list carries provenance, not just switches.** Each row names its
+source and cadence under its label, because the four things stacked on this map
+are not the same kind of thing: water depth is a model run at a moment, gauges
+are instruments every 15 minutes, radar is an observation six minutes old, and
+road status is derived from the first by a threshold the user chose. Layers
+with no feed are shown disabled with the reason in place of the cadence rather
+than hidden — hiding one would let an absence pass as "not applicable". Cameras
+appear that way: the wireframe has two feeds and we have no verified public one.
+
+Rain radar is NOAA base reflectivity, drawn as a single `exportImage` over the
+analysed box rather than a tile pyramid — the box is a few kilometres across
+and the product refreshes every six minutes, so one request does what dozens
+of tiles would.
+
+**And the LIVE badge is conditional.** It names the count and the cadence, and
+it does not render at all when nothing on the page updates by itself. A LIVE
+badge over a replayed archive is a lie, and the Richmond study is a replayed
+archive.
+
+**Still to build from 1a:** the roads-out-of-town list with its vehicle depth
+limit, and the bottom hydrograph scrubber with the forecast band. 1b, 1c and 1d
+are separate and 1d needs reworking — the wireframe wants preset lines, a
+full-width section under the map and a draggable crest trapezoid at one
+station, where what shipped draws a long-section envelope over a span chosen on
+the map.
+
+**Rule 74: a design that asks for a label you cannot source is telling you
+which integration is missing, not which sentence to write.** "Above the minor
+flood level" is one NWS endpoint away. Writing it from a threshold we invented
+would have looked identical on screen and been worth nothing.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

@@ -12,7 +12,11 @@ import { createContext, useContext, useMemo, useState } from "react";
 const Ctx = createContext<{
   region: string | null;
   setRegion: (r: string | null) => void;
-}>({ region: null, setRegion: () => {} });
+  /** What on this page updates by itself, and how often. Null when nothing
+   *  does, which is the honest state for a replayed archive. */
+  live: string | null;
+  setLive: (s: string | null) => void;
+}>({ region: null, setRegion: () => {}, live: null, setLive: () => {} });
 
 export function useRegion() {
   return useContext(Ctx);
@@ -26,9 +30,10 @@ export function RegionProvider({
   children: React.ReactNode;
 }) {
   const [region, setRegion] = useState<string | null>(null);
+  const [live, setLive] = useState<string | null>(null);
   const value = useMemo(
-    () => ({ region: region ?? initial, setRegion }),
-    [region, initial],
+    () => ({ region: region ?? initial, setRegion, live, setLive }),
+    [region, initial, live],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

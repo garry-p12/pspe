@@ -39,6 +39,8 @@ export function PlannerMap({
   pins,
   routes,
   section,
+  gauges,
+  radar,
   place,
   focus,
   grids,
@@ -86,6 +88,17 @@ export function PlannerMap({
     crest: { from: number; to: number } | null;
     verdict: string;
   } | null;
+  /** Live river gauges, drawn as readings rather than as dots.
+   *
+   *  A gauge is the one thing on this map that is an instrument, so it is
+   *  labelled with its value and its trend instead of being left as a symbol
+   *  the reader has to click. */
+  gauges?: {
+    site: string; name: string; lat: number; lon: number;
+    stage_m: number | null; trend_cm_h: number | null;
+  }[] | null;
+  /** NOAA base reflectivity over the analysed box, if the user asked for it. */
+  radar?: { west: number; south: number; east: number; north: number } | null;
   /** The town the user searched for, marked like the archive settlement. */
   place?: { lat: number; lon: number; name: string } | null;
   focus: "region" | "town";
@@ -149,6 +162,12 @@ export function PlannerMap({
   const routeKey = routes
     ? `${routes.quickest?.minutes ?? -1}:${routes.robust?.minutes ?? -1}:` +
       `${routes.quickest?.coords.length ?? 0}:${routes.dest?.lat ?? 0}`
+    : "none";
+  const gaugeKey = gauges
+    ? gauges.map((g) => `${g.site}:${g.stage_m ?? ""}`).join(",")
+    : "none";
+  const radarKey = radar
+    ? `${radar.west.toFixed(3)},${radar.south.toFixed(3)},${radar.east.toFixed(3)},${radar.north.toFixed(3)}`
     : "none";
   const sectionKey = section
     ? `${section.a.lat},${section.a.lon},${section.b.lat},${section.b.lon},` +
@@ -600,6 +619,74 @@ export function PlannerMap({
       );
     }
 
+    // ---- rain radar ----------------------------------------------------
+    // One image over the analysed box rather than a tile pyramid: the box is a
+    // few kilometres across, the product refreshes every six minutes, and a
+    // single exportImage is one request where tiles would be dozens.
+    if (radar) {
+      out.push(
+        new BitmapLayer({
+          id: "radar",
+          bounds: [radar.west, radar.south, radar.east, radar.north],
+          image:
+            "https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/" +
+            "radar_base_reflectivity_time/ImageServer/exportImage" +
+            `?bbox=${radar.west},${radar.south},${radar.east},${radar.north}` +
+            "&bboxSR=4326&imageSR=4326&size=1024,1024&format=png32" +
+            "&transparent=true&f=image",
+          opacity: 0.5,
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+
+    // ---- river gauges --------------------------------------------------
+    // Drawn with their reading attached. The value and the hourly trend are
+    // what an operator reads off a gauge; the dot on its own says only that
+    // one exists.
+    if (gauges?.length) {
+      const withStage = gauges.filter((g) => g.stage_m !== null);
+      out.push(
+        new ScatterplotLayer({
+          id: "gauge-dots",
+          data: withStage,
+          radiusUnits: "pixels",
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getRadius: 6,
+          getFillColor: [255, 255, 255, 250],
+          stroked: true,
+          getLineColor: [10, 14, 20, 235],
+          getLineWidth: 2.5,
+          lineWidthUnits: "pixels",
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new TextLayer({
+          id: "gauge-readings",
+          data: withStage,
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getText: (d: { name: string; stage_m: number | null; trend_cm_h: number | null }) => {
+            const nm = d.name.split(",")[0].slice(0, 28);
+            const tr = d.trend_cm_h === null ? ""
+              : `  ${d.trend_cm_h >= 0 ? "\u2191" : "\u2193"}${Math.abs(d.trend_cm_h).toFixed(0)}`;
+            return `${nm}\n${(d.stage_m ?? 0).toFixed(2)} m${tr}`;
+          },
+          getSize: 11,
+          getColor: [16, 20, 28, 255],
+          background: true,
+          getBackgroundColor: [255, 255, 255, 240],
+          backgroundPadding: [7, 5, 7, 5],
+          getPixelOffset: [0, -26],
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "bottom",
+          lineHeight: 1.25,
+          fontWeight: 600,
+          fontSettings: { sdf: true },
+          updateTriggers: { getText: gaugeKey },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+
     // The place the user searched for, marked the same way the archive town is.
     if (place) {
       out.push(
@@ -715,7 +802,7 @@ export function PlannerMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [b, frame, ext, roads, markers, onMarker, pin, cutFraction, cutKey,
       observed, analysis, placed, place, settle, solid, grids,
-      heightKey, placedKey, routeKey, sectionKey, pins]);
+      heightKey, placedKey, routeKey, sectionKey, gaugeKey, radarKey, pins]);
 
   if (!size) return <div ref={host} className="h-full w-full bg-bg-inset" />;
 

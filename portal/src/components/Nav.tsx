@@ -8,7 +8,7 @@ import { useRegion } from "./RegionContext";
 /** Operational chrome. The research material lives behind one quiet link. */
 export function Nav() {
   const path = usePathname();
-  const { region } = useRegion();
+  const { region, live } = useRegion();
   const inMethod = path.startsWith("/methodology");
   return (
     <header className="z-30 border-b border-line bg-bg-raised">
@@ -27,6 +27,16 @@ export function Nav() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-4">
+          {/* What on this page is live, and how often. Only shown when
+              something actually is: the Richmond study has no gauge feed and
+              a LIVE badge over a replayed archive would be a lie. */}
+          {live && (
+            <span className="hidden items-center gap-1.5 text-[12px] text-ink-faint md:flex">
+              <span className="h-[7px] w-[7px] rounded-full bg-ink" aria-hidden />
+              <span className="font-semibold text-ink">LIVE</span>
+              <span>· {live}</span>
+            </span>
+          )}
           <Link
             href={inMethod ? "/" : "/methodology"}
             className={clsx(

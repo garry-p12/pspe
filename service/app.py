@@ -474,6 +474,122 @@ class RoadsRequest(BaseModel):
     north: float
 
 
+_GAUGE_CACHE: dict = {}
+FT_M = 0.3048
+CFS_M3S = 0.0283168466
+
+
+@app.post("/gauges")
+def gauges(req: RoadsRequest) -> dict:
+    """Real-time river gauges over this box, with the last three days of stage.
+
+    The interface has had nothing live in it. Depth came from a solve, the
+    storm came from a preset, and the only thing on screen that moved was the
+    scrubber -- which moved through a model, not through the world. USGS
+    publishes instantaneous values for every gauged stream in the United
+    States on a 15-minute cadence, free and without a key, and Austin has 34 of
+    them inside one metro box: Shoal, Waller, Barton, Walnut, Boggy, Bear,
+    Slaughter and Onion creeks, and the Colorado.
+
+    Returned in metres and cubic metres per second. USGS serves feet and cubic
+    feet per second, and a portal that puts a gauge reading beside a solved
+    depth in metres has to convert or it is comparing two different quantities
+    with the same label.
+
+    This is United States only, which is a real limit and is said in the
+    response rather than left for the caller to discover: `supported` is false
+    outside it, and the Richmond study has no equivalent feed.
+    """
+    key = (round(req.west, 3), round(req.south, 3),
+           round(req.east, 3), round(req.north, 3))
+    hit = _GAUGE_CACHE.get(key)
+    if hit and time.time() - hit["at"] < 300:
+        return {**hit["payload"], "cached": True}
+
+    lat = (req.south + req.north) / 2
+    lon = (req.west + req.east) / 2
+    in_us = ((24 <= lat <= 50 and -125 <= lon <= -66)
+             or (51 <= lat <= 72 and -170 <= lon <= -129)
+             or (18 <= lat <= 23 and -161 <= lon <= -154))
+    if not in_us:
+        return {"supported": False, "gauges": [], "cadence_min": None,
+                "note": ("Live gauge readings come from USGS, which covers the "
+                         "United States. There is no equivalent open feed for "
+                         "this area.")}
+
+    base = "https://waterservices.usgs.gov/nwis"
+    def _get(url: str, timeout: float = 45.0) -> str:
+        r = urllib.request.Request(url, headers={"User-Agent": "PSPE-floodplain-planner/1.0"})
+        with urllib.request.urlopen(r, timeout=timeout) as f:
+            return f.read().decode()
+
+    try:
+        rdb = _get(f"{base}/site/?format=rdb&bBox={req.west:.4f},{req.south:.4f},"
+                   f"{req.east:.4f},{req.north:.4f}"
+                   "&siteType=ST&siteStatus=active&hasDataTypeCd=iv")
+    except Exception as exc:                               # noqa: BLE001
+        return {"supported": True, "gauges": [], "cadence_min": 15,
+                "note": f"USGS did not answer ({str(exc)[:80]})."}
+
+    sites = {}
+    for line in rdb.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) > 6 and parts[1].isdigit():
+            sites[parts[1]] = {"site": parts[1], "name": parts[2],
+                               "lat": float(parts[4]), "lon": float(parts[5])}
+    if not sites:
+        return {"supported": True, "gauges": [], "cadence_min": 15,
+                "note": "No active real-time stream gauge sits in this area."}
+
+    out = {s: {**v, "stage_m": None, "q_m3s": None, "at": None,
+               "trend_cm_h": None, "series": []} for s, v in sites.items()}
+    try:
+        d = json.loads(_get(
+            f"{base}/iv/?format=json&sites={','.join(sites)}"
+            "&parameterCd=00060,00065&period=P3D", timeout=90.0))
+    except Exception:                                      # noqa: BLE001
+        d = {"value": {"timeSeries": []}}
+
+    for t in d.get("value", {}).get("timeSeries", []):
+        sid = t["sourceInfo"]["siteCode"][0]["value"]
+        g = out.get(sid)
+        if g is None:
+            continue
+        code = t["variable"]["variableCode"][0]["value"]
+        vals = [v for v in t["values"][0]["value"]
+                if v.get("value") not in (None, "", "-999999")]
+        if not vals:
+            continue
+        last = float(vals[-1]["value"])
+        g["at"] = vals[-1]["dateTime"]
+        if code == "00065":                                # gage height, feet
+            g["stage_m"] = round(last * FT_M, 3)
+            # Thinned to roughly hourly: three days at 15 minutes is 288
+            # points per gauge, which is more than a 300 px sparkline can
+            # show and more than the browser should be asked to parse.
+            step = max(len(vals) // 72, 1)
+            g["series"] = [{"t": v["dateTime"],
+                            "m": round(float(v["value"]) * FT_M, 3)}
+                           for v in vals[::step]]
+            if len(vals) > 4:
+                prev = float(vals[-5]["value"]) * FT_M
+                g["trend_cm_h"] = round((g["stage_m"] - prev) * 100.0, 1)
+        elif code == "00060":                              # discharge, cfs
+            g["q_m3s"] = round(last * CFS_M3S, 2)
+
+    gauges = [g for g in out.values() if g["stage_m"] is not None or g["q_m3s"] is not None]
+    gauges.sort(key=lambda g: -(g["q_m3s"] or 0))
+    payload = {"supported": True, "gauges": gauges, "cadence_min": 15,
+               "source": "USGS NWIS instantaneous values",
+               "note": f"{len(gauges)} gauged streams reporting in this area."}
+    _GAUGE_CACHE[key] = {"at": time.time(), "payload": payload}
+    if len(_GAUGE_CACHE) > 16:
+        _GAUGE_CACHE.pop(next(iter(_GAUGE_CACHE)))
+    return {**payload, "cached": False}
+
+
 @app.post("/roads")
 def roads(req: RoadsRequest) -> dict:
     """The road network over this box, cached per box."""
