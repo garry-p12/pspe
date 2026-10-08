@@ -59,7 +59,9 @@ class Crossing:
 
 
 def channel_crossings(z: np.ndarray, tol_m: float = 3.0,
-                      max_cells: int = 20) -> list[Crossing]:
+                      max_cells: int = 20,
+                      dx_m: float | None = None,
+                      max_width_m: float = 4000.0) -> list[Crossing]:
     """Where the channel meets each edge: cells near that edge's own MINIMUM.
 
     Measured from the minimum, not the median. Against the median, "well below
@@ -68,23 +70,40 @@ def channel_crossings(z: np.ndarray, tol_m: float = 3.0,
     it is not an inflow, it is rain again. Near the minimum it picks the two to
     six cells that are actually the channel.
 
-    `max_cells` caps it: an edge where dozens of cells sit within a few metres
-    of the minimum is flat ground, not a channel, and nothing should be
-    injected there.
+    The cap exists because an edge where the ground sits within a few metres of
+    its minimum for kilometres is flat floodplain, not a channel, and nothing
+    should be injected there.
+
+    **That cap is a WIDTH, not a cell count.** It was `max_cells = 20`, which
+    means 4 km at 200 m cells, 2.6 km at 130 m and 600 m at 30 m -- so the same
+    terrain was a channel or not depending only on the resolution it was
+    sampled at. Measured on the Lismore-Coraki box: the south edge is 3.60 km
+    of near-minimum ground at 200 m (18 cells, accepted) and 3.77 km at 130 m
+    (29 cells, rejected). Nearly the same river, opposite verdicts. With three
+    of four edges rejected at 130 m there were fewer than two crossings, so
+    `river_inflow` returned None and the service fell back to rainfall -- which
+    spreads the storm thin and floods nothing, turning a route that loses
+    113 km of network into "no flooding on this trip".
+
+    `dx_m` is therefore how this should be called. `max_cells` is kept for
+    callers that genuinely have no scale to hand, and no longer applies when a
+    resolution is given.
     """
+    cap = (max_width_m / float(dx_m)) if dx_m else float(max_cells)
     out: list[Crossing] = []
     for edge in EDGES:
         line = np.nan_to_num(_edge_cells(z, edge))
         sel = line <= float(line.min()) + tol_m
         n = int(sel.sum())
-        if n == 0 or n > max_cells:
+        if n == 0 or n > cap:
             continue
         out.append(Crossing(edge=edge, mask=_edge_mask(z.shape, edge, sel),
                             bed_m=float(line[sel].mean()), width_cells=n))
     return out
 
 
-def river_inflow(z: np.ndarray, tol_m: float = 3.0) -> Crossing | None:
+def river_inflow(z: np.ndarray, tol_m: float = 3.0,
+                 dx_m: float | None = None) -> Crossing | None:
     """The upstream end of the through-channel, or None if there is not one.
 
     A river needs a way in and a way out, so the two LOWEST crossings are the
@@ -94,16 +113,17 @@ def river_inflow(z: np.ndarray, tol_m: float = 3.0) -> Crossing | None:
 
     Of the two, upstream is the higher bed: water runs downhill.
     """
-    cr = channel_crossings(z, tol_m)
+    cr = channel_crossings(z, tol_m, dx_m=dx_m)
     if len(cr) < 2:
         return None
     lowest_two = sorted(cr, key=lambda c: c.bed_m)[:2]
     return max(lowest_two, key=lambda c: c.bed_m)
 
 
-def river_outflow(z: np.ndarray, tol_m: float = 3.0) -> Crossing | None:
+def river_outflow(z: np.ndarray, tol_m: float = 3.0,
+                  dx_m: float | None = None) -> Crossing | None:
     """The downstream end, which must stay open however the edges are set."""
-    cr = channel_crossings(z, tol_m)
+    cr = channel_crossings(z, tol_m, dx_m=dx_m)
     if len(cr) < 2:
         return None
     return min(cr, key=lambda c: c.bed_m)
@@ -147,10 +167,10 @@ def inflow_source(mask: np.ndarray, q_m3s: float, dx: float) -> np.ndarray:
 
 def describe(z: np.ndarray, dx: float) -> dict:
     """What this terrain can be forced by, for the interface to offer."""
-    riv = river_inflow(z)
-    out = river_outflow(z)
+    riv = river_inflow(z, dx_m=dx)
+    out = river_outflow(z, dx_m=dx)
     sea = sea_edge(z)
-    cr = channel_crossings(z)
+    cr = channel_crossings(z, dx_m=dx)
     return {
         "river": None if riv is None else {
             "edge": riv.edge, "bed_m": round(riv.bed_m, 1),

@@ -461,7 +461,10 @@ def build_forcing(dom, req) -> dict:
            "driver": req.driver, "note": "", "q_m3s": None, "stage_m": None}
 
     if req.driver == "river":
-        inflow = forcing.river_inflow(z)
+        # dx matters: the channel cap is a physical width, and calling this
+        # without a resolution reinstates the cell-count behaviour that made
+        # the same river a channel at 200 m and flat ground at 130 m.
+        inflow = forcing.river_inflow(z, dx_m=dom.dx)
         if inflow is None:
             out["driver"] = "rain"
             out["note"] = ("No through-channel crosses this box, so the storm "
@@ -509,8 +512,8 @@ def build_forcing(dom, req) -> dict:
         depth_bank = max(0.5, min(6.0, bank_m - inflow.bed_m))
         width_bank = max(inflow.width_cells * dom.dx, dom.dx)
         slope_bank = max(abs(
-            (inflow.bed_m - forcing.river_outflow(z).bed_m)
-            if forcing.river_outflow(z) else 1.0
+            (inflow.bed_m - forcing.river_outflow(z, dx_m=dom.dx).bed_m)
+            if forcing.river_outflow(z, dx_m=dom.dx) else 1.0
         ) / max(max(z.shape) * dom.dx, 1.0), 1e-4)
         q_bankfull = ((1.0 / 0.035) * (width_bank * depth_bank)
                       * depth_bank ** (2.0 / 3.0) * math.sqrt(slope_bank))
@@ -529,7 +532,7 @@ def build_forcing(dom, req) -> dict:
         # bed fall does that with no free parameters:
         #
         #     h = (Q n / (W sqrt(S)))^(3/5)
-        outflow = forcing.river_outflow(z)
+        outflow = forcing.river_outflow(z, dx_m=dom.dx)
         width_m = max(inflow.width_cells * dom.dx, dom.dx)
         fall = (inflow.bed_m - outflow.bed_m) if outflow else 1.0
         span = max(z.shape[0], z.shape[1]) * dom.dx
