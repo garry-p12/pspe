@@ -62,6 +62,12 @@ export interface TripResult {
   driver: string; driver_note: string;
   storm: { rain_mm_h: number; storm_hours: number; run_hours: number };
   depth_png: string; terrain_png: string;
+  /** Instantaneous depth at each solved snapshot. The solver resolves the
+   *  flood at these instants and the road schedule is built from every one of
+   *  them; until now all but the peak were discarded, so the map could only
+   *  show the union of states that never coexist. */
+  frames?: { t_min: number; depth_png: string }[];
+  run_hours?: number;
   roads: GeoJSON.FeatureCollection;
   inspect?: unknown;
   /** Null when the written summary did not match the plan and was withheld. */
@@ -164,6 +170,20 @@ export function TripPanel({
    *  an operator is asked about. */
   const [qText, setQText] = useState("");
   const [res, setRes] = useState<TripResult | null>(null);
+  /** Which solved instant the map is showing. null means the peak field, which
+   *  is what every other view shows and what a flood map normally publishes. */
+  const [frameIdx, setFrameIdx] = useState<number | null>(null);
+
+  // Swap the map's overlay to the scrubbed instant. Same pattern the Anywhere
+  // tab uses to show a chosen option's own solved field: re-report the result
+  // with a different depth_png rather than threading a second channel to the
+  // map.
+  useEffect(() => {
+    if (!res) return;
+    const f = res.frames;
+    if (frameIdx === null || !f || !f[frameIdx]) { onResult(res); return; }
+    onResult({ ...res, depth_png: f[frameIdx].depth_png });
+  }, [frameIdx, res, onResult]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -172,7 +192,7 @@ export function TripPanel({
   const find = useCallback(async () => {
     if (!from || !to) return;
     setBusy(true); setErr(null); setElapsed(0); setRes(null);
-    onResult(null); onRoutes(null);
+    onResult(null); onRoutes(null); setFrameIdx(null);
     timer.current = setInterval(() => setElapsed((t) => t + 1), 1000);
     const s = STORMS[storm];
     try {
@@ -546,22 +566,67 @@ export function TripPanel({
           {res.cut_timeline.length > 2 && res.cut_km_peak > 0.05 && (
             <div className="mt-4">
               <h3 className="eyebrow">Roads lost as the flood arrives</h3>
+              {/* The chart IS the scrubber. The solver already resolved the
+                  flood at these instants and the bars already stand for them,
+                  so clicking one shows that instant's water rather than adding
+                  a second time control beside a chart of time. */}
               <div className="mt-2 flex items-end gap-[3px]">
-                {res.cut_timeline.map((t) => {
+                {res.cut_timeline.map((t, i) => {
                   const peak = Math.max(...res.cut_timeline.map((x) => x.cut_km), 1);
                   const h = Math.max(2, Math.round((t.cut_km / peak) * 54));
                   const past = res.deadline_min !== null && t.minutes > res.deadline_min;
+                  const frames = res.frames ?? [];
+                  // Match by time, not by index: cut_timeline comes from the
+                  // road schedule and frames from the solver's snapshots, and
+                  // assuming they are the same list is how they drift apart.
+                  const fi = frames.length
+                    ? frames.reduce((best, f, k) =>
+                        Math.abs(f.t_min - t.minutes) < Math.abs(frames[best].t_min - t.minutes)
+                          ? k : best, 0)
+                    : -1;
+                  const on = fi >= 0 && frameIdx === fi;
                   return (
-                    <div key={t.minutes} className="flex flex-1 flex-col items-center gap-1">
+                    <button
+                      key={t.minutes}
+                      type="button"
+                      disabled={fi < 0}
+                      onClick={() => setFrameIdx(on ? null : fi)}
+                      aria-pressed={on}
+                      className="flex flex-1 flex-col items-center gap-1
+                                 disabled:cursor-default"
+                      title={fi < 0
+                        ? `${dur(t.minutes)}: ${t.cut_km.toFixed(0)} km impassable`
+                        : `${dur(t.minutes)}: ${t.cut_km.toFixed(0)} km impassable — click to show this moment on the map`}
+                    >
                       <div
-                        className={`w-full rounded-sm ${past ? "bg-[var(--warn,#dc2626)]/70" : "bg-ink/70"}`}
+                        className={`w-full rounded-sm transition-opacity ${
+                          on ? "bg-accent"
+                             : past ? "bg-[var(--warn,#dc2626)]/70" : "bg-ink/70"
+                        } ${frameIdx !== null && !on ? "opacity-35" : ""}`}
                         style={{ height: `${h}px` }}
-                        title={`${dur(t.minutes)}: ${t.cut_km.toFixed(0)} km impassable`}
                       />
-                    </div>
+                    </button>
                   );
                 })}
               </div>
+              {(res.frames?.length ?? 0) > 1 && (
+                <div className="mt-1.5 flex items-baseline justify-between">
+                  <span className="text-[12px] text-ink-faint">
+                    {frameIdx === null
+                      ? "Showing the peak — every road that floods at any time"
+                      : `Showing ${dur(res.frames![frameIdx].t_min)} — the water actually on the ground then`}
+                  </span>
+                  {frameIdx !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setFrameIdx(null)}
+                      className="text-[12px] text-ink underline underline-offset-2 hover:no-underline"
+                    >
+                      back to peak
+                    </button>
+                  )}
+                </div>
+              )}
               <p className="anno mt-1.5">
                 0 to {dur(res.cut_timeline[res.cut_timeline.length - 1].minutes)} ·
                 up to {Math.max(...res.cut_timeline.map((x) => x.cut_km)).toFixed(0)} km
