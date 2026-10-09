@@ -2096,7 +2096,13 @@ def plan_anywhere(req: PlanRequest) -> dict:
         "base_area_km2": options[0]["area_flooded_km2"],
         "base_peak_depth_m": options[0]["peak_depth_m"],
         "max_height_m": req.max_height_m,
-        "crest_lengths_m": lengths,
+        # The alignment length each measure is costed over. `lengths` was a
+        # list built beside the old flat-rate model and it outlived it by one
+        # reference, which `/plan` then raised a NameError on -- caught by
+        # verify-kit rather than by anything in the service, because the
+        # response is only assembled after a two-minute solve.
+        "crest_lengths_m": [float(x.get("width_m", 600.0)) * 2.0
+                            for x in req.sites],
         "bounds": {"west": req.west, "south": req.south,
                    "east": req.east, "north": req.north},
         "depth_png": depth_png(peak[0].numpy(), DEPTH_VMAX),

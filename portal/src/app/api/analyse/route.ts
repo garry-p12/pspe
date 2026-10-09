@@ -11,6 +11,19 @@ const SERVICE = process.env.FLOOD_SERVICE ?? "http://127.0.0.1:8000";
 
 export const maxDuration = 300;
 
+/** Did WE stop waiting, or did the service really not answer?
+ *
+ *  Node's fetch gives up on response headers after five minutes
+ *  (undici's `headersTimeout`) and `AbortSignal.timeout` fires on our own
+ *  deadline. Both arrive here as exceptions, and both used to be reported as
+ *  "not reachable" — which is the opposite of true when the service is
+ *  mid-solve on the question that was asked. */
+function timedOut(e: unknown): boolean {
+  const s = `${(e as Error)?.name ?? ""} ${(e as Error)?.message ?? ""} `
+    + `${(e as { cause?: { code?: string } })?.cause?.code ?? ""}`;
+  return /TimeoutError|HeadersTimeout|BodyTimeout|UND_ERR_(HEADERS|BODY)_TIMEOUT|aborted/i.test(s);
+}
+
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -35,13 +48,22 @@ export async function POST(req: Request) {
     return NextResponse.json(await r.json());
   } catch (e) {
     return NextResponse.json(
-      {
-        error: "service_unavailable",
-        detail:
-          "The modelling service is not reachable. Start it with: " +
-          "python3 -m uvicorn service.app:app --port 8000",
-        cause: String((e as Error).message).slice(0, 200),
-      },
+      timedOut(e)
+        ? {
+            error: "timed_out",
+            detail: "The solve is still running after five minutes, which "
+                  + "is as long as this page will wait for it. It is not "
+                  + "lost — the service finishes and caches it, so asking "
+                  + "again is usually quick.",
+            cause: String((e as Error).message).slice(0, 200),
+          }
+        : {
+            error: "service_unavailable",
+            detail:
+              "The modelling service is not reachable. Start it with: " +
+              "python3 -m uvicorn service.app:app --port 8000",
+            cause: String((e as Error).message).slice(0, 200),
+          },
       { status: 503 },
     );
   }

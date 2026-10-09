@@ -41,20 +41,23 @@ async function pick(name) {
 ok("the Plan tab opens", await tab("Plan"));
 ok("and Build a plan is its first step", await pick("Build a plan"));
 const aside = p.locator("aside");
-ok("it explains where sites come from",
-   /almost high enough/.test(await aside.innerText()));
+// Two states are correct here and which one you get is a cache hit away:
+// the search running, or the sites already on screen. What must be true in
+// BOTH is that nothing asked the reader to press anything first.
+const started = await aside.innerText();
+ok("nothing asks for a click before the tab does its job",
+   !/Find the sites/.test(started));
+ok("it says where the sites come from, or is already showing them",
+   /almost high enough/.test(started) || /places? a wall would pay/.test(started));
 
-// Nothing to press: the tab goes looking for its sites when it opens, and
-// the only thing on screen until they arrive is a progress report.
-let t = "";
+let t = started;
 for (let i = 0; i < 20; i++) {
+  if (/Looking for banks that almost hold|places? a wall would pay/.test(t)) break;
   await p.waitForTimeout(1000);
   t = await aside.innerText();
-  if (/Looking for banks that almost hold/.test(t)) break;
 }
-ok("the tab goes looking by itself rather than offering a button",
-   /Looking for banks that almost hold/.test(t)
-   && !/Find the sites/.test(t));
+ok("the tab is either searching or already has its answer",
+   /Looking for banks that almost hold|places? a wall would pay/.test(t));
 ok("the plan is judged against a named flood, not whatever the map showed",
    /Judged against/.test(t) && /USGS annual peak streamflow|annual chance/.test(t),
    (t.match(/\d+ \w+ \d{4} flood · [^\n]*/) || [""])[0]);
@@ -95,7 +98,10 @@ await p.waitForTimeout(250);
 await rows.nth(1).click();
 await p.waitForTimeout(500);
 t = await aside.innerText();
-ok("placing pieces spends the budget", /spent US\$[\d.]+ M/.test(t),
+// k or M. Two levees on 400 m banks come to US$136 k under the trapezoidal
+// section, and a regex that only accepted millions called that a failure --
+// which is the harness disagreeing with the costing model, not with the UI.
+ok("placing pieces spends the budget", /spent US\$[\d.]+ ?[kM]/.test(t),
    (t.match(/spent US\$[^\n]*/) || [""])[0]);
 ok("two pieces are counted", /2 pieces/.test(t));
 await p.screenshot({ path: `${OUT}/88_kit_placed.png` });
