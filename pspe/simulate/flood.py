@@ -60,6 +60,37 @@ class FloodConfig:
     bed_slope: float = 1.0e-3  # used for the normal-depth outflow at open edges
 
 
+@dataclass
+class Structures:
+    """Point structures: gates that let water out one way, pumps that lift it.
+
+    Both are things a levee alone cannot do, and the distinction matters for
+    what the planner can offer. A levee is a bed perturbation, so it can only
+    keep water OUT of a perimeter. A pump acts on water already inside one --
+    which is the case section 5.9's pluvial result had no instrument for, where
+    no levee placement helped because a quarter of the rain fell inside the
+    area being protected.
+
+    Index tensors are (N, 2) of (row, col). Capacities carry a leading batch
+    dimension aligned with the bed batch, so `/plan`'s enumeration -- one bed
+    per candidate plan, one timestep loop for all of them -- survives: a plan
+    that does not build a gate simply sets it shut.
+    """
+    gate_in: Tensor | None = None        # (G,2) protected-side cell
+    gate_out: Tensor | None = None       # (G,2) discharge cell
+    gate_area_m2: Tensor | None = None   # (G,) barrel cross-section
+    gate_invert_m: Tensor | None = None  # (G,) sill elevation; nothing below drains
+    gate_open: Tensor | None = None      # (b,G) bool: does this plan build it
+    gate_cd: float = 0.62                # orifice discharge coefficient
+
+    pump_in: Tensor | None = None        # (P,2) wet-well cell
+    pump_out: Tensor | None = None       # (P,2), or None to discharge off-domain
+    pump_q_m3s: Tensor | None = None     # (b,P) rated capacity
+    pump_sump_m: Tensor | None = None    # (P,) intake elevation
+    pump_on_m: Tensor | None = None      # (P,) start level above the sump
+    pump_off_m: Tensor | None = None     # (P,) stop level; must be < on
+
+
 class FloodSolver:
     """Local-inertial shallow water over a fixed bed `z`.
 
@@ -80,6 +111,17 @@ class FloodSolver:
         self.z = z
         self.device = z.device
         self.dtype = z.dtype
+        # Point structures, set by the caller after construction. None means
+        # the step loop is byte-for-byte what it was before gates and pumps
+        # existed, which is what keeps the existing solver tests meaningful.
+        self.structures: Structures | None = None
+        # A pump's on/off state has to persist between steps or it chatters.
+        # Sized from the batch at first use, because `/plan` runs the same
+        # solver code at several batch sizes.
+        self._pump_running: Tensor | None = None
+        # Water lifted out of the domain, in cubic metres, so a closed-domain
+        # mass test can still balance when a pump discharges off-map.
+        self.pumped_volume_m3: float = 0.0
         # Roughness may be a field. It is the one calibration knob a
         # hydrodynamic model has, so when a land-cover map is available it is
         # taken from there rather than fitted -- which keeps the solver
@@ -101,6 +143,138 @@ class FloodSolver:
         qx = torch.zeros(batch, h_, w_ - 1, device=self.device, dtype=self.dtype)
         qy = torch.zeros(batch, h_ - 1, w_, device=self.device, dtype=self.dtype)
         return qx, qy
+
+    def _structure_demand(self, h: Tensor, wse: Tensor, dt: float
+                          ) -> tuple[Tensor, dict] | tuple[None, None]:
+        """Floodgates and pumps, as unit discharges in m^2/s like `_edge_outflow`.
+
+        Both are SINKS at a cell and SOURCES at another, and both must ride the
+        availability limiter in `step` rather than being added to `rain`. The
+        rain term is applied after the mass balance and outside the limiter,
+        with `h.clamp(min=0)` immediately after it, so a negative source there
+        drives depth below zero and the clamp *creates* mass -- the same 6.4%
+        dam-break error the limiter was written to kill. `last_clamped` and
+        `test_flux_limiter_prevents_negative_depth` would both catch it, which
+        is the only reason that shortcut is merely wrong and not invisible.
+
+        ## The gate is not a hole in the bed
+
+        A levee here is only an addition to `z`, and flow across it stops
+        because `_interface_depth` collapses to zero: `h_f = max(wl, wr) -
+        max(zl, zr)`. That expression is SYMMETRIC in the two cells, so
+        lowering the bed at a crest gives a culvert that flows whichever way
+        the surface tilts -- including inward when the river is higher, which
+        is the one condition a floodgate exists to prevent. Direction cannot be
+        expressed in the bed. It has to be an explicit directional exchange
+        between a named inside cell and a named outside cell, which is what
+        this is: `max(dH, 0)` IS the flap, and it seals with no branch.
+
+        ## Both are limited twice, on purpose
+
+        Each carries its own clamp -- a gate moves at most half the volume that
+        would level its two cells this step, a pump lifts at most half the
+        water above its sump -- and the solver's own `scale` is the backstop.
+        Relying on `scale` alone is mass-safe and not convergent: the structure
+        would then discharge whatever its cell happened to hold, and the answer
+        would depend on dt. The half-volume rule is also what stops an orifice
+        chattering: dQ/d(dH) goes to infinity as the head closes, so without it
+        the flap flips every step and the two cells ring against each other.
+        """
+        st = self.structures
+        if st is None:
+            return None, None
+        b = h.shape[0]
+        demand = torch.zeros_like(h)
+        book: dict = {"gate": None, "pump": None}
+        cell_area = self.cfg.dx * self.cfg.dx
+
+        if st.gate_in is not None and st.gate_in.numel():
+            ri, ci = st.gate_in[:, 0], st.gate_in[:, 1]
+            ro, co = st.gate_out[:, 0], st.gate_out[:, 1]
+            wse_in = wse[..., ri, ci]                       # (b,G)
+            wse_out = wse[..., ro, co]
+            head = (wse_in - st.gate_invert_m).clamp(min=0.0)
+            dH = (wse_in - wse_out).clamp(min=0.0)          # the flap
+            q = st.gate_cd * st.gate_area_m2 * torch.sqrt(2.0 * G * dH)
+            # A soft switch one depth_min wide, so closure is continuous
+            # rather than a step function the solver can oscillate across.
+            q = q * (dH / self.cfg.depth_min).clamp(max=1.0)
+            q = q * (head > 0.0)
+            if st.gate_open is not None:
+                q = q * st.gate_open.to(q.dtype)
+            q_level = 0.5 * dH * cell_area / max(dt, 1e-9)
+            q = torch.minimum(q, q_level)                   # m^3/s, (b,G)
+            unit = q / self.cfg.dx                          # m^2/s, (b,G)
+            idx_b = torch.arange(b, device=h.device).unsqueeze(1).expand_as(unit)
+            demand.index_put_((idx_b.reshape(-1),
+                               ri.expand(b, -1).reshape(-1),
+                               ci.expand(b, -1).reshape(-1)),
+                              unit.reshape(-1), accumulate=True)
+            book["gate"] = (ri, ci, ro, co, unit, idx_b)
+
+        if st.pump_in is not None and st.pump_in.numel():
+            ri, ci = st.pump_in[:, 0], st.pump_in[:, 1]
+            avail = (h[..., ri, ci] - (st.pump_sump_m - self.z[..., ri, ci])
+                     .clamp(min=0.0)).clamp(min=0.0)
+            if self._pump_running is None or self._pump_running.shape[0] != b:
+                self._pump_running = torch.zeros(b, st.pump_in.shape[0],
+                                                 dtype=torch.bool, device=h.device)
+            # A deadband, so a station does not chatter on and off around one
+            # level. This is the solver's only genuine per-step state besides
+            # `last_clamped`, and it is sized from the batch at first use
+            # because `/plan` solves different batch sizes with the same code.
+            self._pump_running = torch.where(
+                avail > st.pump_on_m, torch.ones_like(self._pump_running),
+                torch.where(avail < st.pump_off_m,
+                            torch.zeros_like(self._pump_running),
+                            self._pump_running))
+            q_max = 0.5 * avail * cell_area / max(dt, 1e-9)
+            q = torch.minimum(st.pump_q_m3s.expand(b, -1), q_max)
+            q = q * self._pump_running.to(q.dtype)
+            unit = q / self.cfg.dx
+            idx_b = torch.arange(b, device=h.device).unsqueeze(1).expand_as(unit)
+            demand.index_put_((idx_b.reshape(-1),
+                               ri.expand(b, -1).reshape(-1),
+                               ci.expand(b, -1).reshape(-1)),
+                              unit.reshape(-1), accumulate=True)
+            book["pump"] = (ri, ci,
+                            None if st.pump_out is None else st.pump_out[:, 0],
+                            None if st.pump_out is None else st.pump_out[:, 1],
+                            unit, idx_b)
+        return demand, book
+
+    def _structure_apply(self, div: Tensor, scale: Tensor, book: dict,
+                         dt: float) -> Tensor:
+        """Move the structures' water, at the rate the limiter actually allowed.
+
+        The receiving side MUST read the post-`scale` value. Crediting the
+        outlet with the unlimited discharge while the donor is held back is
+        exactly how a structure manufactures water, which is the failure the
+        limiter exists to prevent -- and it would pass every test that only
+        checks for negative depth.
+        """
+        for key in ("gate", "pump"):
+            if book.get(key) is None:
+                continue
+            ri, ci, ro, co, unit, idx_b = book[key]
+            taken = unit * scale[..., ri, ci]
+            flat_b, flat_ri, flat_ci = (idx_b.reshape(-1),
+                                        ri.expand_as(idx_b).reshape(-1),
+                                        ci.expand_as(idx_b).reshape(-1))
+            div.index_put_((flat_b, flat_ri, flat_ci),
+                           -taken.reshape(-1), accumulate=True)
+            if ro is None:
+                # Discharged out of the domain. Booked in cubic metres so a
+                # closed-domain mass test still balances: `taken` is a unit
+                # discharge in m^2/s, so the volume it moves in this step is
+                # taken * dx * dt. Nothing disappears silently.
+                self.pumped_volume_m3 += float(taken.sum()) * self.cfg.dx * dt
+                continue
+            div.index_put_((flat_b,
+                            ro.expand_as(idx_b).reshape(-1),
+                            co.expand_as(idx_b).reshape(-1)),
+                           taken.reshape(-1), accumulate=True)
+        return div
 
     def adaptive_dt(self, h: Tensor) -> float:
         """CFL for the local-inertial scheme: alpha dx / sqrt(g h_max)."""
@@ -187,6 +361,9 @@ class FloodSolver:
 
             # Boundary outflow at the open edges, as normal depth (Manning).
             edge = self._edge_outflow(h)
+            # Gates and pumps join the same bookkeeping: demanded here,
+            # rationed by `scale` below, applied into `div` after it.
+            struct, book = self._structure_demand(h, wse, dt)
 
             # Mass balance, with a flux limiter. An explicit scheme can ask an
             # interface for more water than the donor cell holds; clamping the
@@ -195,6 +372,8 @@ class FloodSolver:
             # depth that is actually available, before applying the divergence.
             k = dt / self.cfg.dx
             out = edge * k
+            if struct is not None:
+                out = out + struct * k
             out[..., :, :-1] += qx.clamp(min=0.0) * k
             out[..., :, 1:] += (-qx).clamp(min=0.0) * k
             out[..., :-1, :] += qy.clamp(min=0.0) * k
@@ -211,6 +390,8 @@ class FloodSolver:
             div[..., :-1, :] -= qy
             div[..., 1:, :] += qy
             div -= edge
+            if book is not None:
+                div = self._structure_apply(div, scale, book, dt)
             h = h + k * div
             if isinstance(rain, Tensor) or rain != 0.0:
                 h = h + dt * rain
