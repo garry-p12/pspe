@@ -27,3 +27,6 @@ data/austin/*.geojson
 
 # The built default study: regenerate with scripts/build_austin_study.py.
 portal/public/data/austin/study.json
+
+# Cached OpenStreetMap extracts: a fetch result, not source.
+data/osm_cache/

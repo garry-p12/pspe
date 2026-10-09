@@ -34,7 +34,8 @@ from pydantic import BaseModel, Field
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from pspe.observe import sar  # noqa: E402
 from pspe.simulate.real import forcing  # noqa: E402
@@ -372,6 +373,54 @@ def _seg_km(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(dlat, dlon)
 
 
+# OpenStreetMap, kept on disk.
+#
+# Three things in this service come from Overpass -- the channel, the road
+# network, and the names on the map -- and all three are free public mirrors
+# that fail. Measured in one sitting: kumi.systems and private.coffee both
+# returned 500 while overpass-api.de answered, and an hour earlier the
+# reverse. Each failure has a fallback, and each fallback is worse in a way
+# the reader cannot see: without the mapped channel the inflow comes from a
+# terrain heuristic that picks the wrong corner of a tilted catchment, and
+# the same box then floods 2.56 km2 instead of 12.31. Without the names, six
+# candidate levees are called "unnamed bank".
+#
+# So a good answer is written to disk and kept. OSM geometry for a river or a
+# street changes on a timescale of years; a thirty-day cache is not staleness,
+# it is the difference between a tool that works and a tool that works when
+# a volunteer-run mirror happens to be up.
+_OSM_DIR = Path(os.environ.get("PSPE_OSM_CACHE",
+                               str(ROOT / "data" / "osm_cache")))
+_OSM_TTL_S = 30 * 86400
+
+
+def _osm_disk(kind: str, key: tuple) -> Path:
+    h = hashlib.sha1(json.dumps([kind, list(key)], sort_keys=True).encode())
+    return _OSM_DIR / f"{kind}-{h.hexdigest()[:16]}.json"
+
+
+def _osm_load(kind: str, key: tuple):
+    f = _osm_disk(kind, key)
+    try:
+        if f.is_file() and time.time() - f.stat().st_mtime < _OSM_TTL_S:
+            return json.loads(f.read_text())
+    except Exception:                                      # noqa: BLE001
+        return None
+    return None
+
+
+def _osm_save(kind: str, key: tuple, value) -> None:
+    # Only a non-empty answer. An empty one is a failed fetch, and writing it
+    # down turns one 504 into a month of them (rule 83).
+    if not value:
+        return
+    try:
+        _OSM_DIR.mkdir(parents=True, exist_ok=True)
+        _osm_disk(kind, key).write_text(json.dumps(value))
+    except Exception:                                      # noqa: BLE001
+        pass
+
+
 _WATERWAY_CACHE: dict = {}
 
 
@@ -387,6 +436,10 @@ def fetch_waterways(west: float, south: float, east: float, north: float,
     key = (round(west, 4), round(south, 4), round(east, 4), round(north, 4))
     if key in _WATERWAY_CACHE:
         return _WATERWAY_CACHE[key]
+    disk = _osm_load("waterways", key)
+    if disk:
+        _WATERWAY_CACHE[key] = disk
+        return disk
     q = (f"[out:json][timeout:{int(timeout)}];"
          f'way["waterway"~"^(river|stream)$"]'
          f"({south},{west},{north},{east});out geom;")
@@ -413,6 +466,7 @@ def fetch_waterways(west: float, south: float, east: float, north: float,
     if len(_WATERWAY_CACHE) > 32:
         _WATERWAY_CACHE.pop(next(iter(_WATERWAY_CACHE)))
     _WATERWAY_CACHE[key] = els
+    _osm_save("waterways", key, els)
     return els
 
 
@@ -553,6 +607,10 @@ def fetch_named_lines(west: float, south: float, east: float, north: float,
     key = (round(west, 4), round(south, 4), round(east, 4), round(north, 4))
     if key in _NAMED_CACHE:
         return _NAMED_CACHE[key]
+    disk = _osm_load("named", key)
+    if disk:
+        _NAMED_CACHE[key] = disk
+        return disk
     q = (f"[out:json][timeout:{int(timeout)}];("
          f'way["waterway"~"^(river|stream|canal|drain)$"]["name"]'
          f"({south},{west},{north},{east});"
@@ -587,6 +645,7 @@ def fetch_named_lines(west: float, south: float, east: float, north: float,
     if len(_NAMED_CACHE) > 24:
         _NAMED_CACHE.pop(next(iter(_NAMED_CACHE)))
     _NAMED_CACHE[key] = out
+    _osm_save("named", key, out)
     return out
 
 
