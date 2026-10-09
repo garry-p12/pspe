@@ -474,6 +474,126 @@ class RoadsRequest(BaseModel):
     north: float
 
 
+# How far a habitable floor sits above the ground outside it, in metres.
+#
+# A guess, and labelled as one everywhere it is used. Texas construction is
+# overwhelmingly slab-on-grade and 0.17 m is a slab plus its step. The number
+# matters: on 2,924 surveyed Lismore properties the median floor stands 1.95 m
+# above its own front gate, p5 to p95 spanning 0.04 m to 3.28 m, because a
+# Queenslander sits on stumps. Nowhere publishes it for Austin -- the FEMA
+# elevation certificates that carry it are not bulk-public -- so every response
+# that uses it says so rather than folding it into a depth.
+FLOOR_ABOVE_GROUND_M = 0.17
+
+# City of Austin's building footprints: 585,916 of them, carrying the ground
+# elevation at the structure and its roof height from 2012 lidar, in US survey
+# feet. The sentinel for a missing value is a large negative rather than null,
+# so a mean taken straight off the service returns -70,005,326.
+AUSTIN_BUILDINGS = ("https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/"
+                    "services/STRUCTURE_building_footprints_2013/FeatureServer/0/query")
+_FOOTPRINT_CACHE: dict = {}
+US_FT = 0.3048
+
+
+def _rings_from_geojson(geom: dict) -> list[list[list[float]]]:
+    if not geom:
+        return []
+    if geom["type"] == "Polygon":
+        return [geom["coordinates"][0]]
+    if geom["type"] == "MultiPolygon":
+        return [poly[0] for poly in geom["coordinates"]]
+    return []
+
+
+def fetch_footprints(west: float, south: float, east: float, north: float,
+                     limit: int = 500) -> list[dict]:
+    """Building outlines for a block, with a ground elevation where published.
+
+    Two sources, and they are not equivalent. The City of Austin publishes the
+    ground AT the structure from lidar, which is the number a floor height
+    should be measured from. OpenStreetMap publishes the outline and sometimes
+    a storey count, and no elevation at all -- so outside Austin the ground
+    comes from the DEM and the caller is told which it got.
+    """
+    key = (round(west, 5), round(south, 5), round(east, 5), round(north, 5), limit)
+    if key in _FOOTPRINT_CACHE:
+        return _FOOTPRINT_CACHE[key]
+
+    out: list[dict] = []
+    # Austin first, where the data is richer. The bounding box is the city's
+    # rough extent; outside it the service simply returns nothing and the OSM
+    # branch takes over, so this only has to be approximately right.
+    if -98.2 < (west + east) / 2 < -97.3 and 29.9 < (south + north) / 2 < 30.7:
+        try:
+            q = urllib.parse.urlencode({
+                "f": "geojson", "where": "1=1",
+                "outFields": "OBJECTID,MAX_HEIGHT,BASE_ELEVATION",
+                "geometry": f"{west},{south},{east},{north}",
+                "geometryType": "esriGeometryEnvelope", "inSR": 4326, "outSR": 4326,
+                "spatialRel": "esriSpatialRelIntersects", "returnGeometry": "true",
+                "resultRecordCount": limit,
+            })
+            r = urllib.request.Request(f"{AUSTIN_BUILDINGS}?{q}",
+                                       headers={"User-Agent": "PSPE-floodplain-planner/1.0"})
+            with urllib.request.urlopen(r, timeout=60) as f:
+                d = json.loads(f.read().decode())
+            for ft in d.get("features", []):
+                a = ft.get("properties") or {}
+                for ring in _rings_from_geojson(ft.get("geometry")):
+                    g = a.get("BASE_ELEVATION")
+                    h = a.get("MAX_HEIGHT")
+                    out.append({
+                        "id": f"coa:{a.get('OBJECTID')}",
+                        "ring": ring,
+                        "address": None,
+                        "ground_m": round(g * US_FT, 2) if g is not None and g > -1e6 else None,
+                        "height_m": round(h * US_FT, 2) if h is not None and 0 < h < 1e6 else None,
+                    })
+        except Exception:                                  # noqa: BLE001
+            out = []
+
+    if not out:
+        q = (f"[out:json][timeout:60];way[\"building\"]"
+             f"({south},{west},{north},{east});out geom {int(limit)};")
+        payload = None
+        for url in OVERPASS_MIRRORS:
+            try:
+                req = urllib.request.Request(
+                    url, data=urllib.parse.urlencode({"data": q}).encode(),
+                    headers={"User-Agent": "PSPE-floodplain-planner/1.0"})
+                with urllib.request.urlopen(req, timeout=90) as f:
+                    payload = json.loads(f.read().decode())
+                break
+            except Exception:                              # noqa: BLE001
+                continue
+        for el in (payload or {}).get("elements", []):
+            geom = el.get("geometry") or []
+            if len(geom) < 4:
+                continue
+            t = el.get("tags") or {}
+            lv = t.get("building:levels")
+            try:
+                height = float(lv) * 3.0 if lv else None
+            except ValueError:
+                height = None
+            addr = None
+            if t.get("addr:housenumber") and t.get("addr:street"):
+                addr = f"{t['addr:housenumber']} {t['addr:street']}"
+            out.append({
+                "id": f"osm:{el['id']}",
+                "ring": [[g["lon"], g["lat"]] for g in geom],
+                "address": addr,
+                "ground_m": None,
+                "height_m": height,
+            })
+
+    out = out[:limit]
+    if len(_FOOTPRINT_CACHE) > 24:
+        _FOOTPRINT_CACHE.pop(next(iter(_FOOTPRINT_CACHE)))
+    _FOOTPRINT_CACHE[key] = out
+    return out
+
+
 _GAUGE_CACHE: dict = {}
 FT_M = 0.3048
 CFS_M3S = 0.0283168466
@@ -1161,6 +1281,225 @@ class SectionRequest(BaseModel):
     driver: str = Field("river", pattern="^(rain|river|coastal)$")
     river_q_m3s: Optional[float] = None
     dx: Optional[float] = None
+
+
+class BuildingsRequest(BaseModel):
+    """Buildings in a block, with the solved water against each floor."""
+    west: float
+    south: float
+    east: float
+    north: float
+    name: str = "Street"
+    dx: float = Field(20.0, ge=5.0, le=60.0)
+    rain_mm_h: float = Field(50.0, ge=0.0, le=300.0)
+    storm_hours: float = Field(6.0, ge=0.5, le=48.0)
+    run_hours: float = Field(12.0, ge=1.0, le=72.0)
+    driver: str = Field("rain", pattern="^(rain|river|coastal)$")
+    river_q_m3s: Optional[float] = None
+    surge_m: float = Field(2.5, ge=0.0, le=10.0)
+    snapshots: int = Field(13, ge=2, le=25)
+    max_buildings: int = Field(500, ge=1, le=2000)
+    parent_km: float = Field(12.0, ge=2.0, le=40.0)
+    parent_dx: float = Field(40.0, ge=20.0, le=120.0)
+
+
+@app.post("/buildings")
+def buildings(req: BuildingsRequest) -> dict:
+    """Every building in the block, and whether the water got over its floor.
+
+    Depth above the GROUND is what a flood model produces and depth above the
+    FLOOR is what anyone actually asks, and the gap between them is not a
+    constant: measured across 2,924 surveyed Lismore properties the median
+    floor stands 1.95 m above its own front gate, with the middle 90% spanning
+    0.04 m to 3.28 m (section 5.14e).
+
+    **So the floor height is an assumption here, and it is returned as one.**
+    Austin publishes the ground at the structure and not the floor above it,
+    and FEMA elevation certificates, which carry the real number, are not
+    bulk-public. Texas construction is overwhelmingly slab-on-grade, so the
+    default is a slab: 0.17 m. Every building carries `floor_source` saying so,
+    and the caller is expected to show it rather than fold it into a depth.
+
+    Ground comes from the city survey where there is one and from the DEM
+    otherwise, but the WATER SURFACE is always the solver's own ground plus its
+    own depth. Mixing the two -- city floor against a DEM-derived surface --
+    is the comparison that matters, and doing it the other way round would
+    silently charge the DEM's error to the building.
+    """
+    key = "bld:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
+    if key in CACHE:
+        return {**CACHE[key], "cached": True}
+
+    span_km = _km_between({"lat": req.south, "lon": req.west},
+                          {"lat": req.north, "lon": req.east})
+    if span_km > 12.0:
+        return {"ok": False, "reason":
+                f"That block is {span_km:.0f} km across. The street view solves "
+                "at a few metres; ask for something under 12 km."}
+
+    # ---- the catchment, then the street ---------------------------------
+    #
+    # A street cannot be rain-forced. Measured: 50 mm/h for six hours over a
+    # 2 km box with open edges put 10 of 576 Austin houses over their floors,
+    # because the water that floods a street arrives from upstream and a box
+    # that small has no upstream in it -- the rain simply drains out of the
+    # sides. Three separate blocks sitting entirely inside FEMA's 1% floodplain
+    # behaved the same way.
+    #
+    # So the catchment is solved at its own scale and the street is DOWNSCALED
+    # from it: the water SURFACE from the coarse solve, which carries the
+    # hydraulic gradient, laid over bare-earth terrain at street resolution.
+    # Depth becomes surface minus the fine ground, which is the standard way a
+    # flood surface is mapped onto better terrain, and it is honest about which
+    # half came from where.
+    mid_lat = (req.south + req.north) / 2
+    mid_lon = (req.west + req.east) / 2
+    half_lat = req.parent_km / 2 / 110.540
+    half_lon = half_lat / max(math.cos(math.radians(mid_lat)), 0.2)
+    pbox = {"west": mid_lon - half_lon, "east": mid_lon + half_lon,
+            "south": mid_lat - half_lat, "north": mid_lat + half_lat}
+    pdom = build_domain(pbox["west"], pbox["south"], pbox["east"], pbox["north"],
+                        dx=req.parent_dx, name=f"{req.name} catchment",
+                        source=TERRAIN)
+    fx = build_forcing(pdom, req)
+    pz0 = torch.as_tensor(pdom.z, dtype=torch.float32)[None]
+    run = float(req.run_hours)
+    snap_at = [run * i / (req.snapshots - 1) for i in range(req.snapshots)]
+    ppeak, steps, psnaps = solve_beds(pdom, req, pz0, fx, snap_hours=snap_at)
+
+    pz = np.asarray(pdom.z, dtype=np.float32)
+    _pk = ppeak[0]
+    pdepth = np.asarray(_pk.numpy() if hasattr(_pk, "numpy") else _pk, dtype=np.float32)
+    psurf = pz + pdepth                                  # water surface elevation
+    pseries = None
+    if psnaps is not None:
+        sn = psnaps.numpy() if hasattr(psnaps, "numpy") else psnaps
+        arr = np.asarray(sn, dtype=np.float32)
+        if arr.ndim == 4:
+            arr = arr[0]                                 # (snapshots, H, W)
+        pseries = pz[None] + arr
+
+    dom = build_domain(req.west, req.south, req.east, req.north,
+                       dx=req.dx, name=req.name, source=TERRAIN)
+    z = np.asarray(dom.z, dtype=np.float32)
+    H, W = z.shape
+    b = dom.bounds
+
+    def _on_fine(field: np.ndarray) -> np.ndarray:
+        """A coarse field sampled onto the fine grid, nearest cell."""
+        ph, pw = field.shape
+        lons = np.linspace(b["west"], b["east"], W)
+        lats = np.linspace(b["north"], b["south"], H)
+        cols = np.clip(((lons - pbox["west"]) / (pbox["east"] - pbox["west"])
+                        * (pw - 1)).round().astype(int), 0, pw - 1)
+        rows = np.clip(((pbox["north"] - lats) / (pbox["north"] - pbox["south"])
+                        * (ph - 1)).round().astype(int), 0, ph - 1)
+        return field[np.ix_(rows, cols)]
+
+    # Only where the coarse solve put water at all: a surface interpolated into
+    # a dry neighbourhood would "flood" every hollow in it.
+    wet_coarse = _on_fine((pdepth > WET_M).astype(np.float32)) > 0.5
+    d_peak = np.where(wet_coarse, np.maximum(_on_fine(psurf) - z, 0.0), 0.0
+                      ).astype(np.float32)
+    series = None
+    if pseries is not None:
+        series = np.stack([
+            np.where(_on_fine((pseries[i] - pz) > WET_M),
+                     np.maximum(_on_fine(pseries[i]) - z, 0.0), 0.0)
+            for i in range(pseries.shape[0])]).astype(np.float32)
+
+    feats = fetch_footprints(req.west, req.south, req.east, req.north,
+                             limit=req.max_buildings)
+    out = []
+    for f in feats:
+        ring = f["ring"]
+        lon = sum(c[0] for c in ring) / len(ring)
+        lat = sum(c[1] for c in ring) / len(ring)
+        col = int(round((lon - b["west"]) / max(b["east"] - b["west"], 1e-12) * (W - 1)))
+        row = int(round((b["north"] - lat) / max(b["north"] - b["south"], 1e-12) * (H - 1)))
+        if not (0 <= col < W and 0 <= row < H):
+            continue
+        dem_ground = float(z[row, col])
+        if not np.isfinite(dem_ground):
+            continue
+        city_ground = f.get("ground_m")
+        ground = float(city_ground) if city_ground is not None else dem_ground
+        floor = ground + FLOOR_ABOVE_GROUND_M
+        depth_now = float(d_peak[row, col])
+        # Water over the floor is computed IN ONE VERTICAL FRAME, the solver's.
+        #
+        # The obvious form -- city floor elevation against DEM ground plus
+        # depth -- is wrong, and wrong by far more than the quantity it
+        # measures. Those two grounds disagree by 2.05 m RMSE even on bare
+        # earth (section 5.14f), which is twelve times the 0.17 m floor offset
+        # it is being subtracted from. Written that way, a building under 2 mm
+        # of water came back as 0.33 m over its floor, purely because the DEM
+        # sat half a metre above the city's survey at that point.
+        #
+        # Depth is already relative to the solver's own ground and the floor
+        # offset is relative to the ground at the building, so the comparison
+        # that carries no absolute error is simply depth minus offset. The city
+        # elevation is kept for display, and for saying where the ground came
+        # from, but not for this.
+        over = depth_now - FLOOR_ABOVE_GROUND_M
+        timeline = []
+        if series is not None:
+            timeline = [round(float(series[i, row, col]) - FLOOR_ABOVE_GROUND_M, 3)
+                        for i in range(series.shape[0])]
+        out.append({
+            "id": f.get("id"),
+            "ring": [[round(c[0], 6), round(c[1], 6)] for c in ring],
+            "address": f.get("address"),
+            "ground_m": round(ground, 2),
+            "ground_source": "city survey" if f.get("ground_m") is not None else "DEM",
+            "height_m": round(float(f["height_m"]), 1) if f.get("height_m") else None,
+            "floor_m": round(floor, 2),
+            "depth_on_ground_m": round(max(depth_now, 0.0), 3),
+            "water_surface_m": round(ground + depth_now, 2) if depth_now > 1e-4 else None,
+            "dem_ground_m": round(dem_ground, 2),
+            "over_floor_m": round(over, 3) if over > 0 else None,
+            "over_floor_series": timeline,
+        })
+
+    n_over = sum(1 for x in out if x["over_floor_m"] is not None)
+    road = float(np.nanmax(d_peak)) if d_peak.size else 0.0
+    res = {
+        "ok": True,
+        "name": req.name,
+        "bounds": b,
+        "dx_m": dom.dx,
+        "grid": list(z.shape),
+        "terrain_source": dom.source,
+        "buildings": out,
+        "count": len(out),
+        "over_floor": n_over,
+        "deepest_on_ground_m": round(road, 2),
+        "snapshot_hours": [round(h, 2) for h in snap_at] if series is not None else [],
+        # The block's own water, so the map draws the street's flood rather
+        # than the parent study's. Without it the only thing carrying water on
+        # screen is the colour of the buildings.
+        "depth_png": depth_png(d_peak, max(float(np.nanpercentile(d_peak, 99.5)), 0.5)),
+        "terrain_png": terrain_png(z),
+        "depth_vmax_m": round(max(float(np.nanpercentile(d_peak, 99.5)), 0.5), 2),
+        "frames": ([{"t_h": round(snap_at[i], 2),
+                     "depth_png": depth_png(series[i],
+                                            max(float(np.nanpercentile(d_peak, 99.5)), 0.5))}
+                    for i in range(series.shape[0])] if series is not None else []),
+        "floor_above_ground_m": FLOOR_ABOVE_GROUND_M,
+        "floor_source": (
+            "ASSUMED. The floor height above ground is not published for this "
+            f"area; {FLOOR_ABOVE_GROUND_M:.2f} m is a slab-on-grade default. "
+            "Measured on 2,924 surveyed Lismore properties the median floor "
+            "stands 1.95 m above its own gate, so this assumption is worth "
+            "metres of depth where houses are not on slabs."),
+        "driver": fx["driver"],
+        "driver_note": fx["note"],
+        "timing": {"steps": steps},
+    }
+    if len(CACHE) > 24:
+        CACHE.pop(next(iter(CACHE)))
+    CACHE[key] = res
+    return {**res, "cached": False}
 
 
 @app.post("/section")

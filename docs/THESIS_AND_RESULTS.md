@@ -6750,6 +6750,80 @@ which integration is missing, not which sentence to write.** "Above the minor
 flood level" is one NWS endpoint away. Writing it from a threshold we invented
 would have looked identical on screen and been worth nothing.
 
+### 5.14i The street view, and the two frames you must not mix (2026-10-08)
+
+Wireframe 1b: 3D buildings with the water plane rising per hour, click a house.
+Built as `/buildings` plus a Street tab. Three things had to be got right and
+two of them were got wrong first.
+
+**A street cannot be rain-forced.** The obvious implementation solves a box
+around the block. Measured, 50 mm/h for six hours over a 2 km box put **10 of
+576** Austin houses over their floors, and three separate blocks sitting
+*entirely inside* FEMA's 1% floodplain behaved the same way. The water that
+floods a street arrives from upstream and a box that small has no upstream in
+it — the rain drains out of the sides. Onion Creek drains roughly 850 km²; no
+box this view solves contains that.
+
+So the catchment is solved at its own scale and the street is **downscaled**
+from it: the water SURFACE from the coarse solve, which carries the hydraulic
+gradient, laid over bare-earth terrain at 10 m. Depth becomes surface minus the
+fine ground, masked to where the coarse solve actually put water — an
+unmasked surface floods every hollow in a dry neighbourhood. Forced down the
+channel instead of by rain, the same block goes from 2 of 245 to **361 of 574**.
+
+**The two vertical frames.** Water over a floor looks like
+`city_floor_elevation − (DEM_ground + depth)`. That is wrong, and wrong by far
+more than the quantity it measures: the city's survey and the DEM disagree by
+2.05 m RMSE even on bare earth (§5.14f), which is **twelve times** the 0.17 m
+floor offset being subtracted from it. Written that way, a building under 2 mm
+of water came back as **0.33 m over its floor**, purely because the DEM sat half
+a metre above the city's survey at that point — and the panel cheerfully
+reported 369 of 458 houses flooded in a dry block.
+
+Depth is already relative to the solver's own ground and the floor offset is
+relative to the ground at the building, so the comparison carrying no absolute
+error is simply `depth − offset`. The city elevation is kept for display and
+for naming where the ground came from, and not for this. 369 became 8.
+
+**The floor height is assumed and says so everywhere.** Austin publishes the
+ground at the structure, from 2012 lidar, and not the floor above it; the FEMA
+elevation certificates that carry the real number are not bulk-public. 0.17 m
+is a slab-on-grade default. On 2,924 surveyed Lismore properties the median
+floor stands 1.95 m above its own gate, p5–p95 of 0.04 m to 3.28 m, so this
+assumption is worth **metres** where houses are not on slabs. Every count that
+rests on it carries the sentence.
+
+**What the panel will not claim.** At the 2013 flood of record — 3,400 m³/s on
+Onion Creek, when this neighbourhood went under — this model puts **no** house
+in the block over its floor. It takes about 2.5× that to reproduce the
+inundation 2013 actually caused. The gap is the model's, not the creek's: a
+14 km box truncates the catchment and nothing here knows about the bridges and
+culverts that backed the water up. The panel says so beside the multiplier
+rather than defaulting to 2.5× and calling it "the 2013 flood".
+
+**Opening on the wettest window, not the wettest centroid.** The block defaults
+to the densest water in the solved field. A depth-weighted centroid averages
+two separate flooded reaches into the dry ground between them — measured, it
+opened the view on a block with 0 of 561 houses over their floors while the
+same study had neighbourhoods under water. A sliding window finds somewhere
+actually wet: 57 of 78.
+
+**Harness defect, the fifth this session, and the most expensive.** Four runs
+of `verify-street.mjs` reported a broken street view that was not broken: a
+Playwright click can land after the markup is in the DOM and **before React
+attaches its handlers**, and the click is simply lost. `waitFor({state:
+"visible"})` does not help, because visible is a DOM property and hydration is
+not. The harness now clicks until the thing the click was supposed to change
+has changed.
+
+**Rule 75: when two numbers come from different instruments, subtract them in
+the frame where neither instrument's absolute error appears.** A floor height
+from a city survey and a water surface from a DEM are both correct and their
+difference is noise, because the quantity is 0.17 m and the disagreement
+between the instruments is 2 m. The relative form — depth above the solver's
+own ground, offset above the building's own ground — has no absolute term in
+it at all.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

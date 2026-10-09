@@ -41,6 +41,9 @@ export function PlannerMap({
   section,
   gauges,
   radar,
+  buildings,
+  onBuilding,
+  focusBounds,
   place,
   focus,
   grids,
@@ -99,6 +102,21 @@ export function PlannerMap({
   }[] | null;
   /** NOAA base reflectivity over the analysed box, if the user asked for it. */
   radar?: { west: number; south: number; east: number; north: number } | null;
+  /** The street view's buildings, extruded and coloured by whether the water
+   *  got over the floor rather than over the ground outside it. */
+  buildings?: {
+    id: string;
+    ring: [number, number][];
+    height_m: number | null;
+    over: number;                      // metres over the floor; <= 0 is dry
+    selected: boolean;
+  }[] | null;
+  onBuilding?: (id: string) => void;
+  /** A box the view should sit on, overriding the analysed one. The street
+   *  view solves a block inside the study's box and the camera has to follow
+   *  it; without this the scene stays where the study was and the buildings
+   *  render off screen. */
+  focusBounds?: { west: number; south: number; east: number; north: number } | null;
   /** The town the user searched for, marked like the archive settlement. */
   place?: { lat: number; lon: number; name: string } | null;
   focus: "region" | "town";
@@ -126,7 +144,7 @@ export function PlannerMap({
     return () => ro.disconnect();
   }, []);
 
-  const ab = analysis?.bounds;
+  const ab = focusBounds ?? analysis?.bounds;
   const view = useMemo(() => {
     const base = { pitch: 48, bearing: -18, transitionDuration: 900 };
     if (ab) {
@@ -134,7 +152,7 @@ export function PlannerMap({
         ...base,
         longitude: (ab.west + ab.east) / 2,
         latitude: (ab.south + ab.north) / 2,
-        zoom: 11.6,
+        zoom: focusBounds ? 15.4 : 11.6,
       };
     }
     if (focus === "town" && settle) {
@@ -150,7 +168,7 @@ export function PlannerMap({
     const vp = new WebMercatorViewport({ width: size.w, height: size.h });
     const fit = vp.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: 70 });
     return { ...c, zoom: fit.zoom + 0.5 };
-  }, [b, size, focus, settle, ab]);
+  }, [b, size, focus, settle, ab, focusBounds]);
 
   const cutKey = cutFraction ? `${cutFraction.size}:${cutSignature}` : "none";
   // Primitive keys for the array props, for the same reason cutKey exists: the
@@ -162,6 +180,10 @@ export function PlannerMap({
   const routeKey = routes
     ? `${routes.quickest?.minutes ?? -1}:${routes.robust?.minutes ?? -1}:` +
       `${routes.quickest?.coords.length ?? 0}:${routes.dest?.lat ?? 0}`
+    : "none";
+  const buildingKey = buildings
+    ? `${buildings.length}:${buildings.filter((b) => b.over > 0).length}:` +
+      `${buildings.find((b) => b.selected)?.id ?? ""}`
     : "none";
   const gaugeKey = gauges
     ? gauges.map((g) => `${g.site}:${g.stage_m ?? ""}`).join(",")
@@ -619,6 +641,44 @@ export function PlannerMap({
       );
     }
 
+    // ---- the street's buildings -----------------------------------------
+    // Extruded to their real heights where the city publishes one, and
+    // coloured by the thing the panel is about: water over the FLOOR, not over
+    // the ground outside. A building standing in half a metre of water with a
+    // floor above it is a different answer from one with half a metre inside,
+    // and a map that colours both by depth cannot tell them apart.
+    if (buildings?.length) {
+      out.push(
+        new PolygonLayer({
+          id: "street-buildings",
+          data: buildings,
+          pickable: true,
+          extruded: true,
+          wireframe: false,
+          getPolygon: (d: { ring: [number, number][] }) => d.ring,
+          getElevation: (d: { height_m: number | null }) => Math.max(d.height_m ?? 4, 2.5),
+          getFillColor: (d: { over: number; selected: boolean }) =>
+            d.selected ? [24, 24, 27, 255]
+              : d.over > 0 ? [232, 136, 122, 242]
+                : [247, 245, 242, 240],
+          getLineColor: [10, 14, 20, 120],
+          getLineWidth: 0.6,
+          lineWidthUnits: "pixels",
+          stroked: true,
+          material: { ambient: 0.55, diffuse: 0.65, shininess: 24,
+                      specularColor: [255, 255, 255] },
+          onClick: ({ object }) => {
+            const o = object as { id: string } | undefined;
+            if (o && onBuilding) onBuilding(o.id);
+          },
+          updateTriggers: {
+            getFillColor: buildingKey,
+            getElevation: buildingKey,
+          },
+        }) as unknown as Layer,
+      );
+    }
+
     // ---- rain radar ----------------------------------------------------
     // One image over the analysed box rather than a tile pyramid: the box is a
     // few kilometres across, the product refreshes every six minutes, and a
@@ -802,7 +862,8 @@ export function PlannerMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [b, frame, ext, roads, markers, onMarker, pin, cutFraction, cutKey,
       observed, analysis, placed, place, settle, solid, grids,
-      heightKey, placedKey, routeKey, sectionKey, gaugeKey, radarKey, pins]);
+      heightKey, placedKey, routeKey, sectionKey, gaugeKey, radarKey,
+      buildingKey, onBuilding, pins]);
 
   if (!size) return <div ref={host} className="h-full w-full bg-bg-inset" />;
 

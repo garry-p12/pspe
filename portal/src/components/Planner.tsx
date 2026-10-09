@@ -16,6 +16,7 @@ import { ObservePanel, type Observation } from "./ObservePanel";
 import { RoutePanel } from "./RoutePanel";
 import { TripPanel, type TripResult } from "./TripPanel";
 import { SectionPanel, type SectionEnds, type SectionOverlay } from "./SectionPanel";
+import { StreetPanel, type StreetResult } from "./StreetPanel";
 import type { RoadQuery } from "@/lib/roadquery";
 import { loadManifest } from "@/lib/data";
 import type { Manifest } from "@/lib/types";
@@ -66,7 +67,7 @@ export function Planner() {
    *  the wrong one. */
   const [vehicle, setVehicle] = useState(0.25);
   const [routeLines, setRouteLines] = useState<{
-    forTab: "district" | "anywhere" | "trip" | "section";
+    forTab: "district" | "anywhere" | "trip" | "section" | "street";
     quickest: { coords: [number, number][]; minutes: number } | null;
     robust: { coords: [number, number][]; minutes: number } | null;
     dest: { lat: number; lon: number } | null;
@@ -86,7 +87,7 @@ export function Planner() {
   // score, rather than a reference flood being replayed. The two are labelled
   // differently on purpose: Richmond is a VALIDATED MODEL, Austin a
   // PROJECTION that recovers about half of FEMA's mapped 1% floodplain.
-  const [tab, setTab] = useState<"district" | "anywhere" | "trip" | "section">("anywhere");
+  const [tab, setTab] = useState<"district" | "anywhere" | "trip" | "section" | "street">("anywhere");
   const [study, setStudy] = useState<(AnalysisResult & { study?: StudyMeta }) | null>(null);
   const [studyErr, setStudyErr] = useState(false);
   /** What is drawn over the terrain, and the live feed behind one of them. */
@@ -104,6 +105,15 @@ export function Planner() {
    *  and nothing has to be unset in an effect. */
   const [sectionArmed, setSectionArmed] = useState(true);
   const [sectionOverlay, setSectionOverlay] = useState<SectionOverlay | null>(null);
+  /** The street view: one block, its buildings, and which floors got wet. */
+  const [street, setStreet] = useState<StreetResult | null>(null);
+  const [streetBusy, setStreetBusy] = useState(false);
+  const [streetErr, setStreetErr] = useState<string | null>(null);
+  const [streetSec, setStreetSec] = useState(0);
+  const [streetFrame, setStreetFrame] = useState<number | null>(null);
+  const [streetSel, setStreetSel] = useState<string | null>(null);
+  /** Where the block sits. Clicking the map in this tab moves it. */
+  const [streetAt, setStreetAt] = useState<{ lat: number; lon: number } | null>(null);
   const [placed, setPlaced] = useState<PlacedLevee[]>([]);
   const [placing, setPlacing] = useState(false);
   const [observed, setObserved] = useState<Observation | null>(null);
@@ -152,9 +162,9 @@ export function Planner() {
 
   // Keep the header honest about which place is on screen.
   useEffect(() => {
-    setRegion(tab === "anywhere"
-      ? (analysis?.name ?? study?.study?.place ?? "Anywhere")
-      : null);
+    setRegion(tab === "district"
+      ? null
+      : (analysis?.name ?? study?.study?.place ?? "Anywhere"));
   }, [tab, analysis?.name, study, setRegion]);
 
   useEffect(() => {
@@ -163,7 +173,14 @@ export function Planner() {
     // the map's terrain and the district tab need it either way.
     fetch("/data/austin/study.json")
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((d) => { setStudy(d); setAdHocRoads(d.roads ?? null); })
+      .then((d) => {
+        setStudy(d);
+        setAdHocRoads(d.roads ?? null);
+        // The grids too, not just the roads: the street view picks its block
+        // from the solved depth field, and without them it opens on the
+        // middle of the box, which is wherever the box happened to be drawn.
+        setAdHocGrids(decodeGrids(d.inspect as Parameters<typeof decodeGrids>[0]));
+      })
       .catch(() => setStudyErr(true));
     loadManifest().then(setManifest).catch(() => {});
     fetch("/data/roads.geojson").then((r) => r.json()).then(setRoads).catch(() => {});
@@ -233,6 +250,102 @@ export function Planner() {
     setFocus("town");
   }, []);
 
+  // The block the street view opens on: wherever the user last clicked in
+  // this tab, else the middle of whatever place is solved.
+  const streetCentre = useMemo(() => {
+    if (streetAt) return streetAt;
+    const b = analysis?.bounds ?? study?.bounds;
+    if (!b) return null;
+    // Open on the WETTEST part of the solved field, not the middle of the box.
+    // The middle is wherever the box happened to be drawn; measured, it put
+    // the first street view on a block with 0 of 245 houses over their floors
+    // while the same study had neighbourhoods under a metre. Weighted by
+    // depth, so a single deep channel cell does not drag the block into the
+    // creek either.
+    const g = adHocGrids;
+    if (g) {
+      const [h, w] = g.meta.grid;
+      // The wettest WINDOW, not the centroid of all wet cells. A centroid
+      // averages two separate flooded reaches into the dry ground between
+      // them: measured, it opened the street view on a block with 0 of 561
+      // houses over their floors while the same study had neighbourhoods
+      // under water. A window finds a place that is actually wet.
+      const km = 110.574 * (b.north - b.south) / h;        // km per row
+      const win = Math.max(2, Math.round(0.8 / Math.max(km, 1e-6)));
+      let best = -1, br = 0, bc = 0;
+      for (let r = win; r < h - win; r += Math.max(1, win >> 1)) {
+        for (let c = win; c < w - win; c += Math.max(1, win >> 1)) {
+          let sum = 0;
+          for (let dr = -win; dr <= win; dr += 1) {
+            for (let dc = -win; dc <= win; dc += 1) {
+              sum += Math.min(g.depth[(r + dr) * w + (c + dc)], 80);
+            }
+          }
+          if (sum > best) { best = sum; br = r; bc = c; }
+        }
+      }
+      if (best > 0) {
+        return {
+          lon: b.west + (b.east - b.west) * bc / (w - 1),
+          lat: b.north - (b.north - b.south) * br / (h - 1),
+        };
+      }
+    }
+    return { lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2 };
+  }, [streetAt, analysis, study, adHocGrids]);
+
+  const solveStreet = useCallback(async (
+    opts: { driver: string; storm: number; q: number | null },
+  ) => {
+    if (!streetCentre) return;
+    setStreetBusy(true); setStreetErr(null); setStreet(null);
+    setStreetSel(null); setStreetFrame(null); setStreetSec(0);
+    const tick = setInterval(() => setStreetSec((n) => n + 1), 1000);
+    // A block, not a suburb: ~1.7 x 1.7 km, which is what a 10 m grid can
+    // carry and about as much street as anyone reads at once.
+    const h = 0.0085;
+    try {
+      const r = await fetch("/api/buildings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          west: streetCentre.lon - h, east: streetCentre.lon + h,
+          south: streetCentre.lat - h * 0.86, north: streetCentre.lat + h * 0.86,
+          name: analysis?.name ?? study?.study?.place ?? "Street",
+          dx: 10, snapshots: 13, max_buildings: 600,
+          parent_km: 14, parent_dx: 40, run_hours: 18,
+          driver: opts.driver,
+          ...(opts.q ? { river_q_m3s: opts.q } : {}),
+          // The storm presets are multiples of the discharge, so "as gauged"
+          // has to be 1x: the rain figures only matter on the rain driver.
+          rain_mm_h: [20, 50, 80][opts.storm] ?? 50, storm_hours: 6,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail ?? d.error ?? `HTTP ${r.status}`);
+      if (!d.ok) throw new Error(d.reason ?? "this block could not be solved");
+      setStreet(d);
+    } catch (e) {
+      setStreetErr(e instanceof Error ? e.message : "could not open this street");
+    } finally {
+      setStreetBusy(false);
+      clearInterval(tick);
+    }
+  }, [streetCentre, analysis, study]);
+
+  const streetBuildings = useMemo(() => {
+    if (!street?.ok) return null;
+    return street.buildings.map((b) => ({
+      id: b.id,
+      ring: b.ring,
+      height_m: b.height_m,
+      over: streetFrame !== null && b.over_floor_series[streetFrame] !== undefined
+        ? b.over_floor_series[streetFrame]
+        : (b.over_floor_m ?? -1),
+      selected: b.id === streetSel,
+    }));
+  }, [street, streetFrame, streetSel]);
+
   const sectionPicking =
     sectionArmed && !(sectionEnds.a && sectionEnds.b);
 
@@ -242,6 +355,10 @@ export function Planner() {
       // second is B, and a third starts a new line rather than silently
       // moving one of the two -- which is what "pick two points" means to
       // everyone who has used a ruler tool.
+      if (tab === "street") {
+        setStreetAt({ lat, lon });
+        return;
+      }
       if (tab === "section") {
         if (!sectionPicking) return;
         setSectionEnds((e) => (e.a ? { a: e.a, b: { lat, lon } }
@@ -328,7 +445,7 @@ export function Planner() {
         <div className="border-b border-line px-5 py-3">
           <span className="text-[13px] text-ink-mute">Area</span>
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {(["district", "anywhere", "trip", "section"] as const).map((k) => (
+            {(["district", "anywhere", "trip", "section", "street"] as const).map((k) => (
               <button
                 key={k}
                 className="pill whitespace-nowrap"
@@ -342,7 +459,8 @@ export function Planner() {
               >
                 {k === "district" ? "This district"
                   : k === "anywhere" ? "Anywhere"
-                    : k === "trip" ? "Plan a trip" : "Cross-section"}
+                    : k === "trip" ? "Plan a trip"
+                      : k === "section" ? "Cross-section" : "Street"}
               </button>
             ))}
           </div>
@@ -369,6 +487,21 @@ export function Planner() {
                 : undefined}
             />
           </>
+        )}
+
+        {tab === "street" && (
+          <StreetPanel
+            result={street}
+            busy={streetBusy}
+            elapsed={streetSec}
+            err={streetErr}
+            frame={streetFrame}
+            onFrame={setStreetFrame}
+            selected={streetSel}
+            onSelect={setStreetSel}
+            onSolve={solveStreet}
+            canSolve={Boolean(streetCentre)}
+          />
         )}
 
         {tab === "section" && (
@@ -627,6 +760,7 @@ export function Planner() {
             frame={frame}
             roads={tab === "district" ? roads
               : tab === "trip" ? (trip?.roads ?? null) : adHocRoads}
+            focusBounds={tab === "street" && street?.ok ? street.bounds : null}
             markers={tab === "district" ? markers : []}
             pins={tab === "trip" && trip
               ? [{ lon: trip.origin.lon, lat: trip.origin.lat, label: "from" },
@@ -641,6 +775,8 @@ export function Planner() {
             placedHeights={tab === "anywhere" ? adHocHeights : null}
             routes={routeLines?.forTab === tab ? routeLines : null}
             section={tab === "section" ? sectionOverlay : null}
+            buildings={tab === "street" ? streetBuildings : null}
+            onBuilding={setStreetSel}
             gauges={layers.gauges ? (gaugeFeed?.gauges ?? null) : null}
             radar={layers.radar ? liveBounds : null}
             place={tab === "anywhere" ? place : null}
@@ -648,10 +784,21 @@ export function Planner() {
               analysis={tab === "trip"
                 ? (trip ? { bounds: trip.bounds, depth_png: trip.depth_png,
                             terrain_png: trip.terrain_png } : null)
-                : analysis}
+                : tab === "street" && street?.ok
+                  ? { bounds: street.bounds,
+                      depth_png: (streetFrame !== null && street.frames[streetFrame])
+                        ? street.frames[streetFrame].depth_png
+                        : street.depth_png,
+                      terrain_png: street.terrain_png }
+                  : tab === "district" ? null : analysis}
             focus={focus}
-            grids={tab === "anywhere" ? adHocGrids
-              : tab === "trip" ? tripGrids : grids}
+            // No solid water body in the street view: the grids are the
+            // study's 40 m field over the whole study box, and drawn under a
+            // camera zoomed to one block it covers everything in sight. The
+            // block's own 10 m field arrives as the depth overlay instead.
+            grids={tab === "district" ? grids
+              : tab === "trip" ? tripGrids
+                : tab === "street" ? null : adHocGrids}
             heights={mode === "build" ? custom : (current?.heights ?? [])}
             solid={solid}
           />
