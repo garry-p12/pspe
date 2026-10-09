@@ -20,6 +20,7 @@ import os
 import urllib.parse
 import urllib.request
 import math
+import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
@@ -1828,7 +1829,19 @@ def plan_anywhere(req: PlanRequest) -> dict:
         return {"ok": False, "reason":
                 "Place at least two candidate levee sites. Four or more are "
                 "needed before a 90% margin can be calibrated."}
+    # One bed per candidate combination: the longest thing this service does,
+    # and the one most likely to outlive the browser's patience. Shared, so
+    # asking again joins the run instead of starting a second one.
+    res = run_shared(key, lambda: _solve_plan(req, key))
+    if res is None:
+        return {"ok": False, "pending": True,
+                "elapsed_s": round(pending_for(key) or 0.0),
+                "reason": "Still solving every combination. Nothing is lost — "
+                          "ask again and you will join the same run."}
+    return res
 
+
+def _solve_plan(req: PlanRequest, key: str) -> dict:
     t0 = time.time()
     dom = build_domain(req.west, req.south, req.east, req.north,
                        dx=req.dx, name=req.name, source=TERRAIN)
@@ -2345,6 +2358,66 @@ def _section_line(rs, cs, wet, bounds: dict, shape: tuple, dx: float,
             "length_m": round(2 * half_m)}
 
 
+_PENDING: dict = {}
+_PENDING_LOCK = threading.Lock()
+# How long one HTTP call will sit on a solve before handing back "still
+# working". Four minutes, because the thing waiting at the other end is a
+# browser whose fetch stops listening for response headers at five.
+SHARE_WAIT_S = 240.0
+
+
+def run_shared(key: str, fn, wait_s: float = SHARE_WAIT_S):
+    """Run `fn` once per key, however many callers ask for it.
+
+    A site search on Onion Creek is two to five minutes of timestepping, and
+    the browser at the other end stops waiting for response headers at five
+    — a limit in `fetch` itself, not something the page can raise. Past it
+    the user sees an error over work that is still running and will finish.
+
+    Retrying is the obvious answer and the wrong one on its own: a second
+    POST with the same body started a SECOND solve, so two impatient clicks
+    doubled the load and neither call got there sooner. So the work is keyed.
+    The first caller starts it on a thread; every caller, first or not, waits
+    on the same event for up to `wait_s` and then either takes the result or
+    is told it is still coming. Asking again is free and joins the same run.
+
+    Returns the value, or `None` when it is not ready yet. Raises whatever
+    the work raised, to whoever is waiting when it fails.
+    """
+    with _PENDING_LOCK:
+        slot = _PENDING.get(key)
+        fresh = slot is None
+        if fresh:
+            slot = {"event": threading.Event(), "value": None, "error": None,
+                    "started": time.time()}
+            _PENDING[key] = slot
+
+    if fresh:
+        def work() -> None:
+            try:
+                slot["value"] = fn()
+            except BaseException as exc:                   # noqa: BLE001
+                slot["error"] = exc
+            finally:
+                slot["event"].set()
+        threading.Thread(target=work, daemon=True, name=f"solve:{key}").start()
+
+    if not slot["event"].wait(wait_s):
+        return None
+    with _PENDING_LOCK:
+        _PENDING.pop(key, None)
+    if slot["error"] is not None:
+        raise slot["error"]
+    return slot["value"]
+
+
+def pending_for(key: str) -> float | None:
+    """Seconds the shared run for `key` has been going, if one is."""
+    with _PENDING_LOCK:
+        slot = _PENDING.get(key)
+    return None if slot is None else time.time() - slot["started"]
+
+
 @app.post("/sites")
 def sites(req: SitesRequest) -> dict:
     """Candidate levee alignments, from where the ground only just fails.
@@ -2369,7 +2442,16 @@ def sites(req: SitesRequest) -> dict:
     key = "sites:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
     if key in CACHE:
         return {**CACHE[key], "cached": True}
+    res = run_shared(key, lambda: _solve_sites(req, key))
+    if res is None:
+        return {"ok": False, "pending": True,
+                "elapsed_s": round(pending_for(key) or 0.0),
+                "reason": "Still solving this flood. Nothing is lost — ask "
+                          "again and you will join the same run."}
+    return res
 
+
+def _solve_sites(req: SitesRequest, key: str) -> dict:
     dom = build_domain(req.west, req.south, req.east, req.north,
                        dx=req.dx, name=req.name, source=TERRAIN)
     fx = build_forcing(dom, req)

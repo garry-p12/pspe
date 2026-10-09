@@ -7330,6 +7330,52 @@ its section to ±900 m so the tie-back arithmetic has floodplain to tie into,
 and refuses to write a section with fewer than twelve wet samples, because a
 dry profile exercises none of the levee maths.
 
+### 5.14r Five minutes is a limit in the browser, not in the solver (2026-10-09)
+
+A site search on Onion Creek is one to five minutes of timestepping. A
+browser's `fetch` stops listening for response headers at five minutes, and
+that is a limit in the client, not something the page can raise. Past it the
+reader saw "the flood service is not reachable" over work that was running
+correctly and would finish — the error naming the opposite of what was wrong.
+
+Three fixes, in increasing order of how much they matter.
+
+**The message.** A timeout now says it timed out, and says the work is not
+lost because the service finishes it and caches it.
+
+**The run length.** The site search was eighteen hours of model time and the
+plan solver twelve, which is a correctness problem before it is a speed one:
+the banks were being found in one flood and the plan then judged in another.
+Measured side by side under the 2013 peak, the two give the identical
+6.35 km² and the identical six banks — the inflow runs for six hours and the
+extent has stopped growing well before twelve — at 72 s against 102 s.
+
+**Shared in-flight work.** Retrying is the obvious answer and wrong on its
+own: a second POST with the same body started a *second* solve, so two
+impatient clicks doubled the load and neither arrived sooner. Work is now
+keyed by request hash. The first caller starts it on a thread; every caller
+waits on the same event for up to four minutes and then either takes the
+result or is told it is still coming. Asking again is free and joins the same
+run, so the client can simply loop.
+
+**And `build_domain` had no cache at all.** It re-downloaded the 3DEP raster
+on every site search, every plan solve and every section, for the same box at
+the same resolution. Measured, that is not where the time goes — 58 s cold
+against 55 s warm, so the fetch is about three seconds of a 55-second solve,
+and the wide spread seen while debugging (72 s against over 300 s for the
+same request) was CPU contention between concurrent solves rather than the
+download. What the cache buys is reproducibility and independence: the same
+box gives byte-identical ground every time, and a USGS outage can no longer
+change an answer or fail a solve that has already been run once. Keyed on the
+box, cell size, cap and source, and deliberately **not** on the name, which
+is a label the caller chose.
+
+**Rule 84: measure before you name the bottleneck.** The DEM cache is worth
+having and the reason first written into its comment — "the fetch is the
+larger and far more variable half of a short solve" — was wrong by a factor
+of eighteen. The fix survived; the justification did not, and a comment that
+misattributes a cost is how the next person optimises the wrong thing.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

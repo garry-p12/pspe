@@ -253,14 +253,27 @@ export function LeveeKit({
               </div>
             </div>
           ) : !err && (
-            <button
-              onClick={onFindSites}
-              disabled={!canFind}
-              className="w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium text-bg
-                         transition-opacity hover:opacity-90 disabled:opacity-40"
-            >
-              {canFind ? "Find the sites" : "Waiting for a solved place"}
-            </button>
+            // No button until the flood is settled.
+            //
+            // The scenario list is a separate fetch, so for a second or two
+            // the panel knows the place but not which flood it is judging
+            // against. A "Find the sites" button in that window searches the
+            // DEFAULT scenario -- the design rainstorm -- and then the
+            // heading flips to a recorded flood over somebody else's answer.
+            // That is the bug the scenario control was added to fix, and a
+            // button is all it takes to reintroduce it by hand.
+            <div className="rounded-lg border border-line bg-bg-inset p-3">
+              <p className="text-[13px] font-medium text-ink">
+                {canFind ? "Reading this creek's flood record"
+                  : "Waiting for a solved place"}
+              </p>
+              <p className="anno mt-1 leading-relaxed">
+                {canFind
+                  ? "A levee answers a question about a named flood, so the "
+                    + "gauge record comes first and the search follows it."
+                  : "Nothing to plan against until a place is solved."}
+              </p>
+            </div>
           )}
         </>
       )}

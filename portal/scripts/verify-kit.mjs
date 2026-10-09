@@ -46,7 +46,8 @@ const aside = p.locator("aside");
 // BOTH is that nothing asked the reader to press anything first.
 const started = await aside.innerText();
 ok("nothing asks for a click before the tab does its job",
-   !/Find the sites/.test(started));
+   !/Find the sites/.test(started),
+   /Find the sites/.test(started) ? "a search button is on screen" : "");
 ok("it says where the sites come from, or is already showing them",
    /almost high enough/.test(started) || /places? a wall would pay/.test(started));
 

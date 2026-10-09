@@ -30,3 +30,6 @@ portal/public/data/austin/study.json
 
 # Cached OpenStreetMap extracts: a fetch result, not source.
 data/osm_cache/
+
+# Cached elevation rasters: a fetch result, not source.
+data/dem_cache/

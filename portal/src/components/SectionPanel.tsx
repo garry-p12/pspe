@@ -141,14 +141,21 @@ export function SectionPanel({
               </div>
             </div>
           ) : (
-            <button
-              onClick={onFindSites}
-              disabled={!canFind}
-              className="w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium text-bg
-                         transition-opacity hover:opacity-90 disabled:opacity-40"
-            >
-              {canFind ? "Find the lines" : "Waiting for a solved place"}
-            </button>
+            // No button before the flood is settled: see LeveeKit. A manual
+            // search in that window answers the default scenario and the
+            // heading then relabels it as a recorded flood.
+            <div className="rounded-lg border border-line bg-bg-inset p-3">
+              <p className="text-[13px] font-medium text-ink">
+                {canFind ? "Reading this creek's flood record"
+                  : "Waiting for a solved place"}
+              </p>
+              <p className="anno mt-1 leading-relaxed">
+                {canFind
+                  ? "The banks worth defending depend on which flood you are "
+                    + "defending against, so the gauge record comes first."
+                  : "Nothing to plan against until a place is solved."}
+              </p>
+            </div>
           )}
         </>
       )}

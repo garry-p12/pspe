@@ -38,8 +38,11 @@ Copernicus remains the default because it is global and 3DEP is not.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -177,6 +180,71 @@ def build_domain_3dep(
     )
 
 
+# Terrain, kept.
+#
+# `build_domain` fetched the raster over HTTP every single time it was called,
+# and the portal calls it once per site search, once per plan solve and once
+# per section — on the same box, at the same resolution, for ground that has
+# not moved.
+#
+# **It is not where the time goes.** Measured on the Austin box at 40 m: a
+# /sites request takes 58 s cold and 55 s warm, so the fetch is about three
+# seconds of it and the timestepping is the rest. What the cache buys is
+# therefore not speed but reproducibility and independence — the same box
+# gives byte-identical ground every time, and a USGS outage stops being able
+# to change an answer or fail a solve that has already been run once. The
+# wide spread seen earlier (72 s against over 300 s for the same request) was
+# CPU contention between concurrent solves, not the download.
+#
+# Keyed on everything that changes the array and nothing that does not: the
+# box, the cell size, the cap and the source — NOT the name, which is a label
+# the caller chose.
+_DEM_MEM: dict = {}
+_DEM_DIR = Path(os.environ.get(
+    "PSPE_DEM_CACHE",
+    str(Path(__file__).resolve().parents[3] / "data" / "dem_cache")))
+
+
+def _dem_key(west, south, east, north, dx, max_cells, source) -> str:
+    raw = json.dumps([round(west, 6), round(south, 6), round(east, 6),
+                      round(north, 6), round(float(dx), 3), int(max_cells),
+                      source], sort_keys=True)
+    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+
+
+def _dem_load(key: str, name: str) -> "Domain | None":
+    hit = _DEM_MEM.get(key)
+    if hit is not None:
+        return replace(hit, name=name)
+    f = _DEM_DIR / f"{key}.npz"
+    try:
+        if not f.is_file():
+            return None
+        with np.load(f, allow_pickle=False) as d:
+            dom = Domain(
+                z=d["z"], dx=float(d["dx"]), bounds=json.loads(str(d["bounds"])),
+                epsg=int(d["epsg"]), name=name,
+                nodata_frac=float(d["nodata_frac"]), source=str(d["source"]))
+    except Exception:                                      # noqa: BLE001
+        return None
+    _DEM_MEM[key] = dom
+    return dom
+
+
+def _dem_save(key: str, dom: "Domain") -> None:
+    _DEM_MEM[key] = dom
+    if len(_DEM_MEM) > 8:
+        _DEM_MEM.pop(next(iter(_DEM_MEM)))
+    try:
+        _DEM_DIR.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            _DEM_DIR / f"{key}.npz", z=dom.z, dx=dom.dx,
+            bounds=json.dumps(dom.bounds), epsg=dom.epsg,
+            nodata_frac=dom.nodata_frac, source=dom.source)
+    except Exception:                                      # noqa: BLE001
+        pass
+
+
 def build_domain(
     west: float, south: float, east: float, north: float,
     dx: float = 60.0,
@@ -196,8 +264,17 @@ def build_domain(
     States; "auto" uses it there and falls back to Copernicus elsewhere, which
     is the setting an interface should pass. See the module docstring.
     """
+    key = _dem_key(west, south, east, north, dx, max_cells, source)
+    hit = _dem_load(key, name)
+    if hit is not None:
+        return hit
+
+    def keep(d: Domain) -> Domain:
+        _dem_save(key, d)
+        return d
+
     if source == "3dep":
-        return build_domain_3dep(west, south, east, north, dx, name, max_cells)
+        return keep(build_domain_3dep(west, south, east, north, dx, name, max_cells))
     if source == "auto":
         # Cheap check: the conterminous US, Alaska and Hawaii boxes. A box that
         # passes but turns out to be outside the footprint raises, and the
@@ -208,7 +285,8 @@ def build_domain(
                  or (18 <= lat <= 23 and -161 <= lon <= -154))
         if in_us:
             try:
-                return build_domain_3dep(west, south, east, north, dx, name, max_cells)
+                return keep(build_domain_3dep(west, south, east, north, dx,
+                                              name, max_cells))
             except Exception:
                 pass
     elif source != "copernicus":

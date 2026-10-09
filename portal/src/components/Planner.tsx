@@ -481,18 +481,47 @@ export function Planner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // Twelve hours, the same run the plan solver uses.
+          //
+          // It was eighteen, which is a correctness problem before it is a
+          // speed one: the banks were found in one flood and the plan then
+          // judged in another. Measured side by side on Onion Creek under
+          // the 2013 peak, twelve and eighteen hours give the identical
+          // 6.35 km2 and the identical six banks -- the inflow runs for six
+          // hours and the extent has stopped growing long before twelve.
+          // What differs is the depth still building in the channel, which
+          // is not what a bank search reads.
+          //
+          // It also takes 72 s instead of over 300, which is the limit a
+          // browser's fetch imposes on this page whatever it asks for.
           ...kitBox, name: analysis?.name ?? "Area", dx: 40,
-          ...forcing, run_hours: 18, max_sites: 6, shortfall_m: 2.0,
+          ...forcing, run_hours: 12, max_sites: 6, shortfall_m: 2.0,
         }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail ?? d.error ?? `HTTP ${r.status}`);
+      // "Still solving" is not a failure and not an answer. The service runs
+      // one solve per distinct question and lets every caller wait on it, so
+      // asking again joins the same run rather than starting a second —
+      // which is what made a retry the wrong fix on its own.
+      if (d.pending) return "pending" as const;
       if (!d.ok) throw new Error(d.reason ?? "no sites here");
       setKit(d);
     } catch (e) {
       setKitErr(e instanceof Error ? e.message : "could not find sites");
     } finally { setKitBusy(false); clearInterval(tick); }
+    return "done" as const;
   }, [kitBox, analysis, forcing]);
+
+  /** Ask until it answers. Each call waits on the one run the service is
+   *  already doing; the loop exists because a browser's fetch stops
+   *  listening after five minutes and the solve may legitimately be longer
+   *  than that on a cold cache. */
+  const findSitesUntilDone = useCallback(async () => {
+    for (let i = 0; i < 6; i++) {
+      if (await findSites() !== "pending") return;
+    }
+  }, [findSites]);
 
   // The Plan tab finds its own sites, for the scenario it is actually
   // judging against.
@@ -516,8 +545,9 @@ export function Planner() {
     if (kitErr && autoSites.current) return;
     solvedFor.current = scenario.id;
     autoSites.current = true;
-    void findSites();
-  }, [section, kitBox, peaks, scenario.id, kitBusy, kitErr, findSites]);
+    void findSitesUntilDone();
+  }, [section, kitBox, peaks, scenario.id, kitBusy, kitErr,
+      findSitesUntilDone]);
 
   const solveKitPlan = useCallback(async () => {
     if (!kitBox || !kit?.ok || placedPieces.length < 2) return;
@@ -570,12 +600,24 @@ export function Planner() {
         }),
       });
       const d = await r.json();
-      if (!r.ok || !d.ok) throw new Error(d.reason ?? d.detail ?? `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(d.detail ?? d.error ?? `HTTP ${r.status}`);
+      // Same shared run as the site search: one solve per distinct plan,
+      // and asking again waits on it rather than starting another.
+      if (d.pending) return "pending" as const;
+      if (!d.ok) throw new Error(d.reason ?? `HTTP ${r.status}`);
       setKitPlan(d);
     } catch (e) {
       setKitErr(e instanceof Error ? e.message : "could not solve this plan");
     } finally { setKitPlanBusy(false); }
+    return "done" as const;
   }, [kitBox, kit, placedPieces, kitBudget, analysis, forcing]);
+
+  /** As `findSitesUntilDone`, for the plan library. */
+  const solveKitPlanUntilDone = useCallback(async () => {
+    for (let i = 0; i < 8; i++) {
+      if (await solveKitPlan() !== "pending") return;
+    }
+  }, [solveKitPlan]);
 
   const kitImpact = useMemo(() => {
     const d = kitPlan as {
@@ -909,8 +951,11 @@ export function Planner() {
             busy={kitBusy}
             elapsed={kitSec}
             err={kitErr}
-            onFindSites={findSites}
-            canFind={Boolean(kitBox)}
+            onFindSites={findSitesUntilDone}
+            // Both: a solved place AND a settled scenario. See the kit's own
+            // comment -- a manual search before the flood is chosen answers
+            // the wrong question and then relabels it.
+            canFind={Boolean(kitBox) && Boolean(peaks)}
             placed={placedPieces}
             onPlaced={setPlacedPieces}
             budgetM={kitBudget}
@@ -919,7 +964,7 @@ export function Planner() {
             onArm={setArmed}
             impact={kitImpact}
             planBusy={kitPlanBusy}
-            onPlan={solveKitPlan}
+            onPlan={solveKitPlanUntilDone}
             noWayOut={noWayOut}
             onSave={savePlan}
           />
@@ -951,8 +996,8 @@ export function Planner() {
             onOverlay={setSectionOverlay}
             sites={kit}
             sitesBusy={kitBusy}
-            onFindSites={findSites}
-            canFind={Boolean(kitBox)}
+            onFindSites={findSitesUntilDone}
+            canFind={Boolean(kitBox) && Boolean(peaks)}
             chosenSite={secSite}
             onChooseSite={chooseSectionSite}
             result={secRes}
