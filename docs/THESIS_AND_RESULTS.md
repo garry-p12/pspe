@@ -6903,6 +6903,73 @@ refusal, not the empty value it returns alongside it.** `margins.py` sets
 typed, it renders, and showing it would have put "guaranteed at least 0.56%
 less flooding" on screen under a 90% label the calibration could not support.
 
+### 5.14k The cross-section rebuilt to the wireframe, and the model it changed (2026-10-08)
+
+Wireframe 1d. What shipped in §5.14d answered a different question from the
+one the drawing asks, so this is a rebuild rather than a restyle.
+
+**The lines are offered, not drawn.** Clicking two points puts back on the
+user the one question the data settles: which bank matters comes out of the
+terrain and the solved flood together, and `/sites` already computes it for
+the levee kit. Each candidate bank now carries a section ACROSS it, with the
+A end landward — decided by **counting solved water on each side**, not by
+elevation, because the dry side of a bank is not reliably the higher one and
+on a levee it is deliberately not. Drawing a line by hand stays, folded away.
+
+**The wall became a point.** The old model ran a crest ALONG the section and
+billed the fill under it, which prices a tie-back embankment. But a section is
+cut ACROSS a bank and a levee follows the bank, so the wall is one trapezoid in
+the drawing and its length runs out of the plane. The cost is therefore crest
+height times the BANK's length — a number the chart cannot show — which is
+exactly what the wireframe's footnote says and what makes `/sites` and this
+view fit together: the bank length comes from the thing that found the bank.
+
+**And the test changed with it.** Not "does the crest clear the water" but
+"does the landward side stay dry". Water reaching round behind a wall drowns
+the town just the same, and on a section it is visible as wet ground on the A
+side standing above the crest — a verdict of `wet-behind`, distinct from
+`overtops`. A fourth, `in-channel`, refuses a wall placed in the river: the
+section cannot tell a bank from a riverbed by elevation, because the bed is
+simply the lowest ground on the line, which is also where a crest looks
+cheapest. It is found from the depth instead, by the same channel detection
+the old model used.
+
+**Two defaults that were wrong and are measured now.** The wall opened at
+station 0.00 km — the highest landward ground really is the first sample when
+the water starts immediately, and a wall on the edge of the drawing defends
+nothing the drawing shows. It now keeps a margin of 8% of the line behind it,
+and opens at 0.09 km. And the profile was sampled at a fixed 140 points, which
+on an 800 m line read off a 50 m grid is **a sample every 6 m: eight copies of
+each cell drawn as if they were eight measurements.** Sampling now follows the
+model's own spacing.
+
+**The one place the portal is not achromatic.** The section is tan ground,
+blue water and an ochre wall. Everywhere else the colour belongs to the map
+because it is carrying depth; here the colour IS the ground and the water, and
+a greyscale section asks the reader to consult a legend to find out which half
+is the river. Stated as a decision rather than left as an inconsistency.
+
+**Dead code named rather than left to rot.** The tie-back model — `spanFor`,
+`assess`, `lowestHoldingCrest` — has no caller now. It is kept because the
+question is real and because its channel detection is what stops a wall being
+dropped in the river in the new model too, and the module says so at the top
+so the next reader does not have to work out whether it is load-bearing.
+`SectionChart.tsx` had no such claim and was deleted.
+
+**Reproduce:** `node portal/scripts/verify-section.mjs` — 19 checks against
+the live service, including that the section is drawn wider than the side
+panel (1320 px against 380), which is the whole point of moving it under the
+map: at 340 px a kilometre of floodplain had to fit in a column.
+
+**Rule 77: when a view is rebuilt to a drawing, check whether the drawing
+implies a different model, not just a different layout.** The wireframe's
+footnote — "cost assumes the selected line length" — was the whole
+specification. A line length that is not measurable on the chart says the wall
+is perpendicular to it, which says the wall is a point, which changes the
+costing, the verdict and what the view needs from the rest of the system.
+Restyling the old panel would have left it answering the old question in the
+new shape.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

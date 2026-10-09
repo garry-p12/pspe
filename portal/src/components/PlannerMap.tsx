@@ -90,7 +90,9 @@ export function PlannerMap({
   section?: {
     a: { lat: number; lon: number };
     b: { lat: number; lon: number };
-    crest: { from: number; to: number } | null;
+    /** Where the wall sits, as a fraction along the line. A section is cut
+     *  ACROSS a bank, so the wall is a point on it and not a stretch of it. */
+    wallAt: number | null;
     verdict: string;
   } | null;
   /** Live river gauges, drawn as readings rather than as dots.
@@ -206,7 +208,7 @@ export function PlannerMap({
     : "none";
   const sectionKey = section
     ? `${section.a.lat},${section.a.lon},${section.b.lat},${section.b.lon},` +
-      `${section.crest?.from ?? -1},${section.crest?.to ?? -1},${section.verdict}`
+      `${section.wallAt ?? -1},${section.verdict}`
     : "none";
 
   const layers = useMemo(() => {
@@ -593,30 +595,25 @@ export function PlannerMap({
           parameters: { depthCompare: "always" as const },
         }) as unknown as Layer,
       );
-      if (section.crest) {
-        const crest = [at(section.crest.from), at(section.crest.to)];
-        // A crest that is overtopped is drawn narrower, so a wall that does
-        // not do its job does not read as the heaviest thing on the map.
+      if (section.wallAt !== null) {
+        // The wall as a marker on the line, in the same ochre the section
+        // draws it in, so the two pictures of the same object agree. A wall
+        // that is overtopped is drawn hollow rather than merely paler: it
+        // should not read as a solid thing on a map skimmed at a distance.
         const holds = section.verdict === "holds";
         out.push(
-          new PathLayer({
-            id: "section-crest-halo",
-            data: [{ path: crest }],
-            getPath: (d: { path: [number, number][] }) => d.path,
-            getColor: [10, 14, 20, 220],
-            getWidth: holds ? 13 : 9,
-            widthUnits: "pixels",
-            capRounded: true,
-            parameters: { depthCompare: "always" as const },
-          }) as unknown as Layer,
-          new PathLayer({
-            id: "section-crest",
-            data: [{ path: crest }],
-            getPath: (d: { path: [number, number][] }) => d.path,
-            getColor: holds ? [255, 255, 255, 250] : [255, 255, 255, 170],
-            getWidth: holds ? 8 : 4,
-            widthUnits: "pixels",
-            capRounded: true,
+          new ScatterplotLayer({
+            id: "section-wall",
+            data: [{ p: at(section.wallAt) }],
+            radiusUnits: "pixels",
+            getPosition: (d: { p: [number, number] }) => d.p,
+            getRadius: 9,
+            filled: holds,
+            getFillColor: [200, 127, 62, 250],
+            stroked: true,
+            getLineColor: [138, 85, 41, 250],
+            getLineWidth: 3,
+            lineWidthUnits: "pixels",
             parameters: { depthCompare: "always" as const },
           }) as unknown as Layer,
         );

@@ -39,6 +39,12 @@ export interface Site {
   width_m: number;
   cells: number;
   outline: [number, number][];
+  /** A section ACROSS this bank, A at the landward end. */
+  line: {
+    a: { lat: number; lon: number };
+    b: { lat: number; lon: number };
+    length_m: number;
+  };
 }
 
 export interface SitesFeed {

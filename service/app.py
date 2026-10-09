@@ -1385,6 +1385,53 @@ class SitesRequest(BaseModel):
     shortfall_m: float = Field(2.0, ge=0.2, le=8.0)
 
 
+def _section_line(rs, cs, wet, bounds: dict, shape: tuple, dx: float,
+                  half_m: float = 400.0) -> dict:
+    """A line across a bank run, landward end first.
+
+    The run's principal axis is the bank; the section crosses it. Orientation
+    is decided by counting solved water on each side, because the wet side is
+    the river side by definition -- using elevation instead gets it backwards
+    wherever a levee already exists, which is precisely where one is being
+    considered.
+    """
+    H, W = shape
+    r0, c0 = float(rs.mean()), float(cs.mean())
+    # Principal axis by the covariance of the run's own cells.
+    dr, dc = rs - r0, cs - c0
+    cov = np.array([[float((dr * dr).sum()), float((dr * dc).sum())],
+                    [float((dr * dc).sum()), float((dc * dc).sum())]])
+    vals, vecs = np.linalg.eigh(cov)
+    axis = vecs[:, int(np.argmax(vals))]                 # (drow, dcol) of the bank
+    perp = np.array([-axis[1], axis[0]])                 # across it
+    n = half_m / max(dx, 1e-6)
+
+    def side_wet(sign: float) -> int:
+        tot = 0
+        for t in np.linspace(0.15, 1.0, 8):
+            rr = int(round(r0 + sign * perp[0] * n * t))
+            cc = int(round(c0 + sign * perp[1] * n * t))
+            if 0 <= rr < H and 0 <= cc < W and wet[rr, cc]:
+                tot += 1
+        return tot
+
+    # A is the drier end.
+    sign_a = -1.0 if side_wet(-1.0) <= side_wet(1.0) else 1.0
+
+    def at(sign: float) -> dict:
+        rr = min(max(r0 + sign * perp[0] * n, 0.0), H - 1.0)
+        cc = min(max(c0 + sign * perp[1] * n, 0.0), W - 1.0)
+        return {
+            "lat": round(float(bounds["north"] - (bounds["north"] - bounds["south"])
+                               * rr / max(H - 1, 1)), 6),
+            "lon": round(float(bounds["west"] + (bounds["east"] - bounds["west"])
+                               * cc / max(W - 1, 1)), 6),
+        }
+
+    return {"a": at(sign_a), "b": at(-sign_a),
+            "length_m": round(2 * half_m)}
+
+
 @app.post("/sites")
 def sites(req: SitesRequest) -> dict:
     """Candidate levee alignments, from where the ground only just fails.
@@ -1502,6 +1549,13 @@ def sites(req: SitesRequest) -> dict:
             "outline": [[round(float(b["west"] + (b["east"] - b["west"]) * c / max(W - 1, 1)), 6),
                          round(float(b["north"] - (b["north"] - b["south"]) * r / max(H - 1, 1)), 6)]
                         for r, c in cells[::max(len(cells) // 40, 1)]],
+            # A section ACROSS the bank, which is the line an engineer draws
+            # to size a wall. Perpendicular to the run's own principal axis --
+            # a levee follows the bank, so the useful section crosses it -- and
+            # oriented so A is the landward end. Which end that is comes from
+            # the solved water, not from the ground: the dry side of a bank is
+            # not always the higher one, and on a levee it is deliberately not.
+            "line": _section_line(rs, cs, wet, b, z.shape, dom.dx),
         })
 
     res = {"ok": True, "sites": out, "dx_m": dom.dx,

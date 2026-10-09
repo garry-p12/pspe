@@ -37,6 +37,18 @@
  * 2 m deeper than it is over the floodplain either side of it, and an
  * alignment that crosses one is refused rather than priced.
  *
+ * ## Two models live here, and only one is on screen
+ *
+ * `wallAt` is what the cross-section view uses: a wall at one station, costed
+ * over the bank's length. The tie-back model below it -- `spanFor`, `assess`,
+ * `lowestHoldingCrest` and the channel detection they rest on -- answers a
+ * different question, "what would an embankment ALONG this line cost", and is
+ * no longer reachable from the interface. It is kept because the question is
+ * real and because its channel detection is what stops a wall being dropped
+ * in the river in either model; `portal/scripts/verify-section-math.mjs`
+ * holds it to the figures it was measured against. Anything here with no
+ * caller and no test should go.
+ *
  * ## Two ways it fails, and only one of them is overtopping
  *
  * A crest below the water in the reach it defends is overtopped, which is the
@@ -379,6 +391,142 @@ export function stageOf(profile: SectionSample[], span: Span): number | null {
     if (w !== null && w > stage) stage = w;
   }
   return Number.isFinite(stage) ? stage : null;
+}
+
+/**
+ * A levee as a wall at ONE station, costed over the bank it defends.
+ *
+ * The other model in this file runs a crest ALONG the section and bills the
+ * fill under it. That answers "what would a tie-back cost", which is a real
+ * question but not the one an engineer asks of a cross-section. A section is
+ * drawn ACROSS a bank; the wall is a point in it; the length that gets billed
+ * runs out of the plane, along the bank, and is a property of the bank rather
+ * than of the drawing.
+ *
+ * So: a crest elevation, a station to put it at, and a length supplied by
+ * whatever picked the bank. Cost is crest height above the ground it stands
+ * on, times that length, times the unit rate.
+ *
+ * What it checks is the thing a wall is bought for: does the landward side
+ * stay dry. Clearing the water on the river side is necessary and is not
+ * enough — water that reaches round behind the wall drowns the town just the
+ * same, and on a section that shows up as wet ground on the A side standing
+ * above the crest.
+ */
+export interface WallVerdict {
+  /** Metres of wall above the ground it stands on. */
+  heightM: number;
+  crestM: number;
+  groundM: number;
+  /** Highest water the wall faces, on the river side of the station. */
+  faceStageM: number | null;
+  /** Freeboard over that, negative when overtopped. */
+  freeboardM: number | null;
+  /** Highest water already behind the wall, on the landward side. */
+  behindStageM: number | null;
+  costAud: number;
+  verdict: "holds" | "overtops" | "wet-behind" | "in-channel" | "dry";
+}
+
+export function wallAt(
+  profile: SectionSample[],
+  stationIdx: number,
+  crestM: number,
+  bankLengthM: number,
+  ratePerMPerM: number,
+  /** Which end is landward. A is index 0. */
+  landward: "a" | "b" = "a",
+  /** Where the channel is, so a wall cannot be placed in the river. */
+  belts: Belt[] = [],
+): WallVerdict {
+  const i = Math.min(Math.max(stationIdx, 0), profile.length - 1);
+  const groundM = profile[i].ground_m;
+  const heightM = Math.max(crestM - groundM, 0);
+
+  const river = landward === "a"
+    ? profile.slice(i + 1)
+    : profile.slice(0, i);
+  const behind = landward === "a"
+    ? profile.slice(0, i)
+    : profile.slice(i + 1);
+  const top = (xs: SectionSample[]) => {
+    let m: number | null = null;
+    for (const q of xs) {
+      if (q.water_m !== null && (m === null || q.water_m > m)) m = q.water_m;
+    }
+    return m;
+  };
+  const faceStageM = top(river);
+  const behindStageM = top(behind);
+  const freeboardM = faceStageM === null ? null : crestM - faceStageM;
+
+  // A wall standing in the channel is a weir, and the section cannot tell the
+  // difference by elevation alone -- the channel bed is simply the lowest
+  // ground on the line, which is also where a crest looks cheapest.
+  const inChannel = belts.some((b) => i >= b.i0 && i <= b.i1);
+
+  const verdict: WallVerdict["verdict"] =
+    inChannel ? "in-channel"
+      : faceStageM === null ? "dry"
+        : freeboardM !== null && freeboardM < 0 ? "overtops"
+          : behindStageM !== null && behindStageM > groundM + 0.05 ? "wet-behind"
+            : "holds";
+
+  return {
+    heightM, crestM, groundM, faceStageM, freeboardM, behindStageM,
+    costAud: heightM * bankLengthM * ratePerMPerM,
+    verdict,
+  };
+}
+
+/** The lowest crest that holds at this station, with freeboard. */
+export function crestToHold(
+  profile: SectionSample[],
+  stationIdx: number,
+  freeboardM = 0.3,
+  landward: "a" | "b" = "a",
+): number | null {
+  const i = Math.min(Math.max(stationIdx, 0), profile.length - 1);
+  const river = landward === "a" ? profile.slice(i + 1) : profile.slice(0, i);
+  let m: number | null = null;
+  for (const q of river) {
+    if (q.water_m !== null && (m === null || q.water_m > m)) m = q.water_m;
+  }
+  return m === null ? null : Math.round((m + freeboardM) * 100) / 100;
+}
+
+/** The highest ground on the landward half: where a wall is cheapest to build. */
+export function bestStation(
+  profile: SectionSample[],
+  landward: "a" | "b" = "a",
+): number {
+  // Only stations that still face the water: the highest ground on the line
+  // may be a hill far behind the town, and a wall there defends nothing.
+  let wet = -1;
+  for (let i = 0; i < profile.length; i++) {
+    if (profile[i].water_m !== null) { wet = i; break; }
+  }
+  let lastWet = -1;
+  for (let i = profile.length - 1; i >= 0; i--) {
+    if (profile[i].water_m !== null) { lastWet = i; break; }
+  }
+  if (wet < 0) return Math.floor(profile.length / 2);
+  // Keep a margin of line behind the wall. The highest ground on the landward
+  // side is often the very first sample, and a wall on the edge of the
+  // drawing defends nothing that the drawing shows -- measured, the default
+  // landed at 0.00 km with the whole section in front of it.
+  const margin = Math.max(Math.round(profile.length * 0.08), 3);
+  const lo = landward === "a" ? margin : Math.max(lastWet, margin);
+  const hi = landward === "a"
+    ? Math.max(wet, margin)
+    : Math.min(profile.length - 1 - margin, profile.length - 1);
+  let best = Math.min(Math.max(lo, margin), profile.length - 1 - margin);
+  let bestG = -Infinity;
+  for (let i = Math.min(lo, hi); i <= Math.max(lo, hi); i++) {
+    if (i < margin || i > profile.length - 1 - margin) continue;
+    if (profile[i].ground_m > bestG) { bestG = profile[i].ground_m; best = i; }
+  }
+  return best;
 }
 
 /** Interpolate a lon/lat on the line at a distance along it. */

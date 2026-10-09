@@ -16,6 +16,9 @@ import { ObservePanel, type Observation } from "./ObservePanel";
 import { RoutePanel } from "./RoutePanel";
 import { TripPanel, type TripResult } from "./TripPanel";
 import { SectionPanel, type SectionEnds, type SectionOverlay } from "./SectionPanel";
+import { SectionStrip } from "./SectionStrip";
+import { wallAt, crestToHold, bestStation, reaches, channelBelts,
+         type SectionResult } from "@/lib/section";
 import { StreetPanel, type StreetResult } from "./StreetPanel";
 import { LeveeKit, PIECES, costOf, type SitesFeed, type Placed,
          type PieceId } from "./LeveeKit";
@@ -107,6 +110,14 @@ export function Planner() {
    *  and nothing has to be unset in an effect. */
   const [sectionArmed, setSectionArmed] = useState(true);
   const [sectionOverlay, setSectionOverlay] = useState<SectionOverlay | null>(null);
+  /** The cross-section view: a chosen bank, a solved line, and a wall on it. */
+  const [secSite, setSecSite] = useState<number | null>(null);
+  const [secRes, setSecRes] = useState<SectionResult | null>(null);
+  const [secBusy, setSecBusy] = useState(false);
+  const [secSec, setSecSec] = useState(0);
+  const [secErr, setSecErr] = useState<string | null>(null);
+  const [secStation, setSecStation] = useState<number | null>(null);
+  const [secCrest, setSecCrest] = useState<number | null>(null);
   /** The street view: one block, its buildings, and which floors got wet. */
   const [street, setStreet] = useState<StreetResult | null>(null);
   const [streetBusy, setStreetBusy] = useState(false);
@@ -481,8 +492,81 @@ export function Planner() {
     });
   }, [kit, placedPieces]);
 
+  const solveSection = useCallback(async (
+    opts: { driver: string; storm: number; q: number | null },
+  ) => {
+    if (!sectionEnds.a || !sectionEnds.b) return;
+    setSecBusy(true); setSecErr(null); setSecRes(null); setSecSec(0);
+    setSecStation(null); setSecCrest(null);
+    const tick = setInterval(() => setSecSec((n) => n + 1), 1000);
+    const s = [20, 50, 80][opts.storm] ?? 50;
+    try {
+      const r = await fetch("/api/section", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          a: sectionEnds.a, b: sectionEnds.b, name: "Cross-section",
+          // Sample at roughly the model's own spacing. A fixed 140 points put
+          // a sample every 6 m on an 800 m line read off a 50 m grid, which
+          // is eight samples per cell: eight copies of the same number, drawn
+          // as if they were eight measurements.
+          samples: Math.max(24, Math.min(240, Math.round(
+            Math.hypot(
+              (sectionEnds.b.lon - sectionEnds.a.lon) * 111320
+                * Math.cos((sectionEnds.a.lat * Math.PI) / 180),
+              (sectionEnds.b.lat - sectionEnds.a.lat) * 110540,
+            ) / 30))),
+          rain_mm_h: s, storm_hours: 6, run_hours: 12,
+          driver: opts.driver,
+          ...(opts.driver === "river" && opts.q ? { river_q_m3s: opts.q } : {}),
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail ?? d.error ?? `HTTP ${r.status}`);
+      if (!d.ok) throw new Error(d.reason ?? "this line could not be solved");
+      setSecRes(d);
+    } catch (e) {
+      setSecErr(e instanceof Error ? e.message : "could not cut this section");
+    } finally { setSecBusy(false); clearInterval(tick); }
+  }, [sectionEnds]);
+
+  // The wall's default position: the highest ground that still faces the
+  // water, at the lowest crest that holds there. Derived rather than seeded,
+  // so a new solve or a new bank never renders one line's wall on another
+  // line's ground.
+  const secDefault = useMemo(() => {
+    if (!secRes?.ok) return null;
+    const st = bestStation(secRes.profile, "a");
+    const c = crestToHold(secRes.profile, st, 0.3, "a");
+    return { station: st, crest: c ?? secRes.profile[st].ground_m + 0.5 };
+  }, [secRes]);
+
+  const secStationIdx = secStation ?? secDefault?.station ?? 0;
+  const secCrestM = secCrest ?? secDefault?.crest ?? 0;
+  const secBankLen = secSite !== null && kit?.ok
+    ? kit.sites[secSite]?.length_m ?? 0 : 0;
+  // Where the channel is on this line, so a wall cannot be dropped in it.
+  const secBelts = useMemo(() => {
+    if (!secRes?.ok) return [];
+    return reaches(secRes.profile).flatMap((r) => channelBelts(secRes.profile, r));
+  }, [secRes]);
+  const secWall = useMemo(
+    () => (secRes?.ok
+      ? wallAt(secRes.profile, secStationIdx, secCrestM, secBankLen || 500, 2600,
+               "a", secBelts)
+      : null),
+    [secRes, secStationIdx, secCrestM, secBankLen, secBelts],
+  );
+
   const sectionPicking =
     sectionArmed && !(sectionEnds.a && sectionEnds.b);
+
+  const chooseSectionSite = useCallback((i: number | null) => {
+    setSecSite(i);
+    setSecRes(null); setSecErr(null); setSecStation(null); setSecCrest(null);
+    const line = i !== null && kit?.ok ? kit.sites[i]?.line : null;
+    setSectionEnds(line ? { a: line.a, b: line.b } : { a: null, b: null });
+  }, [kit]);
 
   const onPick = useCallback(
     (lon: number, lat: number) => {
@@ -667,8 +751,31 @@ export function Planner() {
             ends={sectionEnds}
             picking={sectionPicking}
             onPicking={setSectionArmed}
-            onClearEnds={() => setSectionEnds({ a: null, b: null })}
+            onClearEnds={() => { setSectionEnds({ a: null, b: null }); setSecRes(null); }}
             onOverlay={setSectionOverlay}
+            sites={kit}
+            sitesBusy={kitBusy}
+            onFindSites={findSites}
+            canFind={Boolean(kitBox)}
+            chosenSite={secSite}
+            onChooseSite={chooseSectionSite}
+            result={secRes}
+            busy={secBusy}
+            elapsed={secSec}
+            err={secErr}
+            onSolve={solveSection}
+            stationIdx={secStationIdx}
+            crestM={secCrestM}
+            wall={secWall}
+            onCrest={setSecCrest}
+            onSnap={() => {
+              if (!secRes?.ok) return;
+              const st = bestStation(secRes.profile, "a");
+              setSecStation(st);
+              setSecCrest(crestToHold(secRes.profile, st, 0.3, "a")
+                          ?? secRes.profile[st].ground_m + 0.5);
+            }}
+            homesKeptDry={null}
           />
         )}
 
@@ -910,8 +1017,9 @@ export function Planner() {
         )}
       </aside>
 
-      {/* ---- map ------------------------------------------------------- */}
-      <div className="relative min-w-0 flex-1">
+      {/* ---- map, and the section under it ----------------------------- */}
+      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative min-h-0 flex-1">
         {manifest ? (
           <PlannerMap
             manifest={manifest}
@@ -1010,6 +1118,27 @@ export function Planner() {
             Water depth
           </button>
         </div>
+      </div>
+
+      {/* The section runs the full width under the map, because that is the
+          shape it is read in: a long thin drawing of ground and water, with
+          the map above it showing where the line was cut. In the side panel
+          it was 340 px wide and a kilometre of floodplain had to fit in it. */}
+      {tab === "section" && secRes?.ok && secWall && (
+        <div className="shrink-0 border-t border-line bg-bg">
+          <SectionStrip
+            res={secRes}
+            stationIdx={secStationIdx}
+            crestM={secCrestM}
+            wall={secWall}
+            landward="a"
+            title={(secSite !== null && kit?.ok
+                    ? kit.sites[secSite]?.name : null) ?? "this line"}
+            onStation={setSecStation}
+            onCrest={setSecCrest}
+          />
+        </div>
+      )}
       </div>
     </div>
   );
