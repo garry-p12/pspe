@@ -1,3 +1,5 @@
+import { CREST_WIDTH_M, SIDE_SLOPE, earthLeveeUsd } from "./rates";
+
 /**
  * A levee read off an elevation section, and whether it holds.
  *
@@ -140,6 +142,8 @@ export interface Assessment {
   eastAtLineEnd: boolean;
   /** Cross-sectional area of fill, m^2 -- mean height times length. */
   fillM2: number;
+  /** The earthwork itself, from the trapezoidal section. */
+  fillM3: number;
   lengthM: number;
   maxHeightM: number;
   meanHeightM: number;
@@ -288,7 +292,8 @@ export function assess(
   spacingM: number,
   span: Span,
   crestM: number,
-  rateUsdPerMPerM: number,
+  /** Compacted fill in place, US dollars per cubic metre. See `lib/rates`. */
+  usdPerM3: number,
   belts: Belt[] = [],
 ): Assessment {
   const seg = profile.slice(span.i0, span.i1 + 1);
@@ -313,11 +318,16 @@ export function assess(
   const eastEnd = end(span.i1, eastShortM);
 
   const heights = seg.map((q) => Math.max(crestM - q.ground_m, 0));
-  // Mean height times length, the same model the district's six surveyed
-  // sites are costed with (eval/build_scenario_library.py), so a figure from
-  // this panel and one from the Plan tab are comparable.
+  // The longitudinal profile area, kept because the panel reports it.
   const fillM2 = heights.reduce((s, h) => s + h, 0) * spacingM;
   const lengthM = (span.i1 - span.i0) * spacingM;
+  // The actual earthwork: a trapezoid at every station, integrated along the
+  // alignment. Mean height times length times a flat rate per metre of
+  // height was the old model, and it is wrong in the direction that matters
+  // -- the volume goes as `crest*h + slope*h^2`, so a flat rate under-prices
+  // exactly the tall walls a planner is tempted by.
+  const fillM3 = heights.reduce(
+    (a, h) => a + (CREST_WIDTH_M * h + SIDE_SLOPE * h * h), 0) * spacingM;
 
   const verdict: Verdict =
     crossesChannel(span, belts) ? "crosses-channel"
@@ -342,7 +352,8 @@ export function assess(
     lengthM,
     maxHeightM: heights.length ? Math.max(...heights) : 0,
     meanHeightM: lengthM > 0 ? fillM2 / lengthM : 0,
-    costUsd: fillM2 * rateUsdPerMPerM,
+    fillM3,
+    costUsd: fillM3 * usdPerM3,
   };
 }
 
@@ -360,7 +371,7 @@ export function lowestHoldingCrest(
   profile: SectionSample[],
   spacingM: number,
   panel: Span,
-  rateUsdPerMPerM: number,
+  usdPerM3: number,
   belts: Belt[] = [],
   maxRiseM = 8,
   stepM = 0.1,
@@ -375,7 +386,7 @@ export function lowestHoldingCrest(
   for (let k = 0; k <= steps; k++) {
     const crestM = Math.round((stage + k * stepM) * 100) / 100;
     const span = spanFor(profile, crestM, panel, belts);
-    if (assess(profile, spacingM, span, crestM, rateUsdPerMPerM, belts).verdict === "holds") {
+    if (assess(profile, spacingM, span, crestM, usdPerM3, belts).verdict === "holds") {
       return { crestM, span };
     }
   }
@@ -432,7 +443,9 @@ export function wallAt(
   stationIdx: number,
   crestM: number,
   bankLengthM: number,
-  rateUsdPerMPerM: number,
+  /** Unused: the embankment is priced from its own section, in `lib/rates`.
+   *  Kept so every cost in this file takes the same argument. */
+  usdPerM3: number,
   /** Which end is landward. A is index 0. */
   landward: "a" | "b" = "a",
   /** Where the channel is, so a wall cannot be placed in the river. */
@@ -473,7 +486,9 @@ export function wallAt(
 
   return {
     heightM, crestM, groundM, faceStageM, freeboardM, behindStageM,
-    costUsd: heightM * bankLengthM * rateUsdPerMPerM,
+    // The embankment's real section, swept along the bank -- the same
+    // `crest*H + slope*H^2` the solver rasterises and the kit prices by.
+    costUsd: earthLeveeUsd(bankLengthM, heightM),
     verdict,
   };
 }

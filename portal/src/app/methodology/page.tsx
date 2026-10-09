@@ -28,16 +28,36 @@ export default function Home() {
         <LoopDiagram />
       </section>
 
-      <section className="mb-10 grid gap-4 lg:grid-cols-2">
-        <Panel eyebrow="Flood" title="2022 Northern Rivers, NSW">
+      {/* Two flood cases and they are not the same kind of claim. The planner
+          ships Onion Creek and scores itself against a REGULATORY map, which
+          is a weak reference and an honest one. The Richmond archive is the
+          only place the solver has been scored against a reference SOLUTION,
+          which is the stronger claim and is not a place you can plan in here.
+          Labelling them identically was how the portal came to look like it
+          offered two studies. */}
+      <section className="mb-10 grid gap-4 lg:grid-cols-3">
+        <Panel eyebrow="The shipped study" title="Onion Creek, Austin, Texas">
           <p className="mb-3 text-[13px] leading-relaxed text-ink-mute">
-            A 32 km reach of the lower Richmond River during Australia&apos;s
-            costliest flood. Our solver reproduces the reference at{" "}
-            <b className="text-ink">CSI 0.979</b>. Half the candidate levees make
-            flooding <b className="text-bad">worse</b>.
+            What the planner opens on, solved on USGS 3DEP bare earth and
+            scored against FEMA&apos;s 1% annual chance floodplain at{" "}
+            <b className="text-ink">CSI 0.39</b> — it finds half of what FEMA
+            maps. A projection with a number on it, not a validated twin.
+          </p>
+          <Link href="/" className="text-[13px] text-accent hover:underline">
+            Open the planner →
+          </Link>
+        </Panel>
+        <Panel eyebrow="Validation" title="2022 Northern Rivers, NSW">
+          <p className="mb-3 text-[13px] leading-relaxed text-ink-mute">
+            An archive, not a place you can plan in: a 32 km reach of the lower
+            Richmond River during Australia&apos;s costliest flood, and the one
+            case where the solver was scored against a reference{" "}
+            <i>solution</i> rather than a regulatory map —{" "}
+            <b className="text-ink">CSI 0.979</b>. Half the candidate levees
+            there make flooding <b className="text-bad">worse</b>.
           </p>
           <Link href="/methodology/flood" className="text-[13px] text-accent hover:underline">
-            Open the flood twin →
+            Open the validation case →
           </Link>
         </Panel>
         <Panel eyebrow="Safety" title="When a margin is usable">

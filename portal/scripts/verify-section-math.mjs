@@ -20,7 +20,10 @@ if (!jsPath || !jsonPath) {
 const S = createRequire(import.meta.url)(jsPath);
 const res = JSON.parse(readFileSync(jsonPath, "utf8"));
 const spacing = S.sampleSpacing(res);
-const rate = res.cost_per_m_per_m_aud;
+// The service no longer carries a construction rate of its own -- it had a
+// third copy of a figure with no source on it. `lib/rates` is where the
+// USACE embankment rate lives, with its provenance.
+const rate = 15.2;                       // USD per m3 of compacted fill
 
 let fails = 0;
 const eq = (name, got, want, tol = 0) => {
@@ -81,7 +84,17 @@ eq("verdict", a.verdict, "holds");
 eq("crest length, m", Math.round(a.lengthM), 1625, 1);
 eq("max height, m", Number(a.maxHeightM.toFixed(2)), 3.91, 0.005);
 eq("mean height, m", Number(a.meanHeightM.toFixed(2)), 2.65, 0.005);
-eq("cost, AUD M", Number((a.costAud / 1e6).toFixed(1)), 11.2, 0.05);
+// The number moved because the model did: mean height times length times a
+// flat rate per metre of height, against the trapezoid the thing is actually
+// built to. Asserted against the section arithmetic rather than a remembered
+// figure, so a change to the rate does not silently become a change to the
+// geometry.
+const expectM3 = a.fillM3;
+eq("cost is the earthwork at the published rate",
+   Number((a.costUsd / 1e6).toFixed(2)),
+   Number(((expectM3 * rate) / 1e6).toFixed(2)), 0.01);
+eq("the trapezoid is dearer than the flat-rate model it replaced",
+   a.fillM3 > a.fillM2, true, `${a.fillM3.toFixed(0)} m3 vs ${a.fillM2.toFixed(0)} m2`);
 eq("landward end ties in", a.westEnd, "tied");
 eq("the other end is the river, not a defect", a.eastEnd, "river");
 eq("no overtopping", a.overtopM, 0);
@@ -110,7 +123,7 @@ const naiveSpan = S.spanFor(res.profile, res.peak_water_m, pans[0], belts);
 const naive = S.assess(res.profile, spacing, naiveSpan, res.peak_water_m, rate, belts);
 eq("whole-line peak, m", res.peak_water_m, 20.67, 0.005);
 eq("the same alignment at the whole-line peak costs more",
-   naive.costAud > a.costAud * 2, true, `A$${(naive.costAud / 1e6).toFixed(1)} M vs A$${(a.costAud / 1e6).toFixed(1)} M`);
+   naive.costUsd > a.costUsd * 2, true, `US$${(naive.costUsd / 1e6).toFixed(1)} M vs US$${(a.costUsd / 1e6).toFixed(1)} M`);
 eq("and it no longer ties in anywhere on the line", naive.verdict, "open-end");
 
 // --- the two failure modes ------------------------------------------------
@@ -126,15 +139,15 @@ const open = S.assess(res.profile, spacing, cut, best.crestM, rate, belts);
 eq("an alignment cut short of the bank has an open end", open.verdict, "open-end");
 eq("the open end is the landward one", open.westEnd, "open");
 eq("the shortfall is reported, m", open.westShortM, 3.44, 0.005);
-eq("at the same crest, a shorter wall costs less", open.costAud < a.costAud, true);
+eq("at the same crest, a shorter wall costs less", open.costUsd < a.costUsd, true);
 // But not across crests, and this is the whole reason the cheapest holding
 // crest is SEARCHED rather than set to the stage plus a freeboard: raising the
 // crest lengthens the run needed to tie in, so a wall that is shorter and
 // higher can cost more than one that is longer and lower.
 const higher = S.assess(res.profile, spacing, cut, 13.5, rate, belts);
 eq("shorter but 1.9 m higher costs more than the holding design",
-   higher.costAud > a.costAud, true,
-   `A$${(higher.costAud / 1e6).toFixed(1)} M vs A$${(a.costAud / 1e6).toFixed(1)} M`);
+   higher.costUsd > a.costUsd, true,
+   `US$${(higher.costUsd / 1e6).toFixed(1)} M vs US$${(a.costUsd / 1e6).toFixed(1)} M`);
 // Raising the crest cannot start overtopping.
 let mono = true;
 for (let c = stage; c <= stage + 5; c += 0.25) {

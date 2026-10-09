@@ -7257,6 +7257,48 @@ Court, Quicksilver Boulevard, Encinal Cove and Old San Antonio Road.
 naming cache stored `[]` on failure, which turned a transient 504 into a
 permanent loss of names for the life of the process.
 
+### 5.14q The number on the page was not the number that ran (2026-10-09)
+
+Two defects that only became findable once the scenario control existed to
+state a discharge out loud.
+
+**The named discharge was being multiplied.** The Plan tab sends the recorded
+peak for a dated event and prints it in the heading: "31 Oct 2013 flood ·
+3.82 × 10³ m³/s". The forcing then put that through the storm-preset multiple
+— `scale = max(1, rain_mm_h / 20)`, the invented relation the audit in §5.14n
+flagged — and ran **9,557 m³/s**. Two and a half times the flood the page
+claimed, with nothing on screen saying so.
+
+The multiple exists for a reason: the storm presets have to turn "heavy /
+severe / extreme" into a design flood, and multiples of bankfull are how
+design floods are stated. But a discharge the caller *named* is already a
+design flood. `river_q_is_design` distinguishes the two, and the note now
+reads "as given" rather than quoting a multiple that was not applied.
+
+**And the same request did not give the same flood.** Two `/sites` calls on
+the identical box and discharge, minutes apart, returned:
+
+| | flooded | inflow | channel from | candidate banks |
+|---|---|---|---|---|
+| first | 6.18 km² | north edge | terrain edges | Alderman Dr, Mozelle Ln, Dove Ct, … |
+| second | 12.31 km² | west edge | mapped network | Cascades Av, Slickrock Cv, Williamson Ck, … |
+
+Not noise — a different inflow boundary and a different set of banks. The
+cause is in `fetch_waterways`: a single pass over the Overpass mirrors, and
+an empty result cached as if the box had no rivers in it. When Overpass 504s,
+`build_forcing` falls back to `river_inflow`, the terrain-edge heuristic,
+which on a catchment tilting east picks the north-east corner instead of the
+true western inflow — the exact failure the mapped-network path was written to
+replace. The fallback is correct behaviour; doing it silently and then caching
+the failure is not. Same retry as the road and naming fetches now, and an
+empty answer is never cached.
+
+**Rule 83: a fallback must not be cached.** A degraded answer is acceptable
+for one request and not acceptable for the life of the process, and the
+difference between them is a single `if not els: return []`. This is the
+third fetch in this service to have had the bug (§5.14o, the gauge names) and
+the first where it changed a physical answer rather than a label.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

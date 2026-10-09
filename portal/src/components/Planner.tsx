@@ -15,6 +15,7 @@ import { SectionStrip } from "./SectionStrip";
 import { wallAt, crestToHold, bestStation, reaches, channelBelts,
          type SectionResult } from "@/lib/section";
 import { ScenarioPicker } from "./ScenarioPicker";
+import { EARTH_FILL } from "@/lib/rates";
 import { RunScrubber, type Frame } from "./RunScrubber";
 import { scenariosFrom, type PeaksFeed, type Scenario } from "@/lib/scenarios";
 import { StreetPanel, type StreetResult } from "./StreetPanel";
@@ -406,6 +407,11 @@ export function Planner() {
   const forcing = useMemo(() => ({
     driver: scenario.driver,
     river_q_m3s: scenario.river_q_m3s,
+    // The discharge is the scenario's own, not a base for the storm presets
+    // to multiply. Without this flag the service put 3,823 m3/s through its
+    // `rain_mm_h / 20` multiple and ran 9,557, while the heading above the
+    // map said 3,823.
+    river_q_is_design: scenario.river_q_m3s !== null,
     rain_mm_h: study?.storm?.rain_mm_h ?? 50,
     storm_hours: study?.storm?.storm_hours ?? 6,
   }), [scenario, study]);
@@ -685,8 +691,8 @@ export function Planner() {
   }, [secRes]);
   const secWall = useMemo(
     () => (secRes?.ok
-      ? wallAt(secRes.profile, secStationIdx, secCrestM, secBankLen || 500, 2600,
-               "a", secBelts)
+      ? wallAt(secRes.profile, secStationIdx, secCrestM, secBankLen || 500,
+               EARTH_FILL.usd, "a", secBelts)
       : null),
     [secRes, secStationIdx, secCrestM, secBankLen, secBelts],
   );

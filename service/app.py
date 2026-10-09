@@ -93,6 +93,10 @@ class PlanRequest(BaseModel):
     # has nothing to block when the water falls on both sides of it.
     driver: str = Field("rain", pattern="^(rain|river|coastal)$")
     river_q_m3s: Optional[float] = None    # None -> take it from the flood API
+    # True when `river_q_m3s` is a design discharge the caller named -- a
+    # recorded flood peak or a fitted quantile -- rather than a base figure
+    # for the storm presets to multiply. See `build_forcing`.
+    river_q_is_design: bool = False
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
 
 
@@ -111,6 +115,10 @@ class AnalyseRequest(BaseModel):
     # about what "doing nothing" costs.
     driver: str = Field("rain", pattern="^(rain|river|coastal)$")
     river_q_m3s: Optional[float] = None
+    # True when `river_q_m3s` is a design discharge the caller named -- a
+    # recorded flood peak or a fitted quantile -- rather than a base figure
+    # for the storm presets to multiply. See `build_forcing`.
+    river_q_is_design: bool = False
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
     # Instantaneous depth fields through the run, for the scrubber under the
     # map. Zero means peak only, which is what the study bundle was built
@@ -368,7 +376,7 @@ _WATERWAY_CACHE: dict = {}
 
 
 def fetch_waterways(west: float, south: float, east: float, north: float,
-                    timeout: float = 60.0) -> list[dict]:
+                    timeout: float = 60.0, rounds: int = 2) -> list[dict]:
     """Mapped rivers and streams over this box, from OpenStreetMap.
 
     Used to find where the channel crosses the boundary, which the terrain
@@ -383,7 +391,7 @@ def fetch_waterways(west: float, south: float, east: float, north: float,
          f'way["waterway"~"^(river|stream)$"]'
          f"({south},{west},{north},{east});out geom;")
     payload = None
-    for url in OVERPASS_MIRRORS:
+    for url in [u for _ in range(rounds) for u in OVERPASS_MIRRORS]:
         try:
             req = urllib.request.Request(
                 url, data=urllib.parse.urlencode({"data": q}).encode(),
@@ -394,6 +402,14 @@ def fetch_waterways(west: float, south: float, east: float, north: float,
         except Exception:                                  # noqa: BLE001
             continue
     els = (payload or {}).get("elements", [])
+    # A failed fetch is not a box with no rivers in it, and caching it as one
+    # makes the failure permanent. Measured: two identical /sites calls
+    # minutes apart returned different floods -- 6.18 km2 against 12.31 --
+    # and different candidate banks, because one found the mapped channel and
+    # the other fell back to the terrain-edge heuristic, which on a catchment
+    # that tilts east puts the inflow on the wrong corner.
+    if not els:
+        return []
     if len(_WATERWAY_CACHE) > 32:
         _WATERWAY_CACHE.pop(next(iter(_WATERWAY_CACHE)))
     _WATERWAY_CACHE[key] = els
@@ -1362,10 +1378,24 @@ def build_forcing(dom, req) -> dict:
         ) / max(max(z.shape) * dom.dx, 1.0), 1e-4)
         q_bankfull = ((1.0 / 0.035) * (width_bank * depth_bank)
                       * depth_bank ** (2.0 / 3.0) * math.sqrt(slope_bank))
-        # Heavy rain ~ bankfull, severe ~ 2x, extreme ~ 4x. Multiples of
-        # bankfull are the standard way a design flood is stated.
-        scale = max(1.0, req.rain_mm_h / 20.0)
-        q_design = max(q * scale, q_bankfull * scale)
+        # A discharge the caller NAMED is already a design flood.
+        #
+        # The Plan tab sends the recorded peak for a dated event -- 3,823 m3/s
+        # at Onion Ck at US Hwy 183 on 31 October 2013 -- and the heading says
+        # so. Putting that through the storm multiple below sent 9,557 m3/s
+        # down the channel while the panel above the map said 3,823. The
+        # number on the page has to be the number that ran.
+        #
+        # Otherwise: heavy rain ~ bankfull, severe ~ 2x, extreme ~ 4x.
+        # Multiples of bankfull are the standard way a design flood is stated,
+        # and the storm presets are what select the multiple.
+        named = bool(getattr(req, "river_q_is_design", False)) and bool(req.river_q_m3s)
+        if named:
+            scale = 1.0
+            q_design = float(req.river_q_m3s)
+        else:
+            scale = max(1.0, req.rain_mm_h / 20.0)
+            q_design = max(q * scale, q_bankfull * scale)
 
         # Held as a STAGE, not poured in as a volume.
         #
@@ -1396,8 +1426,10 @@ def build_forcing(dom, req) -> dict:
             # multiple a reader can check in their head has to be the multiple
             # that was applied.
             f"{q_design:,.0f} m3/s on the {inflow.edge} edge "
-            f"(channel from the {out['channel_from']}), {scale:g}x "
-            + (f"the forecast peak of {q:,.0f} m3/s. "
+            f"(channel from the {out['channel_from']}), "
+            + ("as given. " if named else f"{scale:g}x ")
+            + ("" if named
+               else f"the forecast peak of {q:,.0f} m3/s. "
                if q * scale >= q_bankfull * scale else
                f"bankfull for this channel (~{q_bankfull:,.0f} m3/s, estimated "
                f"from DEM geometry, not a gauged rating), since the gauge reads "
@@ -2034,6 +2066,10 @@ class RouteRequest(BaseModel):
     run_hours: float = Field(12.0, ge=1.0, le=72.0)
     driver: str = Field("river", pattern="^(rain|river|coastal)$")
     river_q_m3s: Optional[float] = None
+    # True when `river_q_m3s` is a design discharge the caller named -- a
+    # recorded flood peak or a fitted quantile -- rather than a base figure
+    # for the storm presets to multiply. See `build_forcing`.
+    river_q_is_design: bool = False
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
     # How many times the schedule is sampled. The flood is resolved to this,
     # and the deadline can only ever be as sharp as the sampling.
@@ -2089,6 +2125,10 @@ class SectionRequest(BaseModel):
     run_hours: float = Field(12.0, ge=1.0, le=72.0)
     driver: str = Field("river", pattern="^(rain|river|coastal)$")
     river_q_m3s: Optional[float] = None
+    # True when `river_q_m3s` is a design discharge the caller named -- a
+    # recorded flood peak or a fitted quantile -- rather than a base figure
+    # for the storm presets to multiply. See `build_forcing`.
+    river_q_is_design: bool = False
     dx: Optional[float] = None
 
 
@@ -2121,6 +2161,10 @@ class BuildingsRequest(BaseModel):
     run_hours: float = Field(12.0, ge=1.0, le=72.0)
     driver: str = Field("rain", pattern="^(rain|river|coastal)$")
     river_q_m3s: Optional[float] = None
+    # True when `river_q_m3s` is a design discharge the caller named -- a
+    # recorded flood peak or a fitted quantile -- rather than a base figure
+    # for the storm presets to multiply. See `build_forcing`.
+    river_q_is_design: bool = False
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
     snapshots: int = Field(13, ge=2, le=25)
     max_buildings: int = Field(500, ge=1, le=2000)
@@ -2141,6 +2185,10 @@ class SitesRequest(BaseModel):
     run_hours: float = Field(12.0, ge=1.0, le=72.0)
     driver: str = Field("rain", pattern="^(rain|river|coastal)$")
     river_q_m3s: Optional[float] = None
+    # True when `river_q_m3s` is a design discharge the caller named -- a
+    # recorded flood peak or a fitted quantile -- rather than a base figure
+    # for the storm presets to multiply. See `build_forcing`.
+    river_q_is_design: bool = False
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
     max_sites: int = Field(6, ge=1, le=12)
     shortfall_m: float = Field(2.0, ge=0.2, le=8.0)
