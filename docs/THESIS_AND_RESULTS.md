@@ -6970,6 +6970,73 @@ costing, the verdict and what the view needs from the rest of the system.
 Restyling the old panel would have left it answering the old question in the
 new shape.
 
+### 5.14l The sentence the wireframe asked for, now sourced (2026-10-08)
+
+§5.14h built 1a's live column and recorded one deliberate refusal: the
+wireframe's headline reads *"Above the minor flood level"*, and those are NWS
+flood categories set per gauge, which we had not fetched. The panel compared
+the reading with its own three-day range instead and said why.
+
+**It is fetched now.** NOAA's National Water Prediction Service publishes,
+per gauge, the action, minor, moderate and major stages, the current flood
+category, and a forecast when one is current. Two things had to be got right:
+
+- `srid=EPSG_4326` is **required** on the bounding-box query. Without it the
+  box returns `{"gauges": []}` — a valid, empty, entirely silent answer.
+- The list endpoint returns only lid, name and coordinates. `usgsId` and the
+  flood categories live on the per-gauge record, so the join is by POSITION:
+  matched against the USGS sites, the offsets are **0 to 36 m**, which is the
+  same structure twice.
+
+Of 25 gauged streams in the Austin box, **18 match an NWS forecast point and 4
+have published flood levels** — the Colorado at Austin, Onion Creek at US 183,
+Bull Creek and Barton Creek at Loop 360. Small urban creeks mostly have none,
+which is a fact about the gauge network and is said rather than papered over.
+
+**A cap that cut off the only gauge anyone asks about.** Sorted by match
+distance and capped at eight detail fetches, Onion Creek at US 183 came 14th
+at 36 m and was dropped. Every match is inside 36 m; distance was not the
+thing to ration on.
+
+**And the live box is deliberately bigger than the solved one.** The gauge
+that tells you what is coming is UPSTREAM, which is outside the box by
+definition: the Austin study misses Onion Creek at US 183 by 0.002 degrees of
+longitude. Padded by 0.12°, the feed goes from 1 gauge to 27.
+
+**The rest of 1a.** The roads-out list, sorted by the **deepest** water on each
+road rather than by how much of it is under — a road is closed by its worst
+point, and a kilometre of dry tarmac with thirty centimetres across the middle
+is a closed road. A hydrograph under the map at full width, three days at
+fifteen-minute cadence against the NWS levels. A depth legend, because a blue
+wash over a satellite photo is not self-explanatory and the one number that
+makes it readable was nowhere on screen. And Street joins the view chips,
+where the wireframe has it.
+
+**Two departures from the wireframe that remain, both stated on the page.**
+There is no play button on the hydrograph: a control that scrubs a model while
+nothing on the map moves is a control over nothing, and NWS publishes a
+forecast series only when one is current. And a flood level above the drawn
+window is not drawn — the Colorado's action level is 7.62 m against three days
+spanning 3.7 to 4.5, and including it flattens the river to a straight line —
+so the strip says *"action 7.62 m, 3.29 m above now — off this scale"* rather
+than carrying the words "NWS flood levels" over a chart with none on it.
+
+**Twenty-seven callouts is not a map.** Every gauge gets a dot; six get their
+reading, chosen by whether the weather service has given them a threshold —
+a stage with one beside it is the only kind that means anything alone — and
+then by flow.
+
+**An accessibility defect the harness caught.** Adding Street to the view
+chips created two controls both named "Street", one in the Area row and one on
+the map. A screen reader announces them identically and Playwright refused to
+resolve either. The chip carries its own label now.
+
+**Rule 78: a refusal recorded in a commit is a to-do, not a conclusion.**
+§5.14h declined to write "above the minor flood level" because the data was
+not in hand, which was right. What made it right was that the sentence named
+exactly which integration was missing — one endpoint, found and wired in a
+single sitting. A vaguer refusal would have read the same and pointed nowhere.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

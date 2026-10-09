@@ -38,6 +38,23 @@ function Spark({ series }: { series: { t: string; m: number }[] }) {
   );
 }
 
+/** Where this reading sits against the weather service's own thresholds. */
+function band(stage: number, L: NonNullable<GaugeFeed["gauges"][number]["flood_levels_m"]>): string {
+  const steps: [number | undefined, string][] = [
+    [L.major, "above the MAJOR flood level"],
+    [L.moderate, "above the moderate flood level"],
+    [L.minor, "above the minor flood level"],
+    [L.action, "above the action level, below minor flood"],
+  ];
+  for (const [v, text] of steps) {
+    if (v !== undefined && stage >= v) return `${text}.`;
+  }
+  const next = L.action ?? L.minor;
+  return next === undefined
+    ? "Below every level the weather service has set here."
+    : `Below the action level, ${(next - stage).toFixed(2)} m under it.`;
+}
+
 export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
   if (!feed) return null;
   if (!feed.supported) {
@@ -48,7 +65,11 @@ export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
       </div>
     );
   }
-  const g = feed.gauges.find((x) => x.stage_m !== null);
+  // Prefer a gauge the weather service has set flood levels for. Any gauge
+  // can say how high the water is; only one with categories can say whether
+  // that is a flood, which is the thing the headline is for.
+  const g = feed.gauges.find((x) => x.stage_m !== null && x.flood_levels_m)
+    ?? feed.gauges.find((x) => x.stage_m !== null);
   if (!g) {
     return (
       <div className="border-b border-line-soft px-5 py-3">
@@ -93,11 +114,26 @@ export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
         </p>
         <Spark series={g.series} />
       </div>
-      {peak !== null && (
+      {g.flood_levels_m ? (
+        <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
+          {band(g.stage_m ?? 0, g.flood_levels_m)}
+          {peak !== null && (
+            <span className="anno"> · highest in three days {peak.toFixed(2)} m</span>
+          )}
+        </p>
+      ) : peak !== null && (
         <p className="anno mt-1.5 leading-relaxed">
-          Highest in the last three days {peak.toFixed(2)} m. Flood categories are
-          set per gauge by the weather service and are not fetched here, so this
-          compares the reading with its own recent range rather than naming one.
+          Highest in the last three days {peak.toFixed(2)} m. The weather service
+          publishes no flood levels for this gauge — 4 of the 25 gauged streams
+          here have them — so this compares the reading with its own recent range
+          rather than naming a category it has not been given.
+        </p>
+      )}
+      {g.forecast && (
+        <p className="anno mt-1 leading-relaxed">
+          Forecast {g.forecast.stage_m.toFixed(2)} m
+          {g.forecast.at ? ` by ${new Date(g.forecast.at).toLocaleString([], {
+            weekday: "short", hour: "numeric" })}` : ""} · NWS
         </p>
       )}
       {feed.gauges.length > 1 && (

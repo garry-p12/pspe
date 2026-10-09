@@ -8,6 +8,10 @@ export interface CutRoad {
   cls: string;
   cutKm: number;
   totalKm: number;
+  /** The deepest water anywhere on this road. What closes a road is its worst
+   *  point, not its average: a kilometre of dry tarmac with thirty centimetres
+   *  across the middle of it is a closed road. */
+  maxDepthM: number;
 }
 
 export interface RoadQuery {
@@ -52,6 +56,7 @@ export function queryRoads(
     const coords = f.geometry.coordinates as [number, number][];
     let cut = 0;
     let tot = 0;
+    let deepest = 0;
     for (let i = 0; i < coords.length - 1; i++) {
       const a = coords[i];
       const b = coords[i + 1];
@@ -59,17 +64,24 @@ export function queryRoads(
       tot += L;
       const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
       const s = sampleAt(grids, bounds, mid[0], mid[1]);
-      if (s && s.depth_m > threshold) cut += L;
+      if (s) {
+        if (s.depth_m > deepest) deepest = s.depth_m;
+        if (s.depth_m > threshold) cut += L;
+      }
     }
     totalKm += tot;
     cutKm += cut;
     if (tot > 0) cutFraction.set(props.id, cut / tot);
     if (cut > 0.01) {
-      out.push({ id: props.id, name: props.name, cls: props.class, cutKm: cut, totalKm: tot });
+      out.push({ id: props.id, name: props.name, cls: props.class,
+                 cutKm: cut, totalKm: tot, maxDepthM: deepest });
     }
   }
 
-  out.sort((a, b) => b.cutKm - a.cutKm);
+  // Deepest first. A planner reads this list to find what is already gone,
+  // and the longest cut is not the worst one -- a short stretch under a metre
+  // closes a road that a long stretch under a centimetre does not.
+  out.sort((a, b) => b.maxDepthM - a.maxDepthM);
   return { threshold, cutKm, totalKm, roads: out, cutFraction };
 }
 

@@ -6,6 +6,8 @@ import { ForecastPanel } from "./ForecastPanel";
 import { LayersPanel, DEFAULT_LAYERS, type LayerState,
          type GaugeFeed } from "./LayersPanel";
 import { GaugeHeadline } from "./GaugeHeadline";
+import { Hydrograph } from "./Hydrograph";
+import { RoadsOut } from "./RoadsOut";
 import { MeasureBuilder } from "./MeasureBuilder";
 import { RoadQueryPanel } from "./RoadQueryPanel";
 import { AnywherePanel, type AnalysisResult, type PlacedLevee,
@@ -599,8 +601,47 @@ export function Planner() {
   /** The box the live feeds are asked about: whatever place is on screen. */
   const liveBounds = useMemo(() => {
     const b = analysis?.bounds ?? trip?.bounds ?? study?.bounds ?? manifest?.bounds;
-    return b ? { west: b.west, south: b.south, east: b.east, north: b.north } : null;
+    if (!b) return null;
+    // Padded well beyond the solved box, and that is not slop. The gauge that
+    // tells you what is coming is UPSTREAM, which is outside the box by
+    // definition: the Austin study misses Onion Creek at US 183 -- the one
+    // gauge here with published flood levels -- by 0.002 degrees of longitude.
+    const pad = 0.12;
+    return { west: b.west - pad, south: b.south - pad,
+             east: b.east + pad, north: b.north + pad };
   }, [analysis, trip, study, manifest]);
+
+  // The gauge the strip under the map plots: one with published flood levels
+  // if there is one, because a stage without a threshold beside it does not
+  // say whether anything is wrong.
+  // Dots for every gauge, READINGS for a few. Twenty-seven callouts over one
+  // city is not a map, it is a wall of boxes with a city behind it. The ones
+  // that get a label are the ones with flood levels -- a stage with a
+  // threshold beside it is the only kind that means anything on its own --
+  // and then the largest flows.
+  const labelledGauges = useMemo(() => {
+    const gs = gaugeFeed?.gauges ?? [];
+    const rank = (g: typeof gs[number]) =>
+      (g.flood_levels_m ? 1e9 : 0) + (g.q_m3s ?? 0);
+    const keep = new Set([...gs].sort((a, b) => rank(b) - rank(a))
+                                .slice(0, 6).map((g) => g.site));
+    return gs.map((g) => ({ ...g, labelled: keep.has(g.site) }));
+  }, [gaugeFeed]);
+
+  const hydroGauge = useMemo(() => {
+    const gs = gaugeFeed?.gauges ?? [];
+    return gs.find((g) => g.series.length > 2 && g.flood_levels_m)
+      ?? gs.find((g) => g.series.length > 2)
+      ?? null;
+  }, [gaugeFeed]);
+
+  /** The top of the depth ramp on screen, for the legend. */
+  const depthVmax = useMemo(() => {
+    if (tab === "street" && street?.ok) return street.depth_vmax_m;
+    if (analysis) return analysis.depth_vmax_m;
+    if (study) return study.depth_vmax_m;
+    return manifest?.depth_vmax_m ?? null;
+  }, [tab, street, analysis, study, manifest]);
 
   const near = useMemo(
     () => (point ? nearestRoad(roads, point.lon, point.lat) : null),
@@ -706,6 +747,17 @@ export function Planner() {
                 ? `solved at ${analysis.dx_m.toFixed(0)} m · ${analysis.flooded_km2} km² over 10 cm`
                 : undefined}
             />
+            {layers.roads && (
+              <RoadsOut
+                roads={tab === "district" ? roads : adHocRoads}
+                grids={tab === "district" ? grids : adHocGrids}
+                bounds={analysis?.bounds ?? study?.bounds ?? manifest?.bounds ?? null}
+                place={analysis?.name ?? study?.study?.short ?? null}
+                vehicle={vehicle}
+                onVehicle={setVehicle}
+                onQuery={setRoadQ}
+              />
+            )}
           </>
         )}
 
@@ -1053,7 +1105,7 @@ export function Planner() {
               }
             }}
             onBuilding={setStreetSel}
-            gauges={layers.gauges ? (gaugeFeed?.gauges ?? null) : null}
+            gauges={layers.gauges ? labelledGauges : null}
             radar={layers.radar ? liveBounds : null}
             place={tab === "anywhere" ? place : null}
             observed={observed}
@@ -1085,6 +1137,25 @@ export function Planner() {
         ) : (
           <div className="h-full w-full animate-pulse bg-bg-inset" />
         )}
+        {/* The depth scale. A blue wash over a satellite photo is not
+            self-explanatory, and the one number that makes it readable -- what
+            the darkest blue means -- was nowhere on screen. */}
+        {depthVmax !== null && (
+          <div className="absolute right-4 top-4 rounded-md border border-ink-faint/40
+                          bg-bg/90 px-2.5 py-1.5 backdrop-blur">
+            <p className="anno mb-1">Water depth</p>
+            <div className="h-[7px] w-[150px] rounded-[2px]"
+                 style={{ background: "linear-gradient(90deg,#60c8ff,#1f8fd6,#04247f)" }} />
+            <div className="mt-1 flex w-[150px] justify-between">
+              {[0, depthVmax / 2, depthVmax].map((v, i) => (
+                <span key={i} className="anno">
+                  {i === 0 ? "0 m" : `${v.toFixed(1)}${i === 2 ? " m+" : ""}`}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="absolute left-4 top-4 flex gap-1.5">
           {(["region", "town"] as const).map((f) => (
             <button
@@ -1104,6 +1175,20 @@ export function Planner() {
           {/* The solid flood hides the ground under it, which some people want
               to see. Plain wording: this is about what the water looks like,
               not about rendering. */}
+          {/* Street sits with the other two because it is the third zoom of
+              the same place, not a different question -- which is how the
+              wireframe has it and how anyone reading a map expects it. */}
+          <button
+            aria-label="Zoom to street level"
+            onClick={() => setTab(tab === "street" ? "anywhere" : "street")}
+            className={`rounded-md border px-2.5 py-1 text-[12px] backdrop-blur transition-colors ${
+              tab === "street"
+                ? "border-ink bg-ink text-bg font-medium"
+                : "border-ink-faint/40 bg-bg/80 text-ink hover:bg-bg"
+            }`}
+          >
+            Street
+          </button>
           <button
             onClick={() => setSolid((v) => !v)}
             title={solid
@@ -1124,6 +1209,12 @@ export function Planner() {
           shape it is read in: a long thin drawing of ground and water, with
           the map above it showing where the line was cut. In the side panel
           it was 340 px wide and a kilometre of floodplain had to fit in it. */}
+      {section === "forecast" && tab !== "section" && hydroGauge && (
+        <div className="shrink-0 border-t border-line bg-bg">
+          <Hydrograph gauge={hydroGauge} />
+        </div>
+      )}
+
       {tab === "section" && secRes?.ok && secWall && (
         <div className="shrink-0 border-t border-line bg-bg">
           <SectionStrip

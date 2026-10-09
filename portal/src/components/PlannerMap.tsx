@@ -103,6 +103,8 @@ export function PlannerMap({
   gauges?: {
     site: string; name: string; lat: number; lon: number;
     stage_m: number | null; trend_cm_h: number | null;
+    /** Whether this one gets its reading drawn beside it. */
+    labelled?: boolean;
   }[] | null;
   /** NOAA base reflectivity over the analysed box, if the user asked for it. */
   radar?: { west: number; south: number; east: number; north: number } | null;
@@ -201,7 +203,7 @@ export function PlannerMap({
     ? sites.map((x) => `${x.lat.toFixed(4)}${x.taken ? "*" : ""}`).join(",")
     : "none";
   const gaugeKey = gauges
-    ? gauges.map((g) => `${g.site}:${g.stage_m ?? ""}`).join(",")
+    ? gauges.map((g) => `${g.site}:${g.stage_m ?? ""}:${g.labelled ? 1 : 0}`).join(",")
     : "none";
   const radarKey = radar
     ? `${radar.west.toFixed(3)},${radar.south.toFixed(3)},${radar.east.toFixed(3)},${radar.north.toFixed(3)}`
@@ -779,7 +781,7 @@ export function PlannerMap({
         }) as unknown as Layer,
         new TextLayer({
           id: "gauge-readings",
-          data: withStage,
+          data: withStage.filter((g) => g.labelled !== false),
           getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
           getText: (d: { name: string; stage_m: number | null; trend_cm_h: number | null }) => {
             const nm = d.name.split(",")[0].slice(0, 28);

@@ -728,7 +728,9 @@ def gauges(req: RoadsRequest) -> dict:
                 "note": "No active real-time stream gauge sits in this area."}
 
     out = {s: {**v, "stage_m": None, "q_m3s": None, "at": None,
-               "trend_cm_h": None, "series": []} for s, v in sites.items()}
+               "trend_cm_h": None, "series": [], "flood_levels_m": None,
+               "flood_category": None, "forecast": None, "lid": None}
+           for s, v in sites.items()}
     try:
         d = json.loads(_get(
             f"{base}/iv/?format=json&sites={','.join(sites)}"
@@ -763,10 +765,84 @@ def gauges(req: RoadsRequest) -> dict:
         elif code == "00060":                              # discharge, cfs
             g["q_m3s"] = round(last * CFS_M3S, 2)
 
+    # ---- NWS flood categories and forecast ------------------------------
+    #
+    # USGS says what the river is doing; it does not say what counts as a
+    # flood there. "Minor", "moderate" and "major" are set per gauge by the
+    # weather service, and without them the headline could only compare a
+    # reading with its own recent range -- which is what it did, and said so.
+    #
+    # NOAA's NWPS publishes them, and the join is by POSITION rather than by
+    # id: the list endpoint returns only lid, name and coordinates, and the
+    # usgsId and the flood categories live on the per-gauge record. So the
+    # list is matched to the USGS sites by distance and only the matches that
+    # will actually be shown are fetched in full -- one request each, and
+    # there are 28 NWS gauges in the Austin box.
+    try:
+        nw = json.loads(_get(
+            "https://api.water.noaa.gov/nwps/v1/gauges?srid=EPSG_4326"
+            f"&bbox.xmin={req.west:.4f}&bbox.ymin={req.south:.4f}"
+            f"&bbox.xmax={req.east:.4f}&bbox.ymax={req.north:.4f}", timeout=45.0))
+    except Exception:                                      # noqa: BLE001
+        nw = {"gauges": []}
+
+    pairs = []
+    for ng in nw.get("gauges", []):
+        try:
+            nlat, nlon = float(ng["latitude"]), float(ng["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        best, bestd = None, 1e9
+        for sid, g in out.items():
+            dy = (g["lat"] - nlat) * 110.574
+            dx = (g["lon"] - nlon) * 111.320 * math.cos(math.radians(nlat))
+            d = math.hypot(dx, dy)
+            if d < bestd:
+                best, bestd = sid, d
+        # 400 m: a gauge house and its NWS forecast point are the same
+        # structure, and nothing else gauged is that close on these creeks.
+        if best and bestd < 0.25:
+            pairs.append((bestd, best, ng.get("lid")))
+    pairs.sort()
+
+    seen: set = set()
+    for _, sid, lid in pairs:
+        if sid in seen or not lid or len(seen) >= 18:
+            continue
+        seen.add(sid)
+        try:
+            det = json.loads(_get(
+                f"https://api.water.noaa.gov/nwps/v1/gauges/{lid}", timeout=30.0))
+        except Exception:                                  # noqa: BLE001
+            continue
+        g = out[sid]
+        g["lid"] = lid
+        cats = ((det.get("flood") or {}).get("categories") or {})
+        unit = ((det.get("flood") or {}).get("stageUnits") or "ft").lower()
+        k = FT_M if unit.startswith("ft") else 1.0
+        levels = {}
+        for name in ("action", "minor", "moderate", "major"):
+            v = (cats.get(name) or {}).get("stage")
+            # -9999 is NWPS for "not set", and it is a plausible-looking float
+            # that would render as a flood level 3 km below the riverbed.
+            if isinstance(v, (int, float)) and -500 < v < 500:
+                levels[name] = round(v * k, 3)
+        g["flood_levels_m"] = levels or None
+        st = (det.get("status") or {})
+        obs_cat = ((st.get("observed") or {}).get("floodCategory") or "")
+        g["flood_category"] = obs_cat if obs_cat not in ("", "unknown") else None
+        fc = (st.get("forecast") or {})
+        fp = fc.get("primary")
+        g["forecast"] = (
+            {"stage_m": round(float(fp) * k, 3), "at": fc.get("validTime"),
+             "category": fc.get("floodCategory")}
+            if isinstance(fp, (int, float)) and fp > -500 else None)
+
     gauges = [g for g in out.values() if g["stage_m"] is not None or g["q_m3s"] is not None]
     gauges.sort(key=lambda g: -(g["q_m3s"] or 0))
     payload = {"supported": True, "gauges": gauges, "cadence_min": 15,
-               "source": "USGS NWIS instantaneous values",
+               "source": "USGS NWIS instantaneous values; "
+                         "flood levels from NOAA NWPS",
                "note": f"{len(gauges)} gauged streams reporting in this area."}
     _GAUGE_CACHE[key] = {"at": time.time(), "payload": payload}
     if len(_GAUGE_CACHE) > 16:

@@ -42,6 +42,14 @@ export interface Gauge {
   trend_cm_h: number | null;
   at: string | null;
   series: { t: string; m: number }[];
+  /** NWS flood categories for this gauge, where it has them. Most small urban
+   *  creeks do not: of 25 gauged streams in the Austin box, 18 match an NWS
+   *  forecast point and 4 have published levels. */
+  flood_levels_m: { action?: number; minor?: number;
+                    moderate?: number; major?: number } | null;
+  flood_category: string | null;
+  forecast: { stage_m: number; at: string; category: string } | null;
+  lid: string | null;
 }
 
 export interface GaugeFeed {
