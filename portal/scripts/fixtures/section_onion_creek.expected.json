@@ -1,0 +1,47 @@
+{
+ "fixture": "section_onion_creek.json",
+ "note": "Computed by scripts/section_baseline.py from the fixture alone. Do not copy these from the TypeScript's output.",
+ "spacing_m": 11.3585,
+ "runs_unfiltered": 1,
+ "runs_2plus": 1,
+ "main": {
+  "m0": 181.7,
+  "m1": 1158.6,
+  "samples": 87,
+  "maxWaterM": 181.15,
+  "maxDepthM": 7.894
+ },
+ "belts": [
+  {
+   "i0": 33,
+   "i1": 41,
+   "m0": 374.8,
+   "m1": 465.7,
+   "samples": 9
+  },
+  {
+   "i0": 90,
+   "i1": 102,
+   "m0": 1022.3,
+   "m1": 1158.6,
+   "samples": 13
+  }
+ ],
+ "panels": [
+  {
+   "i0": 42,
+   "i1": 89,
+   "m0": 477.1,
+   "m1": 1010.9,
+   "stage_m": 180.89
+  },
+  {
+   "i0": 16,
+   "i1": 32,
+   "m0": 181.7,
+   "m1": 363.5,
+   "stage_m": 181.15
+  }
+ ],
+ "whole_line_peak_m": 181.15
+}
