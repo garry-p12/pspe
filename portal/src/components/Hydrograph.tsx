@@ -22,9 +22,13 @@ import type { Gauge } from "./LayersPanel";
  * this is the one they care about.
  */
 
-const H = 150;
-const PAD = { l: 52, r: 96, t: 16, b: 26 };
-const W = 1000;
+// Drawn in the side panel, about 440 px wide, so the viewBox is close to the
+// pixels it lands on. It used to be 1000 units wide under the map; squeezed
+// into the panel the same drawing set 10.5-unit type at four real pixels,
+// which is a chart nobody can read.
+const H = 128;
+const PAD = { l: 30, r: 86, t: 15, b: 20 };
+const W = 440;
 
 const BANDS: [keyof NonNullable<Gauge["flood_levels_m"]>, string][] = [
   ["action", "action"],
@@ -35,9 +39,19 @@ const BANDS: [keyof NonNullable<Gauge["flood_levels_m"]>, string][] = [
 
 export function Hydrograph({ gauge }: { gauge: Gauge }) {
   const pts = gauge.series;
+  // The forecast the NWS actually issued for this gauge, clipped to what is
+  // still ahead. The trace runs five days and begins before the issue time,
+  // so the part of it that overlaps the observed record is hindcast and
+  // drawing it would put two lines through the same hours.
+  const fc = useMemo(() => {
+    const raw = gauge.forecast_series?.points ?? [];
+    if (!pts.length || raw.length < 2) return [];
+    const last = new Date(pts[pts.length - 1].t).getTime();
+    return raw.filter((q) => new Date(q.t).getTime() >= last);
+  }, [gauge, pts]);
 
   const { yMin, yMax } = useMemo(() => {
-    const vals = pts.map((p) => p.m);
+    const vals = [...pts.map((p) => p.m), ...fc.map((p) => p.m)];
     const levels = Object.values(gauge.flood_levels_m ?? {}).filter(
       (v): v is number => typeof v === "number");
     const lo = Math.min(...vals, gauge.stage_m ?? Infinity) - 0.15;
@@ -48,10 +62,12 @@ export function Hydrograph({ gauge }: { gauge: Gauge }) {
     const hi = Math.max(...vals, ...(nearest.length ? [nearest[0]] : []),
                         lo + 0.6) + 0.15;
     return { yMin: lo, yMax: hi };
-  }, [pts, gauge]);
+  }, [pts, fc, gauge]);
 
   const t0 = pts.length ? new Date(pts[0].t).getTime() : 0;
-  const t1 = pts.length ? new Date(pts[pts.length - 1].t).getTime() : 1;
+  /** Now: the end of the observed record, and where the forecast takes over. */
+  const tNow = pts.length ? new Date(pts[pts.length - 1].t).getTime() : 1;
+  const t1 = fc.length ? new Date(fc[fc.length - 1].t).getTime() : tNow;
   const x = (t: number) =>
     PAD.l + ((t - t0) / Math.max(t1 - t0, 1)) * (W - PAD.l - PAD.r);
   const y = (v: number) =>
@@ -63,6 +79,14 @@ export function Hydrograph({ gauge }: { gauge: Gauge }) {
     ).join(" "),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [pts, yMin, yMax, t0, t1],
+  );
+
+  const fcPath = useMemo(
+    () => fc.map((p, i) =>
+      `${i ? "L" : "M"}${x(new Date(p.t).getTime()).toFixed(1)},${y(p.m).toFixed(1)}`
+    ).join(" "),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fc, yMin, yMax, t0, t1],
   );
 
   const days = useMemo(() => {
@@ -116,7 +140,7 @@ export function Hydrograph({ gauge }: { gauge: Gauge }) {
         <g key={d.t}>
           <line x1={x(d.t)} x2={x(d.t)} y1={PAD.t} y2={H - PAD.b}
                 stroke="var(--line-soft)" strokeWidth="1" />
-          <text x={x(d.t) + 4} y={H - 10} fontSize="10.5" fill="var(--ink-faint)"
+          <text x={x(d.t) + 3} y={H - 7} fontSize="9" fill="var(--ink-faint)"
                 fontFamily="var(--font-mono-stack)">{d.label}</text>
         </g>
       ))}
@@ -127,8 +151,8 @@ export function Hydrograph({ gauge }: { gauge: Gauge }) {
         return (
           <g key={k}>
             <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)}
-                  stroke="var(--ink)" strokeWidth="1.1" strokeDasharray="5 4" />
-            <text x={W - PAD.r + 6} y={y(v) + 4} fontSize="10.5" fill="var(--ink-mute)"
+                  stroke="var(--ink)" strokeWidth="1.1" strokeDasharray="4 3" />
+            <text x={W - PAD.r + 6} y={y(v) + 4} fontSize="9" fill="var(--ink-mute)"
                   fontFamily="var(--font-mono-stack)">
               {label} {v.toFixed(2)} m
             </text>
@@ -136,32 +160,40 @@ export function Hydrograph({ gauge }: { gauge: Gauge }) {
         );
       })}
 
-      <path d={path} fill="none" stroke="var(--ink)" strokeWidth="1.8"
+      <path d={path} fill="none" stroke="var(--ink)" strokeWidth="1.5"
             strokeLinejoin="round" strokeLinecap="round" />
+      {/* Forecast, dashed and lighter, with the boundary marked. A solid line
+          through both would say the next five days are as measured as the
+          last three. */}
+      {fc.length > 1 && (
+        <>
+          <line x1={x(tNow)} x2={x(tNow)} y1={PAD.t} y2={H - PAD.b}
+                stroke="var(--ink-faint)" strokeWidth="1" />
+          <path d={fcPath} fill="none" stroke="var(--ink-mute)" strokeWidth="1.4"
+                strokeDasharray="3 2.5" strokeLinejoin="round" />
+        </>
+      )}
 
-      {/* Now: the right-hand end of the record, which is all there is. */}
-      <circle cx={x(t1)} cy={y(pts[pts.length - 1].m)} r="4"
-              fill="var(--bg)" stroke="var(--ink)" strokeWidth="2.5" />
-      <text x={x(t1) + 8} y={y(pts[pts.length - 1].m) - 8} fontSize="11"
+      {/* Now: where measurement stops. */}
+      <circle cx={x(tNow)} cy={y(pts[pts.length - 1].m)} r="3.2"
+              fill="var(--bg)" stroke="var(--ink)" strokeWidth="2" />
+      <text x={x(tNow) + 6} y={y(pts[pts.length - 1].m) + 3.5} fontSize="9.5"
             fill="var(--ink)" fontWeight="600" fontFamily="var(--font-mono-stack)">
         now {pts[pts.length - 1].m.toFixed(2)} m
       </text>
 
-      <text x={PAD.l} y={11} fontSize="10.5" fill="var(--ink-mute)"
+      <text x={PAD.l} y={11} fontSize="9" fill="var(--ink-mute)"
             fontFamily="var(--font-mono-stack)">
         {gauge.name.split(",")[0]} · {gauge.lid ?? gauge.site} · every 15 min
       </text>
-      <text x={W - PAD.r} y={11} textAnchor="end" fontSize="10.5"
+      <text x={W - PAD.r} y={11} textAnchor="end" fontSize="9"
             fill="var(--ink-faint)" fontFamily="var(--font-mono-stack)">
-        {offScale
-          ? `observed · ${offScale}`
-          : gauge.flood_levels_m
-            ? "observed · NWS flood levels"
-            : "observed · no flood levels published for this gauge"}
+        {fc.length > 1 ? "observed · NWS forecast" : "observed"}
+        {offScale ? ` · ${offScale}` : gauge.flood_levels_m ? " · flood levels" : ""}
       </text>
       {[yMin, yMax].map((v, i) => (
         <text key={i} x={PAD.l - 6} y={y(v) + (i ? 9 : 0)} textAnchor="end"
-              fontSize="10.5" fill="var(--ink-faint)"
+              fontSize="9" fill="var(--ink-faint)"
               fontFamily="var(--font-mono-stack)">{v.toFixed(1)}</text>
       ))}
     </svg>

@@ -40,7 +40,7 @@ from pspe.observe import sar  # noqa: E402
 from pspe.simulate.real import forcing  # noqa: E402
 from pspe.plan import routes, surrogate  # noqa: E402
 from pspe.explain import route_brief  # noqa: E402
-from pspe.simulate.flood import FloodConfig, FloodSolver  # noqa: E402
+from pspe.simulate.flood import FloodConfig, FloodSolver, Structures  # noqa: E402
 from pspe.simulate.real.anywhere import (  # noqa: E402
     build_domain, forcing_for,
 )
@@ -81,8 +81,11 @@ class PlanRequest(BaseModel):
     # point estimate.
     sites: list[dict] = []
     max_height_m: float = Field(3.0, ge=0.5, le=10.0)
-    budget_aud: float = Field(20e6, ge=0.0)
-    cost_per_m_per_m: float = 2600.0
+    # US dollars. The study is in Texas and the unit rates behind it are
+    # USACE figures escalated to 2025 and adjusted for Texas; see the portal's
+    # `lib/rates`, which is where the per-measure rates now come from and
+    # which is the only place they are written down.
+    budget_usd: float = Field(20e6, ge=0.0)
     delta: float = Field(0.1, ge=0.01, le=0.5)
     protect: Optional[dict] = None   # {"lat":..,"lon":..,"radius_m":..}
     # What drives the flood. "rain" spreads the storm over the whole box, which
@@ -109,6 +112,10 @@ class AnalyseRequest(BaseModel):
     driver: str = Field("rain", pattern="^(rain|river|coastal)$")
     river_q_m3s: Optional[float] = None
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
+    # Instantaneous depth fields through the run, for the scrubber under the
+    # map. Zero means peak only, which is what the study bundle was built
+    # with before this existed.
+    snapshots: int = Field(0, ge=0, le=24)
 
 
 # What counts as flooded, in metres, for everything that is drawn or counted.
@@ -151,22 +158,23 @@ def terrain_png(z: np.ndarray) -> str:
 
 
 def solve(dom, rain_mm_h: float, storm_h: float, run_h: float,
-          levees: list[dict], req=None) -> tuple[np.ndarray, dict]:
+          levees: list[dict], req=None,
+          snap_hours: "Sequence[float] | None" = None,
+          ) -> tuple[np.ndarray, dict, "np.ndarray | None"]:
     z = torch.as_tensor(dom.z, dtype=torch.float32)
     h_, w_ = z.shape
 
     # Levees raise the bed, which is what makes them gate flow rather than add
-    # water. Each is a Gaussian ridge of a stated width in METRES (defect 20).
+    # water. Through `site_masks`, so a levee is the same object here as in the
+    # plan solver: a crest swept along an alignment, floored at one cell
+    # because that is the narrowest thing the grid can block with. This used
+    # to be its own Gaussian ridge, which meant the two endpoints disagreed
+    # about what a levee IS -- a round 600 m mound here, something else there.
     if levees:
-        yy, xx = torch.meshgrid(torch.arange(h_), torch.arange(w_), indexing="ij")
-        for lv in levees:
-            r = (dom.bounds["north"] - lv["lat"]) / (
-                dom.bounds["north"] - dom.bounds["south"]) * h_
-            c = (lv["lon"] - dom.bounds["west"]) / (
-                dom.bounds["east"] - dom.bounds["west"]) * w_
-            sigma = max(1.0, float(lv.get("width_m", 600.0)) / dom.dx)
-            g = torch.exp(-(((yy - r) ** 2 + (xx - c) ** 2) / sigma ** 2))
-            z = z + float(lv.get("height_m", 2.0)) * g
+        hs = [float(lv.get("height_m", 2.0)) for lv in levees]
+        masks = site_masks(dom, levees, max(hs) if hs else 2.0)
+        for i, hgt in enumerate(hs):
+            z = z + hgt * masks[i]
 
     rows = z.mean(dim=1)
     slope = max(abs(float((rows[0] - rows[-1]) / (h_ * dom.dx))), 1e-5)
@@ -180,6 +188,14 @@ def solve(dom, rain_mm_h: float, storm_h: float, run_h: float,
         "source": rain_mm_h / 3.6e6, "sea_mask": None, "sea_level": None,
         "driver": "rain", "note": "", "q_m3s": None, "stage_m": None}
     src, sea_mask, sea_level = fx["source"], fx["sea_mask"], fx["sea_level"]
+    # Instantaneous depth at a few times, not the running peak. The peak field
+    # answers "was this ever wet", which is the wrong question for anyone
+    # watching the water arrive. The run already computes every one of these
+    # and threw them all away; keeping a handful is what lets the strip under
+    # the map scrub the flood instead of scrubbing nothing.
+    snap_at = sorted(float(x) * 3600.0 for x in (snap_hours or []))
+    snaps: list["torch.Tensor"] = []
+    nxt = 0
     t, dur, steps = 0.0, run_h * 3600.0, 0
     t0 = time.time()
     while t < dur:
@@ -194,9 +210,19 @@ def solve(dom, rain_mm_h: float, storm_h: float, run_h: float,
             h = torch.where(sea_mask[None].expand_as(h), torch.maximum(h, want), h)
         peak = torch.maximum(peak, h)
         t += dt; steps += 1
+        while nxt < len(snap_at) and t >= snap_at[nxt]:
+            snaps.append(h[0].clone())
+            nxt += 1
+    # A run that stops early still owes a schedule of the right length, or the
+    # client reads a shorter horizon than it asked about.
+    while nxt < len(snap_at):
+        snaps.append(h[0].clone())
+        nxt += 1
 
-    return peak[0].numpy(), {"driver": fx["driver"], "driver_note": fx["note"],
-                             "steps": steps, "seconds": round(time.time() - t0, 1)}
+    return (peak[0].numpy(),
+            {"driver": fx["driver"], "driver_note": fx["note"],
+             "steps": steps, "seconds": round(time.time() - t0, 1)},
+            (torch.stack(snaps).numpy() if snaps else None))
 
 
 @app.get("/health")
@@ -495,11 +521,18 @@ _NAMED_CACHE: dict = {}
 
 
 def fetch_named_lines(west: float, south: float, east: float, north: float,
-                      timeout: float = 45.0) -> list[dict]:
+                      timeout: float = 90.0, rounds: int = 2) -> list[dict]:
     """Named roads and waterways, for calling a place something findable.
 
     "Site 3" is not something anyone can locate on the ground. Optional and
     cached: a failure here costs a name, not an answer.
+
+    The highway filter is `ROAD_CLASSES`, the same list the road layer uses,
+    and that is not tidiness. A bare `way["highway"]["name"]` over the 13 by
+    11 km Austin box asks Overpass for every driveway, parking aisle, footway
+    and service road in south Austin before the `out geom 400` cap throws
+    nearly all of them away: both public mirrors returned 500 and 504, the
+    fetch failed silently, and all six candidate sites came back unnamed.
     """
     key = (round(west, 4), round(south, 4), round(east, 4), round(north, 4))
     if key in _NAMED_CACHE:
@@ -507,10 +540,11 @@ def fetch_named_lines(west: float, south: float, east: float, north: float,
     q = (f"[out:json][timeout:{int(timeout)}];("
          f'way["waterway"~"^(river|stream|canal|drain)$"]["name"]'
          f"({south},{west},{north},{east});"
-         f'way["highway"]["name"]({south},{west},{north},{east});'
-         f");out geom 400;")
+         f'way["highway"~"^({"|".join(ROAD_CLASSES)})$"]["name"]'
+         f"({south},{west},{north},{east});"
+         f");out geom;")
     payload = None
-    for url in OVERPASS_MIRRORS:
+    for url in [u for _ in range(rounds) for u in OVERPASS_MIRRORS]:
         try:
             r = urllib.request.Request(
                 url, data=urllib.parse.urlencode({"data": q}).encode(),
@@ -520,6 +554,10 @@ def fetch_named_lines(west: float, south: float, east: float, north: float,
             break
         except Exception:                                  # noqa: BLE001
             continue
+    # An empty answer is a failure, not a place with no names, and caching it
+    # would make the failure permanent for the life of the process.
+    if not (payload or {}).get("elements"):
+        return []
     out = []
     for el in (payload or {}).get("elements", []):
         nm = (el.get("tags") or {}).get("name")
@@ -743,6 +781,276 @@ FT_M = 0.3048
 CFS_M3S = 0.0283168466
 
 
+def _get(url: str, timeout: float = 45.0) -> str:
+    """One GET, decoded. Module scope because three fetchers want it."""
+    r = urllib.request.Request(
+        url, headers={"User-Agent": "PSPE-floodplain-planner/1.0"})
+    with urllib.request.urlopen(r, timeout=timeout) as f:
+        return f.read().decode()
+
+
+_FORECAST_CACHE: dict = {}
+
+
+def _nwps_forecast_series(lid: str, timeout: float = 30.0) -> list[dict] | None:
+    """The NWS river forecast for one gauge, as a curve.
+
+    The gauge detail endpoint carries only the forecast PEAK -- one stage and
+    one time -- which is enough for a headline and not enough to draw. The
+    stageflow endpoint carries the hourly trace the forecaster actually
+    issued, typically five days of it, and that is what the strip under the
+    map needs to show where the river is going rather than only where it has
+    been.
+
+    Returned in metres with the issue time attached, because a forecast is a
+    statement made at a moment and one issued nine hours ago is a different
+    claim from one issued now. Optional: a failure here costs the band, not
+    the reading.
+    """
+    hit = _FORECAST_CACHE.get(lid)
+    if hit and time.time() - hit["at"] < 600:
+        return hit["series"]
+    try:
+        d = json.loads(_get(
+            f"https://api.water.noaa.gov/nwps/v1/gauges/{lid}/stageflow",
+            timeout=timeout))
+    except Exception:                                      # noqa: BLE001
+        return None
+    fc = d.get("forecast") or {}
+    rows = fc.get("data") or []
+    if not rows:
+        return None
+    k = FT_M if str(fc.get("primaryUnits") or "ft").lower().startswith("ft") else 1.0
+    out = []
+    for r in rows:
+        v, t = r.get("primary"), r.get("validTime")
+        if not isinstance(v, (int, float)) or not t or not (-500 < v < 500):
+            continue
+        out.append({"t": t, "m": round(float(v) * k, 3)})
+    if len(out) < 2:
+        return None
+    series = {"issued": fc.get("issuedTime"), "points": out}
+    if len(_FORECAST_CACHE) > 24:
+        _FORECAST_CACHE.pop(next(iter(_FORECAST_CACHE)))
+    _FORECAST_CACHE[lid] = {"at": time.time(), "series": series}
+    return series
+
+
+class PeaksRequest(BaseModel):
+    """Annual peak flows for the gauges on this reach."""
+    west: float
+    south: float
+    east: float
+    north: float
+    pad_deg: float = Field(0.05, ge=0.0, le=0.5)
+    # The watercourse the model is about, so the scenario list leads with the
+    # gauge on it. Without this the Austin box leads with the Colorado River,
+    # whose peaks are four times Onion Creek's and would be nonsense poured
+    # into Onion Creek's channel.
+    reach: str = ""
+
+
+_PEAKS_CACHE: dict = {}
+
+# Exceedance probabilities worth naming. A planner thinks in return periods
+# and a hydrologist in annual exceedance probability; they are the same number
+# said twice, so both are returned and neither has to be computed on screen.
+AEP = (0.5, 0.2, 0.1, 0.04, 0.02, 0.01, 0.002)
+
+
+def _lp3_quantiles(q_cfs: list[float]) -> tuple[list[dict], dict]:
+    """Flood frequency by log-Pearson III, the way Bulletin 17 does it.
+
+    The annual maximum series is fitted in log10 space with a Pearson type III
+    distribution -- the standard American method for this, and the one the
+    regulatory discharges in FEMA studies come from. Frequency factors by the
+    Wilson-Hilferty approximation, which is what Bulletin 17B tabulates.
+
+    **What this is not.** Bulletin 17C weights the station skew against a
+    regional skew map, applies the Expected Moments Algorithm to historical
+    and censored peaks, and tests for low outliers. None of that is here: this
+    is the station skew alone, on the published record, and the response says
+    so. It is enough to put a named design flood behind a scenario button and
+    not enough to design a levee to.
+    """
+    import statistics as st
+    xs = [math.log10(q) for q in q_cfs if q and q > 0]
+    n = len(xs)
+    if n < 10:
+        return [], {"n": n, "note": "Too short a record to fit a distribution."}
+    m = sum(xs) / n
+    sd = math.sqrt(sum((x - m) ** 2 for x in xs) / (n - 1))
+    if sd < 1e-9:
+        return [], {"n": n, "note": "The record has no variance to fit."}
+    g = (n * sum((x - m) ** 3 for x in xs)
+         / ((n - 1) * (n - 2) * sd ** 3)) if n > 2 else 0.0
+    nd = st.NormalDist()
+    out = []
+    for p in AEP:
+        z = nd.inv_cdf(1.0 - p)
+        if abs(g) < 1e-6:
+            k = z
+        else:
+            k = (2.0 / g) * ((1.0 + g * z / 6.0 - g * g / 36.0) ** 3 - 1.0)
+        out.append({
+            "aep_pct": round(p * 100, 2),
+            "return_period_y": int(round(1.0 / p)),
+            "q_m3s": round(10.0 ** (m + k * sd) * CFS_M3S, 1),
+        })
+    return out, {"n": n, "log_mean": round(m, 4), "log_sd": round(sd, 4),
+                 "skew": round(g, 4),
+                 "note": ("Log-Pearson III on the station's own annual maxima, "
+                          f"{n} years, station skew {g:+.2f} and no regional "
+                          "weighting. Bulletin 17C would weight the skew and "
+                          "handle historical peaks; this does neither.")}
+
+
+def _usgs_peaks(site: str, timeout: float = 45.0) -> dict | None:
+    """The published annual peak streamflow record for one USGS site."""
+    hit = _PEAKS_CACHE.get(site)
+    if hit and time.time() - hit["at"] < 86400:
+        return hit["val"]
+    try:
+        rdb = _get("https://nwis.waterdata.usgs.gov/nwis/peak"
+                   f"?site_no={site}&agency_cd=USGS&format=rdb", timeout=timeout)
+    except Exception:                                      # noqa: BLE001
+        return None
+    rows, cols = [], None
+    for line in rdb.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split("\t")
+        if cols is None:
+            cols = parts
+            continue
+        if parts and parts[0].startswith(("5s", "15s")):
+            continue                                        # the format row
+        rows.append(dict(zip(cols, parts)))
+    peaks = []
+    for r in rows:
+        try:
+            q = float(r.get("peak_va") or "")
+        except ValueError:
+            continue
+        if q <= 0:
+            continue
+        gh = r.get("gage_ht") or ""
+        peaks.append({
+            "date": r.get("peak_dt") or "",
+            "q_m3s": round(q * CFS_M3S, 1),
+            "q_cfs": q,
+            "stage_m": round(float(gh) * FT_M, 2) if gh else None,
+        })
+    if len(peaks) < 5:
+        return None
+    quant, fit = _lp3_quantiles([p["q_cfs"] for p in peaks])
+    peaks.sort(key=lambda p: -p["q_m3s"])
+    val = {"site": site, "peaks": peaks, "quantiles": quant, "fit": fit,
+           "years": len(peaks),
+           "first": min(p["date"] for p in peaks if p["date"]),
+           "last": max(p["date"] for p in peaks if p["date"])}
+    if len(_PEAKS_CACHE) > 24:
+        _PEAKS_CACHE.pop(next(iter(_PEAKS_CACHE)))
+    _PEAKS_CACHE[site] = {"at": time.time(), "val": val}
+    return val
+
+
+@app.post("/peaks")
+def peaks(req: PeaksRequest) -> dict:
+    """What this creek has actually done, and what it does at 1% a year.
+
+    The plan tab was solving a design rainstorm, and under a rainstorm falling
+    evenly on both sides of it a levee holds water in rather than out --
+    measured, two 2 m walls on Onion Creek made the flooded area 0.05% WORSE.
+    Driving it from the live gauge instead gave 0.13 km2 of water, because
+    Onion Creek is not in flood today. Neither is a question a levee has an
+    answer to.
+
+    The question a levee has an answer to is a named flood. Onion Creek has
+    an instrumented record of those going back to 1921: 135,000 cfs on 31
+    October 2013, 122,000 on 30 October 2015, 138,000 in September 1921. Those
+    are discharges this reach has carried, published by the USGS, and they are
+    what the scenarios on the Plan tab are. The fitted quantiles beside them
+    put a 1%-annual-chance number next to the recorded ones.
+
+    The gauge is found the same way `/gauges` finds it, over a box padded
+    outwards: the reach's own gauge frequently sits just outside the modelled
+    rectangle, and a scenario list that is empty because the gauge is 600 m
+    east of the edge is a worse answer than one that looks a little wider.
+    """
+    key = "peaks:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
+    if key in CACHE:
+        return {**CACHE[key], "cached": True}
+    pad = req.pad_deg
+    try:
+        rdb = _get("https://waterservices.usgs.gov/nwis/site/?format=rdb"
+                   f"&bBox={req.west - pad:.4f},{req.south - pad:.4f},"
+                   f"{req.east + pad:.4f},{req.north + pad:.4f}"
+                   "&siteType=ST&outputDataTypeCd=pk")
+    except Exception as exc:                               # noqa: BLE001
+        return {"ok": False, "reason": f"USGS did not answer ({str(exc)[:80]})."}
+    cols, sites = None, []
+    for line in rdb.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split("\t")
+        if cols is None:
+            cols = parts
+            continue
+        if parts and parts[0].startswith(("5s", "15s")):
+            continue
+        r = dict(zip(cols, parts))
+        if r.get("site_no"):
+            sites.append({"site": r["site_no"], "name": r.get("station_nm", ""),
+                          "lat": r.get("dec_lat_va"), "lon": r.get("dec_long_va")})
+    if not sites:
+        return {"ok": False, "reason": "No USGS site here publishes annual peaks."}
+
+    # The reach's own gauge is frequently well down the alphabetical site
+    # list the USGS returns -- Onion Ck at US Hwy 183 is the eighteenth site
+    # in the Austin box -- so every site is fetched, not the first handful.
+    # Each is a cached day-long GET.
+    out = []
+    for s in sites[:24]:
+        rec = _usgs_peaks(s["site"])
+        if rec:
+            out.append({**s, **rec})
+    if not out:
+        return {"ok": False, "reason":
+                "The gauges here have no usable annual peak record."}
+
+    # Gauges ON the modelled watercourse first, then longest record. Length
+    # alone put the Colorado River at the top of a study about Onion Creek,
+    # and its 15,574 m3/s poured down Onion Creek's channel is not a scenario,
+    # it is a category error.
+    # Strip the punctuation BEFORE testing the stop list, not after. "Austin,"
+    # is not "austin", so the place name survived the filter and then matched
+    # every gauge in Austin -- which put the Colorado River back on top of a
+    # study about Onion Creek.
+    STOP = {"creek", "river", "bayou", "brook", "near", "at", "the"}
+    want = set()
+    for w in req.reach.replace(",", " ").split():
+        t = w.lower().strip(".")
+        if len(t) > 3 and t not in STOP:
+            want.add(t)
+    # A place name is not a watercourse. Everything after the first comma of
+    # "Onion Creek, Austin, Texas" names the city and the state, and both
+    # appear in every station name here.
+    for part in req.reach.split(",")[1:]:
+        for w in part.split():
+            want.discard(w.lower().strip("."))
+    def rank(r: dict) -> tuple:
+        nm = r.get("name", "").lower()
+        return (0 if want and any(w in nm for w in want) else 1, -r["years"])
+    out.sort(key=rank)
+    res = {"ok": True, "gauges": out,
+           "source": "USGS annual peak streamflow (NWIS); log-Pearson III fit"}
+    if len(CACHE) > 24:
+        CACHE.pop(next(iter(CACHE)))
+    CACHE[key] = res
+    return {**res, "cached": False}
+
+
 @app.post("/gauges")
 def gauges(req: RoadsRequest) -> dict:
     """Real-time river gauges over this box, with the last three days of stage.
@@ -782,11 +1090,6 @@ def gauges(req: RoadsRequest) -> dict:
                          "this area.")}
 
     base = "https://waterservices.usgs.gov/nwis"
-    def _get(url: str, timeout: float = 45.0) -> str:
-        r = urllib.request.Request(url, headers={"User-Agent": "PSPE-floodplain-planner/1.0"})
-        with urllib.request.urlopen(r, timeout=timeout) as f:
-            return f.read().decode()
-
     try:
         rdb = _get(f"{base}/site/?format=rdb&bBox={req.west:.4f},{req.south:.4f},"
                    f"{req.east:.4f},{req.north:.4f}"
@@ -809,7 +1112,8 @@ def gauges(req: RoadsRequest) -> dict:
 
     out = {s: {**v, "stage_m": None, "q_m3s": None, "at": None,
                "trend_cm_h": None, "series": [], "flood_levels_m": None,
-               "flood_category": None, "forecast": None, "lid": None}
+               "flood_category": None, "forecast": None,
+               "forecast_series": None, "lid": None}
            for s, v in sites.items()}
     try:
         d = json.loads(_get(
@@ -917,6 +1221,8 @@ def gauges(req: RoadsRequest) -> dict:
             {"stage_m": round(float(fp) * k, 3), "at": fc.get("validTime"),
              "category": fc.get("floodCategory")}
             if isinstance(fp, (int, float)) and fp > -500 else None)
+        # The forecast CURVE, not just its peak.
+        g["forecast_series"] = _nwps_forecast_series(lid)
 
     gauges = [g for g in out.values() if g["stage_m"] is not None or g["q_m3s"] is not None]
     gauges.sort(key=lambda g: -(g["q_m3s"] or 0))
@@ -1121,23 +1427,227 @@ def build_forcing(dom, req) -> dict:
     return out
 
 
-def site_masks(dom, sites: list[dict]) -> "torch.Tensor":
-    """One Gaussian ridge per candidate site, in METRES (defect 20)."""
+# An embankment's cross-section. A compacted earth levee is built with a flat
+# crest wide enough to drive a maintenance vehicle along and batters at one
+# vertical in three horizontal; both are standard and both are what decide how
+# much ground the thing actually covers.
+CREST_WIDTH_M = 3.048
+SIDE_SLOPE = 3.0
+
+
+def _polyline_dist(yy: "torch.Tensor", xx: "torch.Tensor",
+                   pts: list[tuple[float, float]]) -> "torch.Tensor":
+    """Distance in cells from every cell to the nearest point on a polyline."""
+    out = None
+    for (r0, c0), (r1, c1) in zip(pts[:-1], pts[1:]):
+        dr, dc = r1 - r0, c1 - c0
+        l2 = dr * dr + dc * dc
+        if l2 < 1e-12:
+            seg = torch.sqrt((yy - r0) ** 2 + (xx - c0) ** 2)
+        else:
+            t = (((yy - r0) * dr + (xx - c0) * dc) / l2).clamp(0.0, 1.0)
+            seg = torch.sqrt((yy - (r0 + t * dr)) ** 2 + (xx - (c0 + t * dc)) ** 2)
+        out = seg if out is None else torch.minimum(out, seg)
+    return out if out is not None else torch.full_like(yy, 1e9)
+
+
+def _contour_line(z: "torch.Tensor", r: float, c: float,
+                  half_cells: float) -> list[tuple[float, float]]:
+    """A levee alignment through one point, along the local contour.
+
+    Used only where the caller gave a point and no alignment -- a levee hand
+    placed on the map. A wall across the slope is a dam and a wall along it is
+    a levee, so the direction is taken from the terrain rather than guessed:
+    the gradient of the bed at that cell points downhill, and the alignment
+    runs at right angles to it.
+    """
+    h_, w_ = z.shape
+    ri, ci = int(round(r)), int(round(c))
+    ri = min(max(ri, 1), h_ - 2)
+    ci = min(max(ci, 1), w_ - 2)
+    gr = float(z[ri + 1, ci] - z[ri - 1, ci])
+    gc = float(z[ri, ci + 1] - z[ri, ci - 1])
+    n = math.hypot(gr, gc)
+    if n < 1e-9:                       # flat: no contour to follow
+        ar, ac = 0.0, 1.0
+    else:
+        ar, ac = -gc / n, gr / n       # perpendicular to the gradient
+    return [(r - ar * half_cells, c - ac * half_cells),
+            (r + ar * half_cells, c + ac * half_cells)]
+
+
+def site_masks(dom, sites: list[dict], max_height_m: float = 2.0) -> "torch.Tensor":
+    """One levee per candidate site, swept along the bank it defends.
+
+    This was a Gaussian: `exp(-r**2 / sigma**2)` about the site's centroid. A
+    round hill, the same shape whatever the bank beneath it looked like,
+    tallest at a single point rather than along a crest, and with a skirt that
+    never quite reaches zero. The plan solver was answering a question about a
+    mound nobody would build.
+
+    A levee is a line. What is swept here is the real cross-section -- a flat
+    crest `CREST_WIDTH_M` wide following the site's own centreline, with
+    batters at 1V:`SIDE_SLOPE`H -- along the alignment `/sites` returned for
+    that run, or along the local contour where the caller gave only a point.
+
+    The mask is dimensionless and gets multiplied by the design height, so the
+    whole plan library still costs one batched solve. The price of that is
+    that the footprint is sized once, for `max_height_m`: a shorter wall in
+    the same footprint stands on flatter batters than it would be built with.
+    The crest, which is the thing that decides whether water passes, is exact
+    at every height.
+    """
     h_, w_ = dom.z.shape
-    yy, xx = torch.meshgrid(torch.arange(h_), torch.arange(w_), indexing="ij")
+    yy, xx = torch.meshgrid(torch.arange(h_, dtype=torch.float32),
+                            torch.arange(w_, dtype=torch.float32), indexing="ij")
+    b = dom.bounds
+    z = torch.as_tensor(dom.z, dtype=torch.float32)
+
+    def rc(lon: float, lat: float) -> tuple[float, float]:
+        return ((b["north"] - lat) / (b["north"] - b["south"]) * (h_ - 1),
+                (lon - b["west"]) / (b["east"] - b["west"]) * (w_ - 1))
+
+    # A levee is narrower than a cell, and a cell is the narrowest thing this
+    # model can block with.
+    #
+    # At 60 m a 3 m crest with 2 m batters is 15 m wide: a quarter of a cell.
+    # Rasterised honestly it raised almost nothing -- measured, two 2 m walls
+    # on Onion Creek moved the flooded area by 0.0004%, which is a levee that
+    # is not there rather than a levee that does not work. So the crest is
+    # floored at half a cell either side of the alignment, which is the
+    # standard sub-grid treatment: the wall raises the bed of every cell it
+    # passes through, because blocking part of a cell is not something a
+    # finite-volume scheme can express. The cost is that the modelled
+    # footprint is a cell wide where the built one is 15 m, so the plan
+    # over-states how much ground the embankment occupies and states the
+    # crest, which is what decides whether water passes, exactly.
+    crest_half = max(0.5 * CREST_WIDTH_M / dom.dx, 0.5)
+    shoulder = max(SIDE_SLOPE * float(max_height_m) / dom.dx, 0.25)
+
     out = []
     for s in sites:
-        r = (dom.bounds["north"] - s["lat"]) / (
-            dom.bounds["north"] - dom.bounds["south"]) * h_
-        c = (s["lon"] - dom.bounds["west"]) / (
-            dom.bounds["east"] - dom.bounds["west"]) * w_
-        sigma = max(1.0, float(s.get("width_m", 600.0)) / dom.dx)
-        out.append(torch.exp(-(((yy - r) ** 2 + (xx - c) ** 2) / sigma ** 2)))
+        pts = [rc(float(p[0]), float(p[1])) for p in (s.get("outline") or [])]
+        if len(pts) < 2:
+            r, c = rc(float(s["lon"]), float(s["lat"]))
+            # `width_m` is half the alignment's length -- the same convention
+            # the cost model uses, where `lengths` is `width_m * 2`.
+            pts = _contour_line(z, r, c, float(s.get("width_m", 600.0)) / dom.dx)
+        d = _polyline_dist(yy, xx, pts)
+        out.append(((crest_half + shoulder - d) / shoulder).clamp(0.0, 1.0))
     return torch.stack(out) if out else torch.zeros(0, h_, w_)
 
 
+# One unit of a structure, so a plan's intensity means something buildable.
+#
+# A gate at intensity 1.0 is one 48-inch (1.22 m) barrel, which is the size
+# the USACE gated-outfall cost in `lib/rates` is quoted for; 2.0 is a twin
+# barrel. A pump at intensity 1.0 is one cubic metre a second of firm
+# capacity, which is the unit its cost is quoted in too. So the intensity the
+# planner solves over and the intensity it prices are the same number.
+GATE_UNIT_AREA_M2 = math.pi * (1.22 / 2.0) ** 2
+PUMP_UNIT_Q_M3S = 1.0
+# Wet-well hysteresis. A pump that starts and stops at one level chatters
+# against its own drawdown; these are the start and stop depths above the
+# intake, and they are operating settings rather than measurements.
+PUMP_ON_M = 0.30
+PUMP_OFF_M = 0.10
+
+
+def build_structures(dom, sites: list[dict], intensity: "torch.Tensor"):
+    """Gates and pumps for a batch of plans, from the sites they sit on.
+
+    A levee is a bed perturbation and can only keep water OUT of a perimeter.
+    A gate lets the land behind one drain when the river drops, and a pump
+    lifts water that is already inside. Those are different instruments and
+    the planner needs all three, because the pluvial case -- where a quarter
+    of the rain falls inside the area being protected -- is one no levee
+    placement can answer.
+
+    Each structure sits ACROSS the bank it is placed on: inside cell on the
+    landward side of the site's own section, outside cell on the river side,
+    a cell and a half either way. That geometry comes out of `/sites`, which
+    already decided which end of the section is landward by counting solved
+    water on each side.
+
+    `intensity` is (b, k) -- one row per candidate plan, one column per
+    measure, the same matrix that drives the levee heights. A plan that does
+    not build a structure sets its column to zero, which shuts the gate and
+    stops the pump, so the whole library still solves in one timestep loop.
+    """
+    h_, w_ = dom.z.shape
+    b = dom.bounds
+    z0 = torch.as_tensor(dom.z, dtype=torch.float32)
+
+    def rc(lon: float, lat: float) -> tuple[float, float]:
+        return ((b["north"] - lat) / (b["north"] - b["south"]) * (h_ - 1),
+                (lon - b["west"]) / (b["east"] - b["west"]) * (w_ - 1))
+
+    def across(s: dict) -> tuple[tuple[int, int], tuple[int, int]] | None:
+        """Cells a cell and a half either side of the bank, landward first."""
+        ln = s.get("line") or {}
+        a, o = ln.get("a"), ln.get("b")
+        if not a or not o:
+            return None
+        ra, ca = rc(float(a["lon"]), float(a["lat"]))
+        rb, cb = rc(float(o["lon"]), float(o["lat"]))
+        dr, dc = rb - ra, cb - ca
+        n = math.hypot(dr, dc)
+        if n < 1e-6:
+            return None
+        dr, dc = dr / n, dc / n
+        rm, cm = rc(float(s["lon"]), float(s["lat"]))
+        def clamp(r: float, c: float) -> tuple[int, int]:
+            return (int(min(max(round(r), 0), h_ - 1)),
+                    int(min(max(round(c), 0), w_ - 1)))
+        return clamp(rm - dr * 1.5, cm - dc * 1.5), clamp(rm + dr * 1.5, cm + dc * 1.5)
+
+    g_in, g_out, g_col, g_inv = [], [], [], []
+    p_in, p_out, p_col, p_sump = [], [], [], []
+    for i, s in enumerate(sites):
+        kind = str(s.get("kind", "levee"))
+        if kind not in ("gate", "pump"):
+            continue
+        pair = across(s)
+        if pair is None:
+            continue
+        (ri, ci), (ro, co) = pair
+        if kind == "gate":
+            g_in.append([ri, ci]); g_out.append([ro, co]); g_col.append(i)
+            # The sill sits on the ground it drains. Nothing below the invert
+            # leaves through a gravity outfall, which is exactly why a gate
+            # alone does not empty a bowl and a pump does.
+            g_inv.append(float(z0[ri, ci]))
+        else:
+            p_in.append([ri, ci]); p_out.append([ro, co]); p_col.append(i)
+            p_sump.append(float(z0[ri, ci]))
+
+    if not g_col and not p_col:
+        return None
+
+    st = Structures()
+    if g_col:
+        cols = torch.tensor(g_col, dtype=torch.long)
+        amp = intensity[:, cols]                           # (b, G)
+        st.gate_in = torch.tensor(g_in, dtype=torch.long)
+        st.gate_out = torch.tensor(g_out, dtype=torch.long)
+        st.gate_area_m2 = amp * GATE_UNIT_AREA_M2
+        st.gate_invert_m = torch.tensor(g_inv, dtype=torch.float32)
+        st.gate_open = amp > 0
+    if p_col:
+        cols = torch.tensor(p_col, dtype=torch.long)
+        amp = intensity[:, cols]                           # (b, P)
+        st.pump_in = torch.tensor(p_in, dtype=torch.long)
+        st.pump_out = torch.tensor(p_out, dtype=torch.long)
+        st.pump_q_m3s = amp * PUMP_UNIT_Q_M3S
+        st.pump_sump_m = torch.tensor(p_sump, dtype=torch.float32)
+        st.pump_on_m = torch.full((len(p_col),), PUMP_ON_M)
+        st.pump_off_m = torch.full((len(p_col),), PUMP_OFF_M)
+    return st
+
+
 def solve_beds(dom, req, z: "torch.Tensor", fx: dict,
-               snap_hours: Sequence[float] | None = None
+               snap_hours: Sequence[float] | None = None,
+               structures=None,
                ) -> tuple["torch.Tensor", int, "torch.Tensor | None"]:
     """Peak depth for a batch of beds, one timestep loop for all of them.
 
@@ -1155,6 +1665,7 @@ def solve_beds(dom, req, z: "torch.Tensor", fx: dict,
     cfg = FloodConfig(dx=dom.dx, open_edges=("south", "north", "east", "west"),
                       manning=0.035, bed_slope=slope, dt_max=300.0)
     solver = FloodSolver(z, cfg)
+    solver.structures = structures
     b = z.shape[0]
     h = torch.zeros(b, z.shape[1], z.shape[2])
     qx, qy = solver.zeros_flux(b)
@@ -1231,16 +1742,31 @@ def plan_anywhere(req: PlanRequest) -> dict:
     dom = build_domain(req.west, req.south, req.east, req.north,
                        dx=req.dx, name=req.name, source=TERRAIN)
     z0 = torch.as_tensor(dom.z, dtype=torch.float32)
-    masks = site_masks(dom, req.sites)
     k = len(req.sites)
+
+    # Three kinds of measure, one intensity vector.
+    #
+    # A levee's intensity is its crest height in metres. A gate's is how many
+    # 48-inch barrels it has; a pump's is how many cubic metres a second it
+    # lifts. The enumeration, the surrogate, the conformal margin and the
+    # greedy search all see one dimensionless number per measure and do not
+    # need to know which kind it is -- which is what lets a gate and a pump
+    # into the plan library without a second code path. What differs is only
+    # where the number is applied: a levee changes the BED, a gate and a pump
+    # are exchanges between two named cells.
+    kinds = [str(x.get("kind", "levee")) for x in req.sites]
+    lev = [i for i, kd in enumerate(kinds) if kd not in ("gate", "pump")]
 
     plans = surrogate.enumerate_plans(k, req.max_height_m)
     P = torch.tensor(plans, dtype=torch.float32)
-    # One bed per plan; one timestep loop for all of them.
-    z = z0[None] + (P[:, :, None, None] * masks[None]).sum(1)
+    z = z0[None].expand(P.shape[0], -1, -1).clone()
+    if lev:
+        masks = site_masks(dom, [req.sites[i] for i in lev], req.max_height_m)
+        z = z + (P[:, lev, None, None] * masks[None]).sum(1)
+    structures = build_structures(dom, req.sites, P)
 
     fx = build_forcing(dom, req)
-    peak, steps, _ = solve_beds(dom, req, z, fx)
+    peak, steps, _ = solve_beds(dom, req, z, fx, structures=structures)
     b = z.shape[0]
 
     # What the plan is bought to change: depth over the protected area, or the
@@ -1265,8 +1791,26 @@ def plan_anywhere(req: PlanRequest) -> dict:
     reduction = [(base - float(c)) / base * 100.0 if base > 1e-9 else 0.0
                  for c in core]
 
-    lengths = [float(s.get("width_m", 600.0)) * 2.0 for s in req.sites]
-    unit = req.cost_per_m_per_m
+    def measure_cost(j: int, x: float) -> float:
+        """What one measure costs at one intensity.
+
+        The rate and the model come from the client, which is the only place
+        they are written down (`lib/rates`): the service used to carry its own
+        bare `2600.0` and so did two other files, so the figure a user saw
+        depended on which of three copies was reached. An embankment is priced
+        from its real trapezoidal volume rather than a flat rate per metre of
+        height, because the volume goes as `crest*H + slope*H^2` and a flat
+        rate therefore understates a tall wall and overstates a short one.
+        """
+        sp = req.sites[j]
+        model = str(sp.get("cost_model", "earth"))
+        unit = float(sp.get("unit_cost", 0.0))
+        length = float(sp.get("width_m", 600.0)) * 2.0
+        if model == "earth":
+            return length * (CREST_WIDTH_M * x + SIDE_SLOPE * x * x) * unit
+        if model == "wall":
+            return length * x * unit
+        return x * unit                       # a gate or a pump, per unit
 
     alpha = [0.0] * k
     for i, pl in enumerate(plans):
@@ -1286,7 +1830,7 @@ def plan_anywhere(req: PlanRequest) -> dict:
             "id": "base" if not any(h > 0 for h in pl) else
                   "o" + "".join(f"{j}@{h:g}" for j, h in enumerate(pl) if h > 0),
             "heights": list(pl),
-            "cost_aud": sum(pl[j] * lengths[j] * unit for j in range(k)),
+            "cost_usd": sum(measure_cost(j, pl[j]) for j in range(k)),
             "core_reduction_pct": reduction[i],
             "area_flooded_km2": round(float(wet[i]) * cell_km2, 2),
             "peak_depth_m": round(float(peak[i].max()), 2),
@@ -1309,7 +1853,7 @@ def plan_anywhere(req: PlanRequest) -> dict:
     S = f["saturation_S"]
 
     def cost(hv):
-        return sum(hv[i] * lengths[i] * unit for i in range(k))
+        return sum(measure_cost(i, hv[i]) for i in range(k))
 
     # Greedy allocation, same rule the district planner uses.
     hv, trace = [0.0] * k, []
@@ -1323,7 +1867,7 @@ def plan_anywhere(req: PlanRequest) -> dict:
                 continue
             trial = list(hv); trial[i] += step_m
             spent = cost(trial)
-            if spent > req.budget_aud:
+            if spent > req.budget_usd:
                 continue
             e = surrogate.effect(alpha, trial, req.max_height_m, S)
             per = (e - cur) / max(spent - spent_now, 1.0)
@@ -1347,7 +1891,7 @@ def plan_anywhere(req: PlanRequest) -> dict:
             "site": i, "height_m": hh, "marginal_pct": marginal,
             "alone_pct": alpha[i] * (hh / req.max_height_m),
             "overlap_pct": alpha[i] * (hh / req.max_height_m) - marginal,
-            "cost_aud": hh * lengths[i] * unit,
+            "cost_usd": measure_cost(i, hh),
         })
     attribution.sort(key=lambda a: -a["marginal_pct"])
 
@@ -1389,8 +1933,8 @@ def plan_anywhere(req: PlanRequest) -> dict:
         "chosen_reduction_pct": chosen_reduction if chosen_u8 is not None else None,
         "surrogate_overclaim_pct": (
             None if chosen_u8 is None else eff - chosen_reduction),
-        "cost_aud": cost(hv),
-        "budget_aud": req.budget_aud,
+        "cost_usd": cost(hv),
+        "budget_usd": req.budget_usd,
         "reduction_pct": eff,
         "guaranteed_pct": eff - band,
         "band_pct": band,
@@ -1557,6 +2101,45 @@ class SitesRequest(BaseModel):
     shortfall_m: float = Field(2.0, ge=0.2, le=8.0)
 
 
+def _centreline(rs, cs, bounds: dict, shape: tuple, bins: int = 24) -> list[list[float]]:
+    """The alignment a wall would follow along a bank run, in lon/lat order.
+
+    `cells` comes out of the flood fill in the order the stack happened to pop
+    them, which is a scatter and not a path: joined up it zig-zags across the
+    bank and back, and decimating it does not help. Projecting the cells onto
+    the run's own principal axis -- the same axis `_section_line` cuts across
+    -- and averaging within bins along that axis gives the line itself.
+
+    This is what the map draws as the site's outline and what the plan solver
+    sweeps a levee along, so a scatter here is not cosmetic: it was the
+    geometry the whole plan was costed and solved against.
+    """
+    h_, w_ = shape
+    r0, c0 = float(rs.mean()), float(cs.mean())
+    dr, dc = rs - r0, cs - c0
+    cov = np.array([[float((dr * dr).sum()), float((dr * dc).sum())],
+                    [float((dr * dc).sum()), float((dc * dc).sum())]])
+    vals, vecs = np.linalg.eigh(cov)
+    axis = vecs[:, int(np.argmax(vals))]
+    t = dr * axis[0] + dc * axis[1]
+    lo, hi = float(t.min()), float(t.max())
+    n = max(2, min(bins, int(round((hi - lo) / 2.0)) + 1))
+    edges = np.linspace(lo, hi + 1e-9, n + 1)
+    pts: list[tuple[float, float]] = []
+    for i in range(n):
+        m = (t >= edges[i]) & (t < edges[i + 1])
+        if not m.any():
+            continue
+        pts.append((float(rs[m].mean()), float(cs[m].mean())))
+    if len(pts) < 2:
+        pts = [(r0, c0), (r0 + 1e-3, c0 + 1e-3)]
+    return [[round(float(bounds["west"] + (bounds["east"] - bounds["west"])
+                         * c / max(w_ - 1, 1)), 6),
+             round(float(bounds["north"] - (bounds["north"] - bounds["south"])
+                         * r / max(h_ - 1, 1)), 6)]
+            for r, c in pts]
+
+
 def _section_line(rs, cs, wet, bounds: dict, shape: tuple, dx: float,
                   half_m: float = 400.0) -> dict:
     """A line across a bank run, landward end first.
@@ -1718,9 +2301,7 @@ def sites(req: SitesRequest) -> dict:
             "needs_m": round(max(need, 0.0), 2),
             "width_m": round(float(span) * dom.dx / 2),
             "name": nearest_name(named, lat, lon),
-            "outline": [[round(float(b["west"] + (b["east"] - b["west"]) * c / max(W - 1, 1)), 6),
-                         round(float(b["north"] - (b["north"] - b["south"]) * r / max(H - 1, 1)), 6)]
-                        for r, c in cells[::max(len(cells) // 40, 1)]],
+            "outline": _centreline(rs, cs, b, z.shape),
             # A section ACROSS the bank, which is the line an engineer draws
             # to size a wall. Perpendicular to the run's own principal axis --
             # a levee follows the bank, so the useful section crosses it -- and
@@ -1730,9 +2311,22 @@ def sites(req: SitesRequest) -> dict:
             "line": _section_line(rs, cs, wet, b, z.shape, dom.dx),
         })
 
+    cell_km2 = (dom.dx ** 2) / 1e6
     res = {"ok": True, "sites": out, "dx_m": dom.dx,
            "bounds": b, "driver": fx["driver"], "driver_note": fx["note"],
            "shortfall_m": req.shortfall_m,
+           # The flood these sites were found in.
+           #
+           # Without this the Plan tab drew the study's own design storm
+           # while its scenario picker said "9 Sep 1921 flood": the panel
+           # named one flood and the map underneath it showed another. The
+           # solve has already happened to find the banks; returning its
+           # field costs one PNG.
+           "depth_png": depth_png(d, DEPTH_VMAX),
+           "depth_vmax_m": DEPTH_VMAX,
+           "flooded_km2": round(float(wet.sum()) * cell_km2, 2),
+           "peak_depth_m": round(float(d.max()), 2),
+           "river_q_m3s": fx.get("q_m3s"),
            "note": ("Each site is a run of ground that touches the flood and "
                     "sits within "
                     f"{req.shortfall_m:.1f} m of being overtopped. The height "
@@ -2037,7 +2631,11 @@ def section(req: SectionRequest):
         # Where a levee should start. Building from the low point is how you
         # pay for height you do not need.
         "highest_ground": {"m": highest["m"], "ground_m": highest["ground_m"]},
-        "cost_per_m_per_m_aud": 2600.0,
+        # No rate here. The section used to carry its own `2600.0` in
+        # Australian dollars, a third copy of a figure with no source on it;
+        # the client prices the wall from `lib/rates`, where the USACE
+        # embankment and T-wall rates are written down once with their
+        # provenance.
         # Which forcing actually ran. A river driver that found no channel
         # falls back to rainfall, and a dry section then means "this rain did
         # not reach here" rather than "this river does not reach here" -- two
@@ -2045,7 +2643,8 @@ def section(req: SectionRequest):
         "driver": fx["driver"],
         "driver_note": fx["note"],
         "river_q_m3s": fx.get("q_m3s"),
-        "note": ("Ground sampled from the Copernicus DEM this solve ran on, at "
+        "note": (f"Ground sampled from the {TERRAIN_LABEL.get(dom.source, dom.source)} "
+                 "this solve ran on, at "
                  f"{dom.dx:.0f} m. The water level is the solved peak along "
                  "this line, not an assumed design stage."),
     }
@@ -2327,8 +2926,11 @@ def analyse(req: AnalyseRequest) -> dict:
     except Exception:
         fc = {"total_mm": None, "peak_discharge_m3s": None}
 
-    peak, stats = solve(dom, req.rain_mm_h, req.storm_hours, req.run_hours,
-                        req.levees, req)
+    snap_h = ([req.run_hours * i / (req.snapshots - 1)
+               for i in range(req.snapshots)] if req.snapshots > 1 else [])
+    peak, stats, snaps = solve(dom, req.rain_mm_h, req.storm_hours,
+                               req.run_hours, req.levees, req,
+                               snap_hours=snap_h)
 
     # What fraction of this flood simply fell where it lies?
     #
@@ -2362,6 +2964,15 @@ def analyse(req: AnalyseRequest) -> dict:
         "depth_vmax_m": DEPTH_VMAX,
         "depth_png": depth_png(peak, DEPTH_VMAX),
         "terrain_png": terrain_png(dom.z),
+        # The flood arriving, hour by hour. Same colour ramp as the peak, so
+        # the scrubber and the still frame are on one scale and a frame that
+        # looks shallower IS shallower.
+        "frames": ([{"t_h": round(snap_h[i], 2),
+                     "flooded_km2": round(float((snaps[i] > WET_M).sum())
+                                          * (dom.dx ** 2) / 1e6, 2),
+                     "peak_depth_m": round(float(snaps[i].max()), 2),
+                     "depth_png": depth_png(snaps[i], DEPTH_VMAX)}
+                    for i in range(len(snap_h))] if snaps is not None else []),
         **roads_and_grids(dom, peak, req.west, req.south, req.east, req.north),
         "terrain": forcing.describe(np.asarray(dom.z, dtype=np.float32), dom.dx),
         "driver": stats.get("driver", req.driver),

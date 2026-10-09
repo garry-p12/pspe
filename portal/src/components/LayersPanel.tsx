@@ -49,6 +49,11 @@ export interface Gauge {
                     moderate?: number; major?: number } | null;
   flood_category: string | null;
   forecast: { stage_m: number; at: string; category: string } | null;
+  /** The forecast CURVE, from the NWPS stageflow endpoint: the hourly trace
+   *  the forecaster issued, typically five days of it. `forecast` above is
+   *  only its peak, which is enough for a headline and not enough to draw. */
+  forecast_series: { issued: string | null;
+                     points: { t: string; m: number }[] } | null;
   lid: string | null;
 }
 

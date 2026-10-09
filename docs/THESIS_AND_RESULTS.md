@@ -7037,6 +7037,181 @@ not in hand, which was right. What made it right was that the sentence named
 exactly which integration was missing — one endpoint, found and wired in a
 single sitting. A vaguer refusal would have read the same and pointed nowhere.
 
+### 5.14m The levee was a round hill, and the flood it fought was the wrong one (2026-10-09)
+
+Two defects, found one after the other, and the second was only visible once
+the first was fixed. Together they mean the Plan tab had never once answered
+the question it appeared to answer.
+
+**The levee was a Gaussian.** `service/app.py:site_masks` built each candidate
+levee as `exp(-r²/σ²)` about the site's centroid, with `σ = width_m / dx`. At
+the portal's defaults that is a circular dome a kilometre across, tallest at a
+single point, with a skirt that never reaches zero. It is not a wall. The
+`/analyse` path had its own copy of the same Gaussian, so the two endpoints
+also disagreed about what a levee IS.
+
+The replacement sweeps the real section — a crest `CREST_WIDTH_M` = 3.048 m
+wide with batters at 1V:3H, the USACE cross-section the costs are quoted
+against — along the site's own alignment, and `/analyse` now calls the same
+function.
+
+**But the alignment did not exist.** `/sites` returned an `outline` built as
+`cells[::stride]` of a flood fill, which is the order the stack happened to pop
+them: a scatter, not a path. Joined up it zig-zags across the bank and back.
+That was also what the map had been drawing as the site, which is why sites
+rendered as clouds of dots rather than lines. `_centreline` projects the run's
+cells onto their own principal axis — the same axis `_section_line` already
+cuts across — and averages within bins along it. The six Onion Creek sites come
+back as ordered 5-to-7-point polylines, which the map draws as dashed
+alignments and the solver sweeps.
+
+**And then the levee did nothing: 0.0004%.** Because 15 m of embankment is a
+quarter of a 60 m cell. Rasterised honestly it raised almost no cell at all.
+The Gaussian had hidden this by being a kilometre wide.
+
+A finite-volume scheme cannot block part of a cell. So the crest is floored at
+half a cell either side of the alignment — the standard sub-grid treatment,
+and the thing to say out loud: the modelled footprint is a cell wide where the
+built one is 15 m, so the plan over-states how much ground the embankment
+occupies and states the crest, which is what decides whether water passes,
+exactly.
+
+**With a levee that exists, the answer was negative.** Two 2 m walls under the
+study's 50 mm/h design storm made the flooded area **0.05% worse**, not better.
+That is correct physics and it had been invisible: rain lands on both sides of
+a wall, so the wall holds water in. Driving from the live gauge instead gave
+0.13 km² of water, because Onion Creek is not in flood today. Neither is a
+question a levee has an answer to.
+
+**So the scenario became a control.** `/peaks` reads the USGS annual peak
+streamflow record for the gauges on the reach and fits log-Pearson III to it.
+Onion Ck at US Hwy 183 (08159000), 58 years:
+
+| | discharge | stage |
+|---|---|---|
+| 9 Sep 1921 | 3,908 m³/s | 11.58 m |
+| **31 Oct 2013** | **3,823 m³/s** | **12.23 m** |
+| 30 Oct 2015 | 3,455 m³/s | 11.99 m |
+| 7 Jun 1941 | 2,832 m³/s | 10.36 m |
+| 4% annual chance (fitted) | 2,795 m³/s | — |
+| 1% annual chance (fitted) | 6,870 m³/s | — |
+
+Station skew +0.07. This is Bulletin 17 method and not Bulletin 17C: no
+regional skew weighting, no Expected Moments Algorithm, no low-outlier test,
+and the response says so. It is enough to put a named design flood behind a
+scenario button and not enough to design a levee to.
+
+Against 31 Oct 2013 the same two sites finally move something: the baseline
+peak depth of 29.5 m drops to 21.7 m with one 2 m levee, at +0.144% of domain
+mean depth. The domain figure stays small because the objective still averages
+over a 2 km disc — which the audit in §5.14n flags as the next thing to fix.
+
+**The default is 2013, not 1921.** The record peak predates the suburb beneath
+it by half a century. The scenario list puts recorded floods from the last 35
+years first and leaves the older record below them.
+
+**Rule 79: a model component that cannot be resolved by the grid is not a
+model of that component.** The Gaussian levee passed every test the solver had
+because it was large enough to matter. The honest 15 m levee failed silently
+because it was small enough not to. Between "wrong shape, visible effect" and
+"right shape, no effect" there is a third option, which is to say in the code
+and on the page what the grid can and cannot represent.
+
+**Rule 80: an instrument needs a scenario before it needs a number.** The Plan
+tab had a budget, a tray, a conformal margin and a solved impact table, and it
+was pointing all of them at a storm no levee can help with. Every number on it
+was correct. The question was wrong, and nothing in the panel said which
+question it was.
+
+### 5.14n What the audit found, and what the portal now costs in (2026-10-09)
+
+Four read-only agents over the service, the portal, the construction-cost
+literature and the reachability graph, plus a completeness critic.
+
+**Prices had no provenance.** Every cost in the portal traced to one bare
+`2600` — Australian dollars per metre of crest per metre of height, no source,
+no base year, no index — copied into four files, for a study in Texas.
+
+`portal/src/lib/rates.ts` replaces it with sourced figures. The spine is the
+USACE National Levee Safety Program *Summary of Costs Associated with
+Levee-related Activities* (FINAL Nov 2023, price level Mar 2023), escalated
+2Q23 → 4Q25 on CWCCIS Feature Code 11 (1144.19 → 1214.81, ×1.0617) and ×0.88
+for the CWCCIS Table 3 Texas state factor:
+
+| | 2025 USD, Austin | basis |
+|---|---|---|
+| Embankment fill | $15.2 /m³ | USACE NLSP; Harris County bid tabs escalate to $15.5, within 2% |
+| Concrete T-wall | $10,800 /m/m | USACE NLSP; Aerts (2018) gives ≈ half from HSDRRS-scale contracts |
+| Sheet-pile I-wall | $3,600 /m/m | West Pittston PA feasibility, Appendix G |
+| Gated outfall, 1.22 m | $725,000 each | USACE NLSP interior drainage, complete structure |
+| Pump station | $800,000 per m³/s | 12 US stations across 4 sources, 8 within $0.64–0.95 M |
+| Construction → all-in | ×2.1 | NLSP adders: utilities, land, environmental, design, contingency |
+
+**An embankment is not linear in height.** Volume per metre of crest is
+`crest·H + slope·H²`, so a 2 m levee is **2.97×** a 1 m one, not 2×. The flat
+per-metre-per-metre rate understated every tall wall the portal ever priced.
+Cost now comes from the section.
+
+**The tray is five pieces and three mechanisms.** Floodgate and pump station
+join the three bed pieces, and they are not graphics: `build_structures` maps
+each onto `Structures` in `pspe.simulate.flood`, inside cell on the landward
+side of the site's own section and outside cell on the river side. One
+dimensionless intensity per measure — metres of crest, 1.22 m barrels, cubic
+metres a second — drives the enumeration, the surrogate, the conformal margin
+and the price, so the number solved and the number costed cannot drift apart.
+
+**Still open, from the audit.** The planner's headline reduction is averaged
+over a circle of invented radius (2,000 m in one caller, 2,500 m in another,
+so the same plan reports different percentages depending which tab opened it);
+the surrogate assumes effect exactly linear in height while measuring it at
+one height only; `river_q_m3s` under the storm presets is `rain_mm_h / 20`
+times bankfull, which relates two quantities that have no relation.
+
+### 5.14o Nine frames the solver was already computing (2026-10-09)
+
+The design puts a scrubber with a play button under the map. The honest
+objection, written into `Hydrograph`'s docstring at the time, was that a play
+control over a model while nothing on the map moves is a control over nothing.
+
+Both halves of that were fixable. `solve()` now takes `snap_hours` and keeps
+instantaneous depth at a few times — fields it computed on the way to the peak
+and discarded — and the shipped Austin bundle carries nine of them:
+
+| hour | 0 | 2.25 | 4.5 | 6.75 | 9 | 11.25 | 13.5 | 15.75 | 18 |
+|---|---|---|---|---|---|---|---|---|---|
+| wet km² | 0.00 | 15.25 | 17.80 | 13.48 | 8.52 | 6.80 | 6.00 | 5.56 | 5.31 |
+| peak depth m | 0.00 | 5.70 | 11.10 | 12.96 | 11.61 | 9.66 | 8.37 | 7.16 | 6.24 |
+
+The area peaks at hour 4.5 and the depth at 6.75: the flood spreads before it
+deepens. The envelope over the whole run is 18.71 km², larger than any instant
+in it, which is why the scrubber's rest state reads the study's peak and not
+the last frame — reading `frames[n-1]` there put two different floods on one
+card.
+
+The gauge hydrograph moved the other way, off the map's bottom edge and into
+the sidebar beneath the reading it belongs to. The two clocks are different:
+the gauge runs on a wall clock from Tuesday, the model from hour zero of a
+design storm, and one play button over both would have been exactly the
+control over nothing the original objection named.
+
+The gauge chart also gained the forecast it had been refusing to draw. NWPS
+`/gauges/{lid}/stageflow` carries the hourly trace the forecaster issued —
+120 points, five days — where the gauge detail endpoint carries only its peak.
+Observed is solid, forecast is dashed, and the boundary between them is a
+line.
+
+**And the sites got their names back.** All six Onion Creek candidates were
+returning `null`. `fetch_named_lines` asked Overpass for `way["highway"]` over
+a 13 × 11 km box — every driveway, parking aisle and footway in south Austin —
+and both public mirrors answered 500 and 504. The fetch failed silently and
+cost six names. Constrained to the same `ROAD_CLASSES` the road layer uses,
+with the same retry, they come back as Alderman Drive, Mozelle Lane, Dove
+Court, Quicksilver Boulevard, Encinal Cove and Old San Antonio Road.
+
+**Rule 81: an empty answer from a failed fetch must not be cached.** The
+naming cache stored `[]` on failure, which turned a transient 504 into a
+permanent loss of names for the life of the process.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

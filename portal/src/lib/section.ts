@@ -84,7 +84,6 @@ export interface SectionResult {
   peak_water_m: number | null;
   wet_fraction: number;
   highest_ground: { m: number; ground_m: number };
-  cost_per_m_per_m_aud: number;
   driver: string;
   driver_note: string;
   river_q_m3s: number | null;
@@ -144,7 +143,7 @@ export interface Assessment {
   lengthM: number;
   maxHeightM: number;
   meanHeightM: number;
-  costAud: number;
+  costUsd: number;
 }
 
 /** Spacing between profile samples. Finer than `dx_m`: the service samples the
@@ -289,7 +288,7 @@ export function assess(
   spacingM: number,
   span: Span,
   crestM: number,
-  ratePerMPerM: number,
+  rateUsdPerMPerM: number,
   belts: Belt[] = [],
 ): Assessment {
   const seg = profile.slice(span.i0, span.i1 + 1);
@@ -343,7 +342,7 @@ export function assess(
     lengthM,
     maxHeightM: heights.length ? Math.max(...heights) : 0,
     meanHeightM: lengthM > 0 ? fillM2 / lengthM : 0,
-    costAud: fillM2 * ratePerMPerM,
+    costUsd: fillM2 * rateUsdPerMPerM,
   };
 }
 
@@ -361,7 +360,7 @@ export function lowestHoldingCrest(
   profile: SectionSample[],
   spacingM: number,
   panel: Span,
-  ratePerMPerM: number,
+  rateUsdPerMPerM: number,
   belts: Belt[] = [],
   maxRiseM = 8,
   stepM = 0.1,
@@ -376,7 +375,7 @@ export function lowestHoldingCrest(
   for (let k = 0; k <= steps; k++) {
     const crestM = Math.round((stage + k * stepM) * 100) / 100;
     const span = spanFor(profile, crestM, panel, belts);
-    if (assess(profile, spacingM, span, crestM, ratePerMPerM, belts).verdict === "holds") {
+    if (assess(profile, spacingM, span, crestM, rateUsdPerMPerM, belts).verdict === "holds") {
       return { crestM, span };
     }
   }
@@ -424,7 +423,7 @@ export interface WallVerdict {
   freeboardM: number | null;
   /** Highest water already behind the wall, on the landward side. */
   behindStageM: number | null;
-  costAud: number;
+  costUsd: number;
   verdict: "holds" | "overtops" | "wet-behind" | "in-channel" | "dry";
 }
 
@@ -433,7 +432,7 @@ export function wallAt(
   stationIdx: number,
   crestM: number,
   bankLengthM: number,
-  ratePerMPerM: number,
+  rateUsdPerMPerM: number,
   /** Which end is landward. A is index 0. */
   landward: "a" | "b" = "a",
   /** Where the channel is, so a wall cannot be placed in the river. */
@@ -474,7 +473,7 @@ export function wallAt(
 
   return {
     heightM, crestM, groundM, faceStageM, freeboardM, behindStageM,
-    costAud: heightM * bankLengthM * ratePerMPerM,
+    costUsd: heightM * bankLengthM * rateUsdPerMPerM,
     verdict,
   };
 }
@@ -541,11 +540,14 @@ export function pointAt(
   ];
 }
 
-export function money(aud: number): string {
-  if (aud >= 1e9) return `A$${(aud / 1e9).toFixed(2)} bn`;
-  if (aud >= 1e6) return `A$${(aud / 1e6).toFixed(1)} M`;
-  if (aud >= 1e3) return `A$${(aud / 1e3).toFixed(0)} k`;
-  return `A$${aud.toFixed(0)}`;
+/** US dollars. The study is Austin, Texas; the rates behind it are American.
+ *  `US$` rather than a bare `$`, because the portal states a currency wherever
+ *  it states a cost and a bare dollar sign names no country. */
+export function money(usd: number): string {
+  if (usd >= 1e9) return `US$${(usd / 1e9).toFixed(2)} bn`;
+  if (usd >= 1e6) return `US$${(usd / 1e6).toFixed(1)} M`;
+  if (usd >= 1e3) return `US$${(usd / 1e3).toFixed(0)} k`;
+  return `US$${usd.toFixed(0)}`;
 }
 
 export function dist(m: number): string {

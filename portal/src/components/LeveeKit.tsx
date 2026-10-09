@@ -2,6 +2,8 @@
 
 import { useCallback, useMemo } from "react";
 import { money } from "@/lib/section";
+import { EARTH_FILL, T_WALL, GATED_OUTFALL, PUMP_STATION, ALL_IN,
+         CREST_WIDTH_M, SIDE_SLOPE, earthLeveeUsd, wallUsd } from "@/lib/rates";
 
 /**
  * Build a plan out of parts, and watch the budget and the damage move.
@@ -55,27 +57,82 @@ export interface SitesFeed {
   shortfall_m: number;
   note: string;
   driver_note: string;
+  /** The flood these sites were found in, so the map can draw the scenario
+   *  the panel names rather than the study's own design storm. */
+  bounds?: { west: number; south: number; east: number; north: number };
+  depth_png?: string;
+  flooded_km2?: number;
+  peak_depth_m?: number;
+  river_q_m3s?: number | null;
 }
 
-/** The parts, and what each costs per metre of crest per metre of height. */
+/**
+ * The parts, and what each of them IS to the solver.
+ *
+ * Five pieces, and three different things. A levee and a wall are bed:
+ * `site_masks` sweeps their section along the site's own alignment and the
+ * flood runs over the raised ground. A floodgate is a one-way exchange
+ * between the cell behind the bank and the cell in front of it — `max(dH, 0)`
+ * is the flap, and it seals with no branch. A pump lifts water that is
+ * already inside the perimeter, which is the case no levee placement can
+ * answer: in the pluvial result a quarter of the rain fell inside the area
+ * being protected, and nothing that only keeps water out could touch it.
+ *
+ * None of the three is a graphic. Each one is a term in `pspe.simulate.flood`
+ * and each is solved for every candidate plan in the same batched timestep
+ * loop, which is why a gate and a pump can carry a conformal margin on the
+ * same footing a levee does.
+ *
+ * `intensity` is what the planner enumerates over — metres of crest for the
+ * two bed pieces, barrels for the gate, cubic metres a second for the pump —
+ * and it is also what each is priced by, so the number solved and the number
+ * costed cannot drift apart.
+ */
 export const PIECES = [
-  { id: "earth1", label: "Earth levee", h: 1.0, note: "1.0 m high", unit: 2600 },
-  { id: "earth2", label: "Raised levee", h: 2.0, note: "2.0 m high", unit: 2600 },
-  { id: "wall", label: "Flood wall", h: 1.5, note: "1.5 m · concrete", unit: 8600 },
+  { id: "earth1", kind: "levee", cost_model: "earth", label: "Earth levee",
+    intensity: 1.0, note: "1.0 m high · 1V:3H batters",
+    unit: EARTH_FILL.usd, rate: "/m³ fill", swatch: "#b08968" },
+  { id: "earth2", kind: "levee", cost_model: "earth", label: "Raised levee",
+    intensity: 2.0, note: "2.0 m high · 1V:3H batters",
+    unit: EARTH_FILL.usd, rate: "/m³ fill", swatch: "#8a5529" },
+  { id: "wall", kind: "levee", cost_model: "wall", label: "Flood wall",
+    intensity: 1.5, note: "1.5 m · concrete T-wall",
+    unit: T_WALL.usd, rate: "/m/m", swatch: "#9ca3af" },
+  { id: "gate", kind: "gate", cost_model: "gate", label: "Floodgate",
+    intensity: 1.0, note: "one 1.22 m barrel · drains one way",
+    unit: GATED_OUTFALL.usd, rate: "/outfall", swatch: "#3f6f9c" },
+  { id: "pump", kind: "pump", cost_model: "pump", label: "Pump station",
+    intensity: 1.0, note: "1 m³/s firm · lifts water from inside",
+    unit: PUMP_STATION.usd, rate: "/m³/s", swatch: "#2f7d52" },
 ] as const;
 
 export type PieceId = (typeof PIECES)[number]["id"];
+export type Piece = (typeof PIECES)[number];
 
 export interface Placed {
   site: number;
   piece: PieceId;
 }
 
+export function pieceOf(id: PieceId): Piece | undefined {
+  return PIECES.find((x) => x.id === id);
+}
+
+/**
+ * What one placed piece costs, from its own cross-section.
+ *
+ * An embankment is NOT a flat rate per metre of height. Its volume per metre
+ * of crest is `crest·H + slope·H²`, so a 2 m levee is 2.0 times a 1 m one and
+ * not 2.0 — it is 2.97 times. The portal quoted a flat A$2,600/m/m, which
+ * understated every tall wall it ever priced.
+ */
 export function costOf(p: Placed, sites: Site[]): number {
-  const piece = PIECES.find((x) => x.id === p.piece);
+  const piece = pieceOf(p.piece);
   const s = sites[p.site];
   if (!piece || !s) return 0;
-  return piece.h * s.length_m * piece.unit;
+  if (piece.cost_model === "earth") return earthLeveeUsd(s.length_m, piece.intensity);
+  if (piece.cost_model === "wall") return wallUsd(s.length_m, piece.intensity);
+  return piece.intensity * piece.unit;        // a gate or a pump, per unit
 }
 
 function Row({
@@ -120,7 +177,7 @@ function Row({
 export function LeveeKit({
   feed, busy, elapsed, err, onFindSites, canFind,
   placed, onPlaced, budgetM, onBudget,
-  armed, onArm, impact, planBusy, onPlan, showPlan, onShowPlan,
+  armed, onArm, impact, planBusy, onPlan, noWayOut, onSave,
 }: {
   feed: SitesFeed | null;
   busy: boolean;
@@ -147,8 +204,9 @@ export function LeveeKit({
   } | null;
   planBusy: boolean;
   onPlan: () => void;
-  showPlan: boolean;
-  onShowPlan: (v: boolean) => void;
+  /** True when every named road out is cut under this scenario. */
+  noWayOut: boolean;
+  onSave: () => void;
 }) {
   const sites = useMemo(() => feed?.sites ?? [], [feed]);
   const spent = useMemo(
@@ -168,6 +226,10 @@ export function LeveeKit({
     <div className="px-5 pb-5 pt-4">
       <h2 className="eyebrow mb-2">Build a plan</h2>
 
+      {/* The tab finds its own sites when it opens, so this is a progress
+          report rather than a call to action. A button here was a turnstile in
+          front of the one thing the tab exists to show, and the sites are not
+          a choice anyone makes: they come out of the terrain. */}
       {!feed && (
         <>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-mute">
@@ -175,22 +237,40 @@ export function LeveeKit({
             clicked here — the places worth raising come out of the terrain and
             the solved flood.
           </p>
-          <button
-            onClick={onFindSites}
-            disabled={busy || !canFind}
-            className="w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium text-bg
-                       transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
-            {busy ? `Looking for banks that almost hold… ${elapsed}s`
-              : canFind ? "Find the sites"
-                : "Waiting for a solved place"}
-          </button>
+          {busy ? (
+            <div className="rounded-lg border border-line bg-bg-inset p-3">
+              <p className="text-[13px] font-medium text-ink">
+                Looking for banks that almost hold
+              </p>
+              <p className="anno mt-1 leading-relaxed">
+                Solving the baseline at 40 m to get the water surface, then
+                tracing the dry ground against it · {elapsed}s
+              </p>
+              <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-line-soft">
+                <span className="block h-full w-1/3 animate-pulse rounded-full bg-ink" />
+              </div>
+            </div>
+          ) : !err && (
+            <button
+              onClick={onFindSites}
+              disabled={!canFind}
+              className="w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium text-bg
+                         transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {canFind ? "Find the sites" : "Waiting for a solved place"}
+            </button>
+          )}
         </>
       )}
       {err && (
         <div className="mt-3 rounded-lg border border-line bg-bg-inset p-3">
           <p className="text-[13px] font-medium text-ink">No sites here</p>
           <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">{err}</p>
+          <button onClick={onFindSites} disabled={busy || !canFind}
+                  className="mt-2 rounded-md border border-line px-3 py-1.5 text-[13px]
+                             text-ink hover:bg-bg-inset disabled:opacity-40">
+            Look again
+          </button>
         </div>
       )}
 
@@ -217,7 +297,7 @@ export function LeveeKit({
             </p>
           )}
           <label htmlFor="kit-budget" className="anno mt-2 block">
-            budget A${budgetM} M
+            budget US${budgetM} M
           </label>
           <input
             id="kit-budget" type="range" min={2} max={80} step={1} value={budgetM}
@@ -229,7 +309,7 @@ export function LeveeKit({
           <div className="mt-4">
             <div className="flex items-baseline justify-between gap-2">
               <h3 className="eyebrow">
-                {armed ? "Now click a dashed site on the map" : "Pick a piece"}
+                {armed ? "Now click a dashed site on the map" : "Place on the map"}
               </h3>
               {armed && (
                 <button onClick={() => onArm(null)}
@@ -245,18 +325,38 @@ export function LeveeKit({
                   className={`rounded-lg border p-2.5 text-left transition-colors ${
                     armed === p.id ? "border-ink bg-bg-inset" : "border-line hover:bg-bg-inset"}`}
                 >
-                  <span className="block h-[6px] w-full rounded-[2px]"
-                        style={{ background: p.id === "wall" ? "#9ca3af" : "#b08968",
-                                 opacity: p.id === "earth1" ? 0.75 : 1 }} />
+                  {/* A bar for the two pieces that are a line of bed, a dot
+                      for the two that are a point structure. The shape is
+                      the difference, not decoration. */}
+                  {p.kind === "levee" ? (
+                    <span className="block h-[6px] w-full rounded-[2px]"
+                          style={{ background: p.swatch }} />
+                  ) : (
+                    <span className="block h-[10px] w-[10px] rounded-full"
+                          style={{ background: p.swatch }} />
+                  )}
                   <span className="mt-2 block text-[13px] font-medium text-ink">{p.label}</span>
-                  <span className="anno block">{p.note}</span>
-                  <span className="anno block">A${p.unit.toLocaleString()}/m/m</span>
+                  <span className="anno block leading-snug">{p.note}</span>
+                  <span className="anno block">
+                    {p.unit >= 1000
+                      ? `${money(p.unit)}${p.rate}`
+                      : `US$${p.unit.toLocaleString()}${p.rate}`}
+                  </span>
+                  {/* What this site would actually cost, if one is armed and
+                      the reader can see the length it would run. */}
                 </button>
               ))}
             </div>
             <p className="anno mt-1.5 leading-relaxed">
-              Cost is the piece&apos;s height times the site&apos;s own length times
-              its unit rate. Concrete is dearer than earth and takes less room.
+              An embankment is priced from its own section — crest{" "}
+              {CREST_WIDTH_M.toFixed(2)} m, batters 1V:{SIDE_SLOPE}H — so a 2 m
+              levee is 2.97 times a 1 m one, not twice. A wall is linear in
+              height. A gate and a pump are priced per structure.
+            </p>
+            <p className="anno mt-1 leading-relaxed">
+              USACE construction rates, escalated to 2025 and × 0.88 for Texas.
+              Construction only: design, land and contingency roughly double
+              the bill ({ALL_IN.toFixed(1)}×).
             </p>
           </div>
 
@@ -268,7 +368,7 @@ export function LeveeKit({
             <ul className="mt-1.5 flex flex-col gap-1">
               {sites.map((s, i) => {
                 const on = placed.find((p) => p.site === i);
-                const piece = on && PIECES.find((x) => x.id === on.piece);
+                const piece = on && pieceOf(on.piece);
                 return (
                   <li key={`${s.lat},${s.lon}`}>
                     <button
@@ -297,19 +397,7 @@ export function LeveeKit({
 
           {/* ---- what it buys ----------------------------------------- */}
           <div className="mt-4">
-            <div className="flex items-baseline justify-between gap-2">
-              <h3 className="eyebrow">What it buys</h3>
-              {impact && (
-                <div className="flex gap-1">
-                  {([false, true] as const).map((v) => (
-                    <button key={String(v)} className="pill" data-on={showPlan === v}
-                            onClick={() => onShowPlan(v)}>
-                      {v ? "With plan" : "Before"}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <h3 className="eyebrow">What it buys</h3>
             {!impact && (
               <button
                 onClick={onPlan}
@@ -365,6 +453,21 @@ export function LeveeKit({
             )}
           </div>
 
+          {/* Every road out is cut.
+              Not a warning about the plan -- a fact about the flood it is
+              being judged against, and the one that decides whether a levee
+              is the right instrument at all. A town nobody can leave needs
+              a route, not a wall. */}
+          {noWayOut && (
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="shrink-0 rounded-[4px] bg-bad px-1.5 py-0.5 text-[11px]
+                               font-semibold text-bg">No way out</span>
+              <span className="text-[12px] leading-snug text-ink-mute">
+                Every named road out of here is cut for cars under this flood.
+              </span>
+            </div>
+          )}
+
           <div className="mt-3 flex gap-2">
             <button onClick={() => onPlaced(placed.slice(0, -1))}
                     disabled={!placed.length}
@@ -377,6 +480,17 @@ export function LeveeKit({
                     className="flex-1 rounded-md border border-line px-3 py-2 text-[13px]
                                text-ink hover:bg-bg-inset disabled:opacity-40">
               Clear
+            </button>
+            {/* Save writes the plan to a file rather than to a server. There
+                is no account here and no database, and a Save that quietly
+                dropped the plan into browser storage would lose it on the
+                next machine. A JSON file carries the scenario, the measures,
+                the costs and the solved result, which is what anyone would
+                need to reproduce it. */}
+            <button onClick={onSave} disabled={!placed.length}
+                    className="flex-[1.4] rounded-md bg-ink px-3 py-2 text-[13px]
+                               font-medium text-bg hover:opacity-90 disabled:opacity-40">
+              Save plan
             </button>
           </div>
         </>

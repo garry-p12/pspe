@@ -36,7 +36,17 @@
 
   --ok:   #18181b;
   --warn: #52525b;
-  --bad:  #18181b;
+  /* The one hue that is not the map's.
+   *
+   * Everything else here is achromatic on purpose -- the colour on screen
+   * belongs to the water, where it carries depth. But "this road is closed"
+   * and "the water is over this floor" are states, not quantities, and a
+   * black square beside a black word is not a state anyone sees. So one red,
+   * spent only on harm: a cut road, a house over its floor, a rising gauge, a
+   * plan that moves risk rather than removing it. It is warm enough to sit on
+   * the page's grey without vibrating against it.
+   */
+  --bad:  #c3392b;
   --accent-warm: #52525b;
 
   --badge-observed:  #18181b;

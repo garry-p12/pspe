@@ -6,6 +6,7 @@ import { WebMercatorViewport } from "@deck.gl/core";
 import type { Layer } from "@deck.gl/core";
 import { TerrainLayer, TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer, ColumnLayer, GeoJsonLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import { PathStyleExtension } from "@deck.gl/extensions";
 import type { InspectGrids } from "@/lib/inspect";
 import { waterColumns } from "@/lib/watermesh";
 import type { Box } from "@/lib/types";
@@ -709,25 +710,48 @@ export function PlannerMap({
     // and dark so the plan reads at a glance against the places still open.
     if (sites?.length) {
       const rows = sites.map((s, i) => ({ ...s, i }));
+      // An alignment, drawn as one. These used to be a cloud of dots -- one
+      // per cell of the candidate run, in the order a flood fill happened to
+      // visit them, which is all the geometry the service returned. The
+      // service now returns the run's centreline, so the thing on screen is
+      // the line a wall would be built along: a white casing so it reads over
+      // dark water, and a dashed core because a candidate is not yet a levee.
+      // A taken site goes solid.
       out.push(
-        new ScatterplotLayer({
-          id: "site-cells",
-          data: rows.flatMap((s) => s.outline.map((p) => ({ p, s }))),
+        new PathLayer({
+          id: "site-casing",
+          data: rows,
           pickable: true,
-          radiusUnits: "pixels",
-          getPosition: (d: { p: [number, number] }) => d.p,
-          getRadius: (d: { s: { taken: boolean } }) => (d.s.taken ? 6 : 4.5),
-          getFillColor: (d: { s: { taken: boolean } }) =>
-            d.s.taken ? [24, 24, 27, 235] : [255, 255, 255, 170],
-          stroked: true,
-          getLineColor: [10, 14, 20, 215],
-          getLineWidth: 1.4,
-          lineWidthUnits: "pixels",
+          getPath: (d: { outline: [number, number][] }) => d.outline,
+          getColor: [255, 255, 255, 210],
+          getWidth: (d: { taken: boolean }) => (d.taken ? 13 : 10),
+          widthUnits: "pixels",
+          capRounded: true,
+          jointRounded: true,
           onClick: ({ object }) => {
-            const o = object as { s: { i: number } } | undefined;
-            if (o && onSite) onSite(o.s.i);
+            const o = object as { i: number } | undefined;
+            if (o && onSite) onSite(o.i);
           },
-          updateTriggers: { getFillColor: siteKey, getRadius: siteKey },
+          updateTriggers: { getWidth: siteKey },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new PathLayer({
+          id: "site-line",
+          data: rows,
+          getPath: (d: { outline: [number, number][] }) => d.outline,
+          getColor: (d: { taken: boolean }) =>
+            (d.taken ? [24, 24, 27, 255] : [24, 24, 27, 190]),
+          getWidth: (d: { taken: boolean }) => (d.taken ? 7 : 3),
+          widthUnits: "pixels",
+          capRounded: true,
+          jointRounded: true,
+          getDashArray: (d: { taken: boolean }) => (d.taken ? [0, 0] : [7, 5]),
+          dashJustified: true,
+          dashGapPickable: true,
+          extensions: [new PathStyleExtension({ dash: true, highPrecisionDash: true })],
+          updateTriggers: {
+            getColor: siteKey, getWidth: siteKey, getDashArray: siteKey,
+          },
           parameters: { depthCompare: "always" as const },
         }) as unknown as Layer,
         new TextLayer({

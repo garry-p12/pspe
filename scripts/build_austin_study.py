@@ -51,6 +51,11 @@ DEFAULT = {
     "west": -97.820, "south": 30.110, "east": -97.690, "north": 30.210,
     "name": "Onion Creek, Austin, Texas", "dx": 40,
     "driver": "rain", "rain_mm_h": 50, "storm_hours": 6, "run_hours": 18,
+    # Nine instantaneous depth fields across the run, so the strip under the
+    # map can play the flood arriving rather than only show where it stopped.
+    # The solve computes every one of these already; keeping nine of them
+    # costs nine PNGs in the bundle and nothing in compute.
+    "snapshots": 9,
 }
 SERVICE = "http://127.0.0.1:8000"
 

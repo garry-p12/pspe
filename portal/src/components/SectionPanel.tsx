@@ -128,15 +128,28 @@ export function SectionPanel({
             The banks worth defending come out of the terrain and the solved
             flood, with a section drawn across each.
           </p>
-          <button
-            onClick={onFindSites}
-            disabled={sitesBusy || !canFind}
-            className="w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium text-bg
-                       transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
-            {sitesBusy ? "Looking for banks that almost hold…"
-              : canFind ? "Find the lines" : "Waiting for a solved place"}
-          </button>
+          {/* The lines are found when the tab opens. Same search the kit
+              runs, same answer, one solve -- so this is progress, not a
+              button someone has to press before the tab does anything. */}
+          {sitesBusy ? (
+            <div className="rounded-lg border border-line bg-bg-inset p-3">
+              <p className="text-[13px] font-medium text-ink">
+                Looking for banks that almost hold
+              </p>
+              <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-line-soft">
+                <span className="block h-full w-1/3 animate-pulse rounded-full bg-ink" />
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={onFindSites}
+              disabled={!canFind}
+              className="w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium text-bg
+                         transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {canFind ? "Find the lines" : "Waiting for a solved place"}
+            </button>
+          )}
         </>
       )}
       {sites?.ok && (
@@ -247,7 +260,7 @@ export function SectionPanel({
             <Tile label="Crest height" value={`${wall.heightM.toFixed(2)} m`}
                   sub="above the ground it stands on" />
             <Tile label="Cost"
-                  value={bankLen ? money(wall.costAud) : "—"}
+                  value={bankLen ? money(wall.costUsd) : "—"}
                   sub={bankLen ? `over ${bankLen} m of bank` : "needs a chosen bank"} />
             <Tile label="Above the solved peak"
                   value={freeboard === null ? "—"
@@ -326,7 +339,7 @@ export function SectionPanel({
             <summary>What this costing assumes</summary>
             <p className="anno pb-2 leading-relaxed">
               Cost is crest height above the ground it stands on, times the
-              BANK&apos;s length, times A$2,600 per metre of crest per metre of
+              BANK&apos;s length, times the unit rate per metre of crest per metre of
               height. The section is cut across the bank, so the wall&apos;s length
               runs out of the plane of the drawing and is not measurable on it.
             </p>

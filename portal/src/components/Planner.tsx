@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PlannerMap } from "./PlannerMap";
 import { LayersPanel, DEFAULT_LAYERS, type LayerState,
          type GaugeFeed } from "./LayersPanel";
@@ -14,8 +14,11 @@ import { SectionPanel, type SectionEnds, type SectionOverlay } from "./SectionPa
 import { SectionStrip } from "./SectionStrip";
 import { wallAt, crestToHold, bestStation, reaches, channelBelts,
          type SectionResult } from "@/lib/section";
+import { ScenarioPicker } from "./ScenarioPicker";
+import { RunScrubber, type Frame } from "./RunScrubber";
+import { scenariosFrom, type PeaksFeed, type Scenario } from "@/lib/scenarios";
 import { StreetPanel, type StreetResult } from "./StreetPanel";
-import { LeveeKit, PIECES, type SitesFeed, type Placed,
+import { LeveeKit, PIECES, pieceOf, costOf, type SitesFeed, type Placed,
          type PieceId } from "./LeveeKit";
 import type { RoadQuery } from "@/lib/roadquery";
 import { useRegion } from "./RegionContext";
@@ -107,6 +110,16 @@ export function Planner() {
   const [kitPlan, setKitPlan] = useState<Record<string, unknown> | null>(null);
   const [kitPlanBusy, setKitPlanBusy] = useState(false);
   const [showPlan, setShowPlan] = useState(true);
+  /** Which flood the plan is judged against. See `lib/scenarios`: the study's
+   *  own design rainstorm is the wrong question to put a levee in front of,
+   *  because rain lands on both sides of a wall. */
+  const [peaks, setPeaks] = useState<PeaksFeed | null>(null);
+  const [scenarioId, setScenarioId] = useState<string | null>(null);
+  /** Whether the Plan tab has already gone looking for its sites. */
+  const autoSites = useRef(false);
+  /** Which hour of the solved run the map is showing. Null is the peak, which
+   *  is where everything sits until someone presses play. */
+  const [runFrame, setRunFrame] = useState<number | null>(null);
   const [placed, setPlaced] = useState<PlacedLevee[]>([]);
   const [placing, setPlacing] = useState(false);
   // The panel used to be one continuous scroll: forecast, roads, design event,
@@ -285,10 +298,169 @@ export function Planner() {
     }));
   }, [street, streetFrame, streetSel]);
 
+  /** The solved run, hour by hour. Nine instantaneous depth fields the
+   *  solver computed on its way to the peak and used to throw away. */
+  const runFrames: Frame[] = useMemo(
+    () => (study?.frames ?? []) as Frame[], [study]);
+
+  /**
+   * The flood the map paints, and which solve it came from.
+   *
+   * Four answers, and the order is the point. A trip and a street view each
+   * solve their own box and must draw it. The Plan tab draws the SCENARIO's
+   * flood -- without that a panel headed "9 Sep 1921 flood" sat over a map
+   * of a 50 mm/h design storm, naming one flood and showing another. The
+   * scrubber, when it is on an hour, draws that hour. Everything else is the
+   * shipped study's peak.
+   */
+  const mapField = useMemo(() => {
+    if (tab === "trip") {
+      return trip ? { bounds: trip.bounds, depth_png: trip.depth_png,
+                      terrain_png: trip.terrain_png } : null;
+    }
+    if (tab === "street" && street?.ok) {
+      return { bounds: street.bounds,
+               depth_png: (streetFrame !== null && street.frames[streetFrame])
+                 ? street.frames[streetFrame].depth_png
+                 : street.depth_png,
+               terrain_png: street.terrain_png };
+    }
+    if (section === "plan" && kit?.ok && kit.depth_png && kit.bounds) {
+      return { bounds: kit.bounds, depth_png: kit.depth_png,
+               terrain_png: study?.terrain_png ?? "" };
+    }
+    if (runFrame !== null && runFrames[runFrame] && study) {
+      return { bounds: study.bounds,
+               depth_png: runFrames[runFrame].depth_png,
+               terrain_png: study.terrain_png };
+    }
+    return analysis ?? (study
+      ? { bounds: study.bounds, depth_png: study.depth_png,
+          terrain_png: study.terrain_png }
+      : null);
+  }, [tab, section, trip, street, streetFrame, kit, runFrame, runFrames,
+      analysis, study]);
+
+  /**
+   * Is every road out cut?
+   *
+   * Measured, not asserted: the road query already scores every named road
+   * in the box against the vehicle depth, so this is the share of named
+   * roads whose worst point is under it. It is the fact that decides whether
+   * a levee is the right instrument at all -- a place nobody can leave needs
+   * a route before it needs a wall.
+   */
+  const noWayOut = useMemo(() => {
+    const named = roadQ?.roads.filter((r) => r.name) ?? [];
+    return named.length >= 3 && named.every((r) => r.maxDepthM > (roadQ?.threshold ?? 0));
+  }, [roadQ]);
+
   const kitBox = useMemo(() => {
     const b = analysis?.bounds ?? study?.bounds;
     return b ? { west: b.west, south: b.south, east: b.east, north: b.north } : null;
   }, [analysis, study]);
+
+  // The scenario list, from the reach's own gauge record.
+  //
+  // Fetched once per box, alongside the site search, because a plan panel that
+  // opens on a design rainstorm is answering the wrong question and the right
+  // one needs the USGS peak record to exist first.
+  const scenarioName = analysis?.name ?? study?.name ?? "";
+  useEffect(() => {
+    if (!kitBox || section !== "plan" || peaks) return;
+    let dead = false;
+    void (async () => {
+      try {
+        const r = await fetch("/api/peaks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...kitBox, reach: scenarioName }),
+        });
+        const d = await r.json();
+        if (!dead) setPeaks(d as PeaksFeed);
+      } catch {
+        if (!dead) setPeaks({ ok: false, reason: "no gauge record", gauges: [],
+                              source: "" });
+      }
+    })();
+    return () => { dead = true; };
+  }, [kitBox, section, peaks, scenarioName]);
+
+  const { list: scenarios, gauge: peakGauge } = useMemo(
+    () => scenariosFrom(peaks,
+                        study?.storm?.rain_mm_h ?? 50,
+                        study?.storm?.storm_hours ?? 6),
+    [peaks, study]);
+
+  // The first RECORDED flood, where there is one. Not the study's storm: a
+  // levee under uniform rain holds water in, and opening on that makes the
+  // whole panel read as if walls do not work.
+  const scenario: Scenario = useMemo(
+    () => scenarios.find((x) => x.id === scenarioId) ?? scenarios[0],
+    [scenarios, scenarioId]);
+
+  /** What every solve on this tab is driven by. One object, so the sites, the
+   *  section and the plan cannot end up disagreeing about the flood. */
+  const forcing = useMemo(() => ({
+    driver: scenario.driver,
+    river_q_m3s: scenario.river_q_m3s,
+    rain_mm_h: study?.storm?.rain_mm_h ?? 50,
+    storm_hours: study?.storm?.storm_hours ?? 6,
+  }), [scenario, study]);
+
+  // A changed scenario is a changed flood, so everything downstream of it
+  // goes with it. Done in the handler rather than in an effect watching the
+  // id: an effect would be a second render pass to undo what the first one
+  // just drew, and there is no external system here to synchronise with.
+  const chooseScenario = useCallback((id: string) => {
+    setScenarioId(id);
+    autoSites.current = false;
+    setKit(null); setKitErr(null); setPlacedPieces([]); setKitPlan(null);
+    setSecSite(null); setSecRes(null); setSecErr(null);
+  }, []);
+
+  /** The plan, as a file. See the button's comment: there is no account here
+   *  and no server to save to, so what Save produces is the thing someone
+   *  could actually reproduce the run from. */
+  const savePlan = useCallback(() => {
+    if (!kit?.ok) return;
+    const doc = {
+      saved_at: new Date().toISOString(),
+      place: analysis?.name ?? study?.name ?? "",
+      bounds: kitBox,
+      scenario: {
+        id: scenario.id, label: scenario.label, note: scenario.note,
+        driver: scenario.driver, river_q_m3s: scenario.river_q_m3s,
+      },
+      gauge: peakGauge
+        ? { site: peakGauge.site, name: peakGauge.name, years: peakGauge.years,
+            fit: peakGauge.fit }
+        : null,
+      budget_usd: kitBudget * 1e6,
+      measures: placedPieces.map((pp) => {
+        const site = kit.sites[pp.site];
+        const piece = pieceOf(pp.piece)!;
+        return {
+          piece: piece.id, label: piece.label, kind: piece.kind,
+          intensity: piece.intensity, cost_usd: Math.round(costOf(pp, kit.sites)),
+          site: { name: site.name, lat: site.lat, lon: site.lon,
+                  length_m: site.length_m, needs_m: site.needs_m },
+        };
+      }),
+      solved: kitPlan ?? null,
+      rates: "USACE construction rates escalated to 2025 x 0.88 Texas; "
+           + "see portal/src/lib/rates.ts for each figure and its source.",
+    };
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `plan-${(doc.place.split(",")[0] || "area")
+      .toLowerCase().replace(/\W+/g, "-")}-${scenario.id.replace(/\W+/g, "")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [kit, kitBox, kitBudget, kitPlan, placedPieces, scenario, peakGauge,
+      analysis, study]);
 
   const findSites = useCallback(async () => {
     if (!kitBox) return;
@@ -301,8 +473,7 @@ export function Planner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...kitBox, name: analysis?.name ?? "Area", dx: 40,
-          driver: analysis?.driver ?? "rain", rain_mm_h: 50, storm_hours: 6,
-          run_hours: 18, max_sites: 6, shortfall_m: 2.0,
+          ...forcing, run_hours: 18, max_sites: 6, shortfall_m: 2.0,
         }),
       });
       const d = await r.json();
@@ -312,7 +483,22 @@ export function Planner() {
     } catch (e) {
       setKitErr(e instanceof Error ? e.message : "could not find sites");
     } finally { setKitBusy(false); clearInterval(tick); }
-  }, [kitBox, analysis]);
+  }, [kitBox, analysis, forcing]);
+
+  // The Plan tab finds its own sites.
+  //
+  // It used to open on a button and a paragraph explaining what the button
+  // would do. But the sites are not a choice the planner makes -- they come
+  // out of the terrain and the solved flood, the same way the flood field
+  // does -- so asking for a click before showing them put a turnstile in
+  // front of the one thing the tab exists to show. The design has the tray
+  // and the outlines already on screen. This is what puts them there.
+  useEffect(() => {
+    if (section !== "plan" || !kitBox) return;
+    if (kit || kitBusy || kitErr || autoSites.current) return;
+    autoSites.current = true;
+    void findSites();
+  }, [section, kitBox, kit, kitBusy, kitErr, findSites]);
 
   const solveKitPlan = useCallback(async () => {
     if (!kitBox || !kit?.ok || placedPieces.length < 2) return;
@@ -321,9 +507,9 @@ export function Planner() {
       // Only the sites with something on them go to the planner: the library
       // it enumerates is exponential in the number of sites, and asking it to
       // consider six when two are in play pays for combinations nobody chose.
-      const chosen = placedPieces.map((p) => kit.sites[p.site]);
-      const maxH = Math.max(...placedPieces.map(
-        (p) => PIECES.find((x) => x.id === p.piece)?.h ?? 1));
+      const chosen = placedPieces.map((p) => ({
+        site: kit.sites[p.site], piece: pieceOf(p.piece)! }));
+      const maxH = Math.max(...chosen.map((c) => c.piece.intensity), 1);
       const r = await fetch("/api/plan-anywhere", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -334,20 +520,33 @@ export function Planner() {
           // anyone will sit through, and the margin needs more sites than
           // that before it can be calibrated at all.
           ...kitBox, name: analysis?.name ?? "Area", dx: 60,
-          driver: analysis?.driver ?? "rain", rain_mm_h: 50, storm_hours: 6,
-          run_hours: 12,
-          sites: chosen.map((s) => ({ lat: s.lat, lon: s.lon, width_m: s.width_m })),
+          ...forcing, run_hours: 12,
+          // The alignment goes with the site. Without it the solver falls
+          // back to a line through the point along the local contour, which
+          // is a guess where `/sites` already measured the answer.
+          // Each measure carries what it IS and what it costs. `kind` tells
+          // the solver whether to sweep a crest into the bed or to open an
+          // exchange between two cells; `cost_model` and `unit_cost` are the
+          // rates from `lib/rates`, sent rather than duplicated, so the
+          // service has no construction price of its own to drift from.
+          sites: chosen.map((c) => ({
+            lat: c.site.lat, lon: c.site.lon, width_m: c.site.width_m,
+            outline: c.site.outline, line: c.site.line,
+            kind: c.piece.kind,
+            cost_model: c.piece.cost_model,
+            unit_cost: c.piece.unit,
+          })),
           // What the plan is bought to protect. Without this the service
           // scores the mean depth over the WHOLE box, and two one-kilometre
           // walls on a 130 km2 domain moved it 0.04% -- a true number about
           // the wrong question. Behind the walls is where the money is spent.
           protect: {
-            lat: chosen.reduce((a, s) => a + s.lat, 0) / chosen.length,
-            lon: chosen.reduce((a, s) => a + s.lon, 0) / chosen.length,
+            lat: chosen.reduce((a, c) => a + c.site.lat, 0) / chosen.length,
+            lon: chosen.reduce((a, c) => a + c.site.lon, 0) / chosen.length,
             radius_m: 2000,
           },
           max_height_m: maxH,
-          budget_aud: kitBudget * 1e6,
+          budget_usd: kitBudget * 1e6,
           delta: 0.1,
         }),
       });
@@ -357,7 +556,7 @@ export function Planner() {
     } catch (e) {
       setKitErr(e instanceof Error ? e.message : "could not solve this plan");
     } finally { setKitPlanBusy(false); }
-  }, [kitBox, kit, placedPieces, kitBudget, analysis]);
+  }, [kitBox, kit, placedPieces, kitBudget, analysis, forcing]);
 
   const kitImpact = useMemo(() => {
     const d = kitPlan as {
@@ -400,7 +599,9 @@ export function Planner() {
         lat: s.lat, lon: s.lon, name: s.name, outline: s.outline,
         taken: Boolean(on),
         label: piece
-          ? `${piece.label} ${piece.h.toFixed(1)} m`
+          ? (piece.kind === "levee"
+            ? `${piece.label} ${piece.intensity.toFixed(1)} m`
+            : piece.label)
           : `${s.name ?? "bank"} · ${(s.length_m / 1000).toFixed(1)} km`,
       };
     });
@@ -603,6 +804,19 @@ export function Planner() {
             study needs no study switch. Street is a zoom, so it belongs on
             the map with the other zooms. And the two planning tools are what
             the Plan tab is FOR, so they are steps inside it. */}
+        {/* Which flood, before which tool. A levee that holds against one
+            event is not a levee that holds, and the panel cannot say what a
+            wall buys until it has been told what it is buying against. */}
+        {section === "plan" && (
+          <ScenarioPicker
+            list={scenarios}
+            chosen={scenario}
+            gauge={peakGauge}
+            disabled={kitBusy || kitPlanBusy || secBusy}
+            onChoose={(sc) => chooseScenario(sc.id)}
+          />
+        )}
+
         {section === "plan" && (
           <div className="border-b border-line px-5 py-3">
             <div className="flex flex-wrap gap-1">
@@ -629,6 +843,14 @@ export function Planner() {
         {section === "forecast" && (
           <>
             <GaugeHeadline feed={gaugeFeed} />
+            {/* Three days of river, with the gauge reading it belongs to.
+                It used to run the full width under the map, where it sat
+                beside a play button that could not move it. */}
+            {hydroGauge && (
+              <div className="border-b border-line px-5 pb-3">
+                <Hydrograph gauge={hydroGauge} />
+              </div>
+            )}
             <LayersPanel
               bounds={liveBounds}
               layers={layers}
@@ -669,8 +891,8 @@ export function Planner() {
             impact={kitImpact}
             planBusy={kitPlanBusy}
             onPlan={solveKitPlan}
-            showPlan={showPlan}
-            onShowPlan={setShowPlan}
+            noWayOut={noWayOut}
+            onSave={savePlan}
           />
         )}
 
@@ -779,26 +1001,16 @@ export function Planner() {
             gauges={layers.gauges ? labelledGauges : null}
             radar={layers.radar ? liveBounds : null}
             place={tab === "anywhere" ? place : null}
-              analysis={tab === "trip"
-                ? (trip ? { bounds: trip.bounds, depth_png: trip.depth_png,
-                            terrain_png: trip.terrain_png } : null)
-                : tab === "street" && street?.ok
-                  ? { bounds: street.bounds,
-                      depth_png: (streetFrame !== null && street.frames[streetFrame])
-                        ? street.frames[streetFrame].depth_png
-                        : street.depth_png,
-                      terrain_png: street.terrain_png }
-                  : (analysis ?? (study
-                       ? { bounds: study.bounds, depth_png: study.depth_png,
-                           terrain_png: study.terrain_png }
-                       : null))}
+              analysis={mapField}
             focus={focus}
             // No solid water body in the street view: the grids are the
             // study's 40 m field over the whole study box, and drawn under a
             // camera zoomed to one block it covers everything in sight. The
             // block's own 10 m field arrives as the depth overlay instead.
             grids={tab === "trip" ? tripGrids
-              : tab === "street" ? null : adHocGrids}
+              : tab === "street" ? null
+                : section === "plan" ? null
+                  : runFrame !== null ? null : adHocGrids}
             solid={solid}
           />
         ) : (
@@ -870,17 +1082,54 @@ export function Planner() {
             Water depth
           </button>
         </div>
+
+        {/* Before / With plan, on the map.
+            It was a pair of pills in the panel, which is where the design
+            does NOT put it: what the toggle switches is the water on the
+            map, so the control belongs there, centred, the way the design
+            has it. */}
+        {section === "plan" && kitImpact && (
+          <div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 gap-0
+                          overflow-hidden rounded-md border border-ink-faint/40
+                          bg-bg/85 backdrop-blur">
+            {([false, true] as const).map((v) => (
+              <button
+                key={String(v)}
+                onClick={() => setShowPlan(v)}
+                aria-pressed={showPlan === v}
+                className={`px-3 py-1 text-[12px] transition-colors ${
+                  showPlan === v ? "bg-ink font-medium text-bg"
+                    : "text-ink hover:bg-bg"}`}
+              >
+                {v ? "With plan" : "Before"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* The scrubber, floating on the map rather than stacked under it.
+            It is on the map because what it moves is on the map: nine
+            instantaneous depth fields across the solved run. The gauge
+            hydrograph is NOT here, and that is the point -- the gauge runs
+            on a wall clock and the model on its own, and one play button
+            over two clocks would be a control over nothing. */}
+        {runFrames.length > 1 && section === "forecast" && tab !== "street" && (
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 z-10">
+            <RunScrubber
+              frames={runFrames}
+              index={runFrame}
+              onIndex={setRunFrame}
+              stormHours={study?.storm?.storm_hours ?? 6}
+              peakKm2={study?.flooded_km2 ?? 0}
+            />
+          </div>
+        )}
       </div>
 
       {/* The section runs the full width under the map, because that is the
           shape it is read in: a long thin drawing of ground and water, with
           the map above it showing where the line was cut. In the side panel
           it was 340 px wide and a kilometre of floodplain had to fit in it. */}
-      {section === "forecast" && tab !== "section" && hydroGauge && (
-        <div className="shrink-0 border-t border-line bg-bg">
-          <Hydrograph gauge={hydroGauge} />
-        </div>
-      )}
 
       {tab === "section" && secRes?.ok && secWall && (
         <div className="shrink-0 border-t border-line bg-bg">

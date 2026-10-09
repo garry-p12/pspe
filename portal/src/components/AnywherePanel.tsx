@@ -58,6 +58,11 @@ export interface AnalysisResult {
   forecast: { total_mm: number | null; peak_discharge_m3s: number | null };
   timing: { dem_seconds: number; seconds: number; steps: number };
   storm: { rain_mm_h: number; storm_hours: number; total_mm: number };
+  /** Instantaneous depth through the run, where the solve was asked for it.
+   *  Present in the shipped study bundle; absent from an ad-hoc analysis,
+   *  which asks for the peak only because the user is waiting on it. */
+  frames?: { t_h: number; flooded_km2: number; peak_depth_m: number;
+             depth_png: string }[];
   levees?: { lat: number; lon: number }[];
   cached?: boolean;
 }
@@ -661,7 +666,7 @@ export function AnywherePanel({
         <div className="mt-5">
           <div className="flex items-baseline justify-between">
             <label htmlFor="any-budget" className="eyebrow">Budget</label>
-            <span className="tnum text-[15px] font-semibold text-ink">A${budgetM}M</span>
+            <span className="tnum text-[15px] font-semibold text-ink">US${budgetM}M</span>
           </div>
           <input
             id="any-budget"
@@ -741,7 +746,7 @@ export function AnywherePanel({
         <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
           <h3 className="eyebrow">No measure here is worth building</h3>
           <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
-            The best allocation of A${budgetM}M changes flood depth by{" "}
+            The best allocation of US${budgetM}M changes flood depth by{" "}
             {plan.reduction_pct.toFixed(2)}%, which this model cannot
             distinguish from doing nothing.
           </p>
@@ -855,7 +860,7 @@ export function AnywherePanel({
               ? "Solving every option…"
               : levees.length < 2
                 ? "Place at least two candidate sites"
-                : `Find the best plan for A$${budgetM}M`}
+                : `Find the best plan for US$${budgetM}M`}
           </button>
         </div>
       )}
