@@ -569,6 +569,66 @@ def _rings_from_geojson(geom: dict) -> list[list[list[float]]]:
     return []
 
 
+AUSTIN_ADDRESSES = ("https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/"
+                    "services/LOCATION_address_points/FeatureServer/0/query")
+
+
+def fetch_address_points(west: float, south: float, east: float, north: float,
+                         limit: int = 2000) -> list[dict]:
+    """City address points, so a building can be called by its address.
+
+    Without this the street view lists `coa:336505` and a resident cannot find
+    their own house in it. Austin publishes 465,977 of these; the footprints
+    layer carries no address field of its own, so the two are joined by
+    position at request time.
+    """
+    try:
+        q = urllib.parse.urlencode({
+            "f": "geojson", "where": "1=1",
+            "outFields": ("ADDRESS,PREFIX_DIRECTION,STREET_NAME,STREET_TYPE,"
+                          "SUFFIX_DIRECTION,FULL_STREET_NAME"),
+            "geometry": f"{west},{south},{east},{north}",
+            "geometryType": "esriGeometryEnvelope", "inSR": 4326, "outSR": 4326,
+            "spatialRel": "esriSpatialRelIntersects", "returnGeometry": "true",
+            "resultRecordCount": limit,
+        })
+        r = urllib.request.Request(f"{AUSTIN_ADDRESSES}?{q}",
+                                   headers={"User-Agent": "PSPE-floodplain-planner/1.0"})
+        with urllib.request.urlopen(r, timeout=60) as f:
+            d = json.loads(f.read().decode())
+    except Exception:                                      # noqa: BLE001
+        return []
+    out = []
+    for ft in d.get("features", []):
+        g = ft.get("geometry") or {}
+        a = ft.get("properties") or {}
+        if g.get("type") != "Point":
+            continue
+        num = str(a.get("ADDRESS") or "").strip()
+        street = str(a.get("FULL_STREET_NAME") or "").strip()
+        if not street:
+            street = " ".join(str(a.get(k) or "").strip() for k in (
+                "PREFIX_DIRECTION", "STREET_NAME", "STREET_TYPE",
+                "SUFFIX_DIRECTION")).strip()
+        street = " ".join(street.split())
+        # FULL_STREET_NAME already carries the house number, so prepending
+        # ADDRESS to it produced "7320 7320 LAKE CHARLES DR".
+        if num and street.startswith(num + " "):
+            label = street
+        else:
+            label = f"{num} {street}".strip() if num else street
+        # The city stores addresses in capitals. "7320 LAKE CHARLES DR" shouts
+        # at a reader in a list of two hundred; the directional and the street
+        # type keep their conventional short forms.
+        keep = {"N", "S", "E", "W", "NE", "NW", "SE", "SW"}
+        label = " ".join(w if (w in keep or not w.isalpha()) else w.capitalize()
+                         for w in label.split())
+        if label:
+            out.append({"lon": g["coordinates"][0], "lat": g["coordinates"][1],
+                        "address": label})
+    return out
+
+
 def fetch_footprints(west: float, south: float, east: float, north: float,
                      limit: int = 500) -> list[dict]:
     """Building outlines for a block, with a ground elevation where published.
@@ -652,6 +712,26 @@ def fetch_footprints(west: float, south: float, east: float, north: float,
             })
 
     out = out[:limit]
+
+    # Attach an address to each footprint, by nearest point inside it. A city
+    # address point sits on the parcel, not the structure, so the match is a
+    # proximity one and is capped: 25 m is a house and its own address, 80 m is
+    # the neighbour's.
+    pts = fetch_address_points(west, south, east, north)
+    if pts:
+        for b in out:
+            ring = b["ring"]
+            lon = sum(c[0] for c in ring) / len(ring)
+            lat = sum(c[1] for c in ring) / len(ring)
+            kx = 111_320.0 * math.cos(math.radians(lat))
+            best, bd = None, 1e9
+            for q in pts:
+                d2 = ((q["lon"] - lon) * kx) ** 2 + ((q["lat"] - lat) * 110_540.0) ** 2
+                if d2 < bd:
+                    bd, best = d2, q["address"]
+            if best is not None and bd <= 25.0 ** 2:
+                b["address"] = best
+
     if len(_FOOTPRINT_CACHE) > 24:
         _FOOTPRINT_CACHE.pop(next(iter(_FOOTPRINT_CACHE)))
     _FOOTPRINT_CACHE[key] = out
@@ -1423,6 +1503,22 @@ class SectionRequest(BaseModel):
     dx: Optional[float] = None
 
 
+def _street_vmax(d: np.ndarray) -> float:
+    """The top of the depth ramp for a street block.
+
+    Not the maximum, and not a high percentile of the whole block either. A
+    block that touches the creek contains its channel, and the channel is
+    fifteen metres deep: a ramp scaled to that puts every depth anyone walks
+    through into its first tenth, and the neighbourhood draws as one flat
+    blue. Taken over the WET cells only, at the 90th percentile, so the ramp
+    spans the water on the streets rather than the water in the river.
+    """
+    wet = d[d > WET_M]
+    if wet.size < 8:
+        return 1.0
+    return float(min(max(np.percentile(wet, 90), 0.5), 6.0))
+
+
 class BuildingsRequest(BaseModel):
     """Buildings in a block, with the solved water against each floor."""
     west: float
@@ -1823,12 +1919,11 @@ def buildings(req: BuildingsRequest) -> dict:
         # The block's own water, so the map draws the street's flood rather
         # than the parent study's. Without it the only thing carrying water on
         # screen is the colour of the buildings.
-        "depth_png": depth_png(d_peak, max(float(np.nanpercentile(d_peak, 99.5)), 0.5)),
+        "depth_png": depth_png(d_peak, _street_vmax(d_peak)),
         "terrain_png": terrain_png(z),
-        "depth_vmax_m": round(max(float(np.nanpercentile(d_peak, 99.5)), 0.5), 2),
+        "depth_vmax_m": round(_street_vmax(d_peak), 2),
         "frames": ([{"t_h": round(snap_at[i], 2),
-                     "depth_png": depth_png(series[i],
-                                            max(float(np.nanpercentile(d_peak, 99.5)), 0.5))}
+                     "depth_png": depth_png(series[i], _street_vmax(d_peak))}
                     for i in range(series.shape[0])] if series is not None else []),
         "floor_above_ground_m": FLOOR_ABOVE_GROUND_M,
         "floor_source": (

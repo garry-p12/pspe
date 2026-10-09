@@ -542,7 +542,7 @@ export function AnywherePanel({
       )}
 
       {/* ---- what doing nothing costs here ---------------------------- */}
-      {section === "plan" && res?.study && !ownRes && !busy && (
+      {section === "forecast" && res?.study && !ownRes && !busy && (
         <div className="mx-4 mt-4 rounded-lg border border-line bg-bg-raised p-3">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <span className="chip-harm">{res.study.evidence}</span>

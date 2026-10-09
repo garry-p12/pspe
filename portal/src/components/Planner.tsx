@@ -1,65 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PlannerMap, type MeasureMarker } from "./PlannerMap";
-import { ForecastPanel } from "./ForecastPanel";
+import { PlannerMap } from "./PlannerMap";
 import { LayersPanel, DEFAULT_LAYERS, type LayerState,
          type GaugeFeed } from "./LayersPanel";
 import { GaugeHeadline } from "./GaugeHeadline";
 import { Hydrograph } from "./Hydrograph";
 import { RoadsOut } from "./RoadsOut";
-import { MeasureBuilder } from "./MeasureBuilder";
-import { RoadQueryPanel } from "./RoadQueryPanel";
 import { AnywherePanel, type AnalysisResult, type PlacedLevee,
          type StudyMeta } from "./AnywherePanel";
-import { PlanPanel } from "./PlanPanel";
-import { PlanSection } from "./PlanSection";
-import { ObservePanel, type Observation } from "./ObservePanel";
-import { RoutePanel } from "./RoutePanel";
 import { TripPanel, type TripResult } from "./TripPanel";
 import { SectionPanel, type SectionEnds, type SectionOverlay } from "./SectionPanel";
 import { SectionStrip } from "./SectionStrip";
 import { wallAt, crestToHold, bestStation, reaches, channelBelts,
          type SectionResult } from "@/lib/section";
 import { StreetPanel, type StreetResult } from "./StreetPanel";
-import { LeveeKit, PIECES, costOf, type SitesFeed, type Placed,
+import { LeveeKit, PIECES, type SitesFeed, type Placed,
          type PieceId } from "./LeveeKit";
 import type { RoadQuery } from "@/lib/roadquery";
-import { loadManifest } from "@/lib/data";
-import type { Manifest } from "@/lib/types";
-import { eventLabel, km, money, type OpsPayload } from "@/lib/ops";
 import { useRegion } from "./RegionContext";
-import {
-  decodeGrids, loadInspect, nearestRoad, sampleAt,
-  type InspectGrids, type PointInfo,
-} from "@/lib/inspect";
-
-function Metric({
-  label, value, sub, tone = "default",
-}: {
-  label: string; value: string; sub?: string;
-  tone?: "default" | "good" | "bad";
-}) {
-  const c = { default: "text-ink", good: "text-ok", bad: "text-bad" }[tone];
-  return (
-    <div>
-      <p className="eyebrow mb-1">{label}</p>
-      <p className={`tnum text-[24px] font-semibold leading-none ${c}`}>{value}</p>
-      {sub && <p className="mt-1 text-[12px] text-ink-faint">{sub}</p>}
-    </div>
-  );
-}
+import { decodeGrids, sampleAt,
+         type InspectGrids, type PointInfo } from "@/lib/inspect";
 
 export function Planner() {
-  const [manifest, setManifest] = useState<Manifest | null>(null);
-  const [ops, setOps] = useState<OpsPayload | null>(null);
-  const [unavailable, setUnavailable] = useState<string | null>(null);
-  const [roads, setRoads] = useState<GeoJSON.FeatureCollection | null>(null);
-  const [scale, setScale] = useState(1);
-  const [budget, setBudget] = useState(20);
-  const [chosen, setChosen] = useState<string>("base");
   const [focus, setFocus] = useState<"region" | "town">("region");
-  const [grids, setGrids] = useState<InspectGrids | null>(null);
   /** Water drawn as a body, or painted flat over the terrain. */
   const [solid, setSolid] = useState(true);
   const [place, setPlace] = useState<{ lat: number; lon: number; name: string } | null>(null);
@@ -74,14 +38,12 @@ export function Planner() {
    *  the wrong one. */
   const [vehicle, setVehicle] = useState(0.25);
   const [routeLines, setRouteLines] = useState<{
-    forTab: "district" | "anywhere" | "trip" | "section" | "street" | "kit";
+    forTab: "anywhere" | "trip" | "section" | "street" | "kit";
     quickest: { coords: [number, number][]; minutes: number } | null;
     robust: { coords: [number, number][]; minutes: number } | null;
     dest: { lat: number; lon: number } | null;
   } | null>(null);
   const [point, setPoint] = useState<PointInfo | null>(null);
-  const [custom, setCustom] = useState<number[]>([]);
-  const [mode, setMode] = useState<"options" | "build">("options");
   const [roadQ, setRoadQ] = useState<RoadQuery | null>(null);
   const [adHocRoads, setAdHocRoads] = useState<GeoJSON.FeatureCollection | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -94,7 +56,11 @@ export function Planner() {
   // score, rather than a reference flood being replayed. The two are labelled
   // differently on purpose: Richmond is a VALIDATED MODEL, Austin a
   // PROJECTION that recovers about half of FEMA's mapped 1% floodplain.
-  const [tab, setTab] = useState<"district" | "anywhere" | "trip" | "section" | "street" | "kit">("anywhere");
+  /** Which planning tool the Plan tab is showing. */
+  const [planMode, setPlanMode] = useState<"kit" | "section">("kit");
+  /** The street zoom. A map control, not a panel -- which is where the design
+   *  puts it and where anyone reading a map expects a zoom to be. */
+  const [streetOn, setStreetOn] = useState(false);
   const [study, setStudy] = useState<(AnalysisResult & { study?: StudyMeta }) | null>(null);
   const [studyErr, setStudyErr] = useState(false);
   /** What is drawn over the terrain, and the live feed behind one of them. */
@@ -143,13 +109,28 @@ export function Planner() {
   const [showPlan, setShowPlan] = useState(true);
   const [placed, setPlaced] = useState<PlacedLevee[]>([]);
   const [placing, setPlacing] = useState(false);
-  const [observed, setObserved] = useState<Observation | null>(null);
   // The panel used to be one continuous scroll: forecast, roads, design event,
   // budget, options, impact, all stacked. Everything was on screen and nothing
   // was findable. Three sections match the three questions an operator
   // actually arrives with -- what is coming, what does it cut, what do we
   // build -- and only one is ever open.
   const [section, setSection] = useState<"forecast" | "roads" | "plan">("forecast");
+
+  // One place decides which view is live: the three tabs the design has, plus
+  // the two controls that are not tabs. Everything downstream still reads
+  // `tab`, so the panels and the map did not change when the nav did.
+  const tab: "anywhere" | "trip" | "section" | "street" | "kit" =
+    streetOn ? "street"
+      : section === "roads" ? "trip"
+        : section === "plan" ? planMode
+          : "anywhere";
+  const setTab = (t: "anywhere" | "trip" | "section" | "street" | "kit") => {
+    if (t === "street") { setStreetOn(true); return; }
+    setStreetOn(false);
+    if (t === "trip") setSection("roads");
+    else if (t === "kit" || t === "section") { setSection("plan"); setPlanMode(t); }
+    else setSection("forecast");
+  };
 
   useEffect(() => {
     if (section === "plan") setFocus("town");
@@ -162,19 +143,17 @@ export function Planner() {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const b = Number(q.get("budget"));
-    if (Number.isFinite(b) && b >= 2 && b <= 60) setBudget(b);
+    if (Number.isFinite(b) && b >= 2 && b <= 80) setKitBudget(b);
     const sec = q.get("view");
     if (sec === "forecast" || sec === "roads" || sec === "plan") setSection(sec);
   }, []);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    q.set("budget", String(budget));
+    q.set("budget", String(kitBudget));
     q.set("view", section);
     window.history.replaceState(null, "", `?${q.toString()}`);
-  }, [budget, section]);
-  const [planTrigger, setPlanTrigger] = useState(0);
-  const [planning, setPlanning] = useState(false);
+  }, [kitBudget, section]);
   const { setRegion, setLive } = useRegion();
 
   // The header says LIVE only when something on the page really is. A badge
@@ -189,9 +168,7 @@ export function Planner() {
 
   // Keep the header honest about which place is on screen.
   useEffect(() => {
-    setRegion(tab === "district"
-      ? null
-      : (analysis?.name ?? study?.study?.place ?? "Anywhere"));
+    setRegion(analysis?.name ?? study?.study?.place ?? null);
   }, [tab, analysis?.name, study, setRegion]);
 
   useEffect(() => {
@@ -209,74 +186,9 @@ export function Planner() {
         setAdHocGrids(decodeGrids(d.inspect as Parameters<typeof decodeGrids>[0]));
       })
       .catch(() => setStudyErr(true));
-    loadManifest().then(setManifest).catch(() => {});
-    fetch("/data/roads.geojson").then((r) => r.json()).then(setRoads).catch(() => {});
-    loadInspect().then(setGrids).catch(() => {});
-    fetch("/api/options")
-      .then(async (r) => {
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.detail ?? `HTTP ${r.status}`);
-        }
-        return r.json();
-      })
-      .then((d: OpsPayload) => { setOps(d); setScale(d.event_scales.includes(1) ? 1 : d.event_scales[0]); })
-      .catch((e) => setUnavailable(String(e.message ?? e)));
   }, []);
-
-  const forScale = useMemo(
-    () => (ops?.options ?? []).filter((o) => o.event_scale === scale),
-    [ops, scale],
-  );
-  const base = forScale.find((o) => o.id === "base");
-  const current = forScale.find((o) => o.id === chosen) ?? base;
-
-  const affordable = useMemo(
-    () => forScale.filter((o) => o.id === "base" || o.cost_aud <= budget * 1e6),
-    [forScale, budget],
-  );
 
   // Best value among affordable options that actually help.
-  const recommended = useMemo(() => {
-    const helpful = affordable.filter(
-      (o) => (o.core_reduction_pct ?? 0) > 1 && o.id !== "base",
-    );
-    // Best value is reduction per dollar, not the largest reduction: the most
-    // expensive option here buys LESS than one costing half as much.
-    helpful.sort(
-      (a, b) =>
-        b.cost_aud / Math.max(b.core_reduction_pct ?? 1, 1e-6) >
-        a.cost_aud / Math.max(a.core_reduction_pct ?? 1, 1e-6) ? -1 : 1,
-    );
-    return helpful[0];
-  }, [affordable]);
-
-  useEffect(() => {
-    const n = manifest?.levee_geometry?.sites.length ?? 0;
-    if (n && custom.length !== n) setCustom(Array(n).fill(0));
-  }, [manifest, custom.length]);
-
-  const markers: MeasureMarker[] = useMemo(() => {
-    const geo = manifest?.levee_geometry;
-    if (!geo) return [];
-    const heights = mode === "build" ? custom : (current?.heights ?? []);
-    return geo.sites.map((s) => {
-      const single = forScale.find((o) => o.id === `s${s.id}`);
-      return {
-        id: s.id,
-        lon: s.lon,
-        lat: s.lat,
-        selected: (heights[s.id] ?? 0) > 0,
-        worsens: Boolean(single?.makes_worse),
-      };
-    });
-  }, [manifest, current, forScale, mode, custom]);
-
-  const onMarker = useCallback((id: number) => {
-    setChosen((c) => (c === `s${id}` ? "base" : `s${id}`));
-    setFocus("town");
-  }, []);
-
   // The block the street view opens on: wherever the user last clicked in
   // this tab, else the middle of whatever place is solved.
   const streetCentre = useMemo(() => {
@@ -560,6 +472,12 @@ export function Planner() {
     [secRes, secStationIdx, secCrestM, secBankLen, secBelts],
   );
 
+  /** The box the scene is built on. The map used to be gated on the Richmond
+   *  manifest, so deleting that one file rendered a grey pulse for Austin. */
+  const mapBounds = useMemo(
+    () => analysis?.bounds ?? study?.bounds ?? null,
+    [analysis, study]);
+
   const sectionPicking =
     sectionArmed && !(sectionEnds.a && sectionEnds.b);
 
@@ -592,15 +510,15 @@ export function Planner() {
         setPlacing(false);
         return;
       }
-      if (!grids || !manifest) return;
-      setPoint(sampleAt(grids, manifest.bounds, lon, lat));
+      if (!adHocGrids || !mapBounds) return;
+      setPoint(sampleAt(adHocGrids, mapBounds, lon, lat));
     },
-    [grids, manifest, tab, placing, sectionPicking],
+    [adHocGrids, mapBounds, tab, placing, sectionPicking],
   );
 
   /** The box the live feeds are asked about: whatever place is on screen. */
   const liveBounds = useMemo(() => {
-    const b = analysis?.bounds ?? trip?.bounds ?? study?.bounds ?? manifest?.bounds;
+    const b = analysis?.bounds ?? trip?.bounds ?? study?.bounds;
     if (!b) return null;
     // Padded well beyond the solved box, and that is not slop. The gauge that
     // tells you what is coming is UPSTREAM, which is outside the box by
@@ -609,7 +527,7 @@ export function Planner() {
     const pad = 0.12;
     return { west: b.west - pad, south: b.south - pad,
              east: b.east + pad, north: b.north + pad };
-  }, [analysis, trip, study, manifest]);
+  }, [analysis, trip, study]);
 
   // The gauge the strip under the map plots: one with published flood levels
   // if there is one, because a stage without a threshold beside it does not
@@ -640,13 +558,8 @@ export function Planner() {
     if (tab === "street" && street?.ok) return street.depth_vmax_m;
     if (analysis) return analysis.depth_vmax_m;
     if (study) return study.depth_vmax_m;
-    return manifest?.depth_vmax_m ?? null;
-  }, [tab, street, analysis, study, manifest]);
-
-  const near = useMemo(
-    () => (point ? nearestRoad(roads, point.lon, point.lat) : null),
-    [point, roads],
-  );
+    return null;
+  }, [tab, street, analysis, study]);
 
   // The trip ships the same quantised grids an ad-hoc analysis does, so the
   // body of water and the click-anywhere depth work there too.
@@ -654,38 +567,19 @@ export function Planner() {
     () => decodeGrids(trip?.inspect as Parameters<typeof decodeGrids>[0]),
     [trip]);
 
-  const frame = manifest
-    ? manifest.frames.reduce((a, b) => (b.wet_cells > a.wet_cells ? b : a), manifest.frames[0]).i
-    : 0;
-
   return (
     <div className="flex h-full min-h-0">
       {/* ---- decision panel ------------------------------------------- */}
       <aside className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-r border-line bg-bg">
-        {/* Which study. A different axis from the three sections below it --
-            those ask what you want to know, this asks about where -- so it
-            sits above them rather than becoming a fifth area pill. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-5 py-2.5">
-          <span className="text-[13px] text-ink-mute">Study</span>
-          <button
-            className="pill whitespace-nowrap"
-            data-on={tab !== "district"}
-            onClick={() => { setTab("anywhere"); setAnalysis(null); }}
-          >
-            Austin, Texas
-          </button>
-          <button
-            className="pill whitespace-nowrap"
-            data-on={tab === "district"}
-            onClick={() => { setTab("district"); setAnalysis(null); setTrip(null); }}
-          >
-            Richmond Valley, NSW
-          </button>
-          {studyErr && (
-            <span className="anno">default study not built — run scripts/build_austin_study.py</span>
-          )}
-        </div>
-
+        {studyErr && (
+          <div className="border-b border-line bg-bg-inset px-5 py-3">
+            <p className="text-[13px] font-medium text-ink">No study is built</p>
+            <p className="anno mt-1 leading-relaxed">
+              The portal ships one solved place and it is not there. Build it
+              with scripts/build_austin_study.py.
+            </p>
+          </div>
+        )}
         <div className="px-5 pt-4">
           <div className="seg" role="tablist">
             {(["forecast", "roads", "plan"] as const).map((k) => (
@@ -702,30 +596,27 @@ export function Planner() {
           </div>
         </div>
 
-        <div className="border-b border-line px-5 py-3">
-          <span className="text-[13px] text-ink-mute">Area</span>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {(["district", "anywhere", "trip", "section", "street", "kit"] as const).map((k) => (
-              <button
-                key={k}
-                className="pill whitespace-nowrap"
-                data-on={tab === k}
-                onClick={() => {
-                  setTab(k);
-                  if (k === "district") setAnalysis(null);
-                  if (k !== "trip") setTrip(null);
-                  if (k === "section") setSectionArmed(true);
-                }}
-              >
-                {k === "district" ? "This district"
-                  : k === "anywhere" ? "Anywhere"
-                    : k === "trip" ? "Plan a trip"
-                      : k === "section" ? "Cross-section"
-                        : k === "street" ? "Street" : "Levee kit"}
-              </button>
-            ))}
+        {/* Three tabs and nothing else above the content.
+            There was a "Study" row with two places and an "Area" row with six
+            chips: 180 px of navigation before anything is said, and two of
+            the six -- Street and Cross-section -- are not areas at all. One
+            study needs no study switch. Street is a zoom, so it belongs on
+            the map with the other zooms. And the two planning tools are what
+            the Plan tab is FOR, so they are steps inside it. */}
+        {section === "plan" && (
+          <div className="border-b border-line px-5 py-3">
+            <div className="flex flex-wrap gap-1">
+              {(["kit", "section"] as const).map((k) => (
+                <button key={k} className="pill whitespace-nowrap"
+                        data-on={planMode === k}
+                        onClick={() => { setPlanMode(k);
+                                         if (k === "section") setSectionArmed(true); }}>
+                  {k === "kit" ? "Build a plan" : "Cross-section"}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {tab === "trip" && (
           <TripPanel
@@ -749,9 +640,9 @@ export function Planner() {
             />
             {layers.roads && (
               <RoadsOut
-                roads={tab === "district" ? roads : adHocRoads}
-                grids={tab === "district" ? grids : adHocGrids}
-                bounds={analysis?.bounds ?? study?.bounds ?? manifest?.bounds ?? null}
+                roads={adHocRoads}
+                grids={adHocGrids}
+                bounds={mapBounds}
                 place={analysis?.name ?? study?.study?.short ?? null}
                 vehicle={vehicle}
                 onVehicle={setVehicle}
@@ -851,240 +742,20 @@ export function Planner() {
           />
         )}
 
-        {tab === "district" && section === "forecast" && <>
-        <ForecastPanel />
-        <ObservePanel
-          bounds={manifest?.bounds ?? null}
-          onObservation={setObserved}
-        />
-        </>}
-
-        {tab === "district" && section === "roads" && <>
-        <RoadQueryPanel
-          roads={roads}
-          grids={grids}
-          bounds={manifest?.bounds ?? null}
-          onQuery={setRoadQ}
-        />
-        </>}
-
-        {tab === "district" && section === "plan" && ops && (
-          <PlanSection
-            ops={ops}
-            budgetM={budget}
-            onBudget={setBudget}
-            scale={scale}
-            onScale={setScale}
-            chosen={chosen}
-            onChoose={(id) => { setChosen(id); setFocus("town"); setMode("options"); }}
-            onBuildYourOwn={() => setMode("build")}
-            onFindPlan={() => setPlanTrigger((n) => n + 1)}
-            planning={planning}
-          >
-            <PlanPanel
-              budgetM={budget}
-              eventScale={scale}
-              crestLengths={(ops.sites ?? []).map((s) => s.crest_length_m)}
-              onPlan={(h) => { setMode("build"); setCustom(h); }}
-              onShowHarm={(site) => {
-                // Put ONLY the rejected wall on the map. The depth layer then
-                // shows where that water ends up instead of at the settlement,
-                // which is the thing the number cannot convey.
-                const h = (ops.sites ?? []).map((_, i) => (i === site ? 3.0 : 0));
-                setMode("build"); setCustom(h);
-              }}
-              trigger={planTrigger}
-              onBusy={setPlanning}
-            />
-          </PlanSection>
-        )}
-
-        {tab === "district" && section === "plan" && point && (
-          <div className="border-b border-line-soft p-4">
-            <div className="mb-2 flex items-start justify-between gap-2">
-              <p className="eyebrow">Selected location</p>
-              <button
-                onClick={() => setPoint(null)}
-                className="text-[12px] text-ink-faint hover:text-ink"
-              >
-                clear
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Metric
-                label="Peak flood depth"
-                value={point.flooded ? `${point.depth_m.toFixed(2)} m` : "dry"}
-                tone={point.depth_m > 1 ? "bad" : point.flooded ? "default" : "good"}
-                sub="in the 2022 event"
-              />
-              <Metric
-                label="Ground level"
-                value={`${point.elev_m.toFixed(1)} m`}
-                sub="above sea level"
-              />
-            </div>
-            {near && (
-              <p className="mt-3 text-[13px] leading-relaxed text-ink-mute">
-                Nearest road: <span className="text-ink">{near.name}</span>
-                {near.km < 3 ? ` · ${(near.km * 1000).toFixed(0)} m away` : ""}
-              </p>
-            )}
-            <p className="tnum mt-1 text-[12px] text-ink-faint">
-              {point.lat.toFixed(4)}, {point.lon.toFixed(4)}
-            </p>
-          </div>
-        )}
-
-        {tab === "district" && section === "plan" && !point && (
-          <div className="border-b border-line-soft px-4 py-3">
-            <p className="text-[13px] leading-relaxed text-ink-faint">
-              <span className="text-ink-mute">Click anywhere on the map</span> to
-              see how deep the water got there in 2022, or click a marker to
-              assess a mitigation measure.
-            </p>
-          </div>
-        )}
-
-        {/* Can people get out. No margin here: the district's options come
-            from a precomputed library and the field drawn is the reference
-            solution, so the honest answer is the route under that field and
-            what the flood costs in minutes -- not a guarantee about a plan
-            this tab cannot solve on demand (see section 5.13). */}
-        {tab === "district" && section === "plan" && manifest && (
-          <div className="border-b border-line-soft px-1 pb-2">
-            <RoutePanel
-              roads={roads}
-              grids={grids}
-              bounds={manifest.bounds}
-              from={manifest.levee_geometry?.settlement
-                ? { lat: manifest.levee_geometry.settlement.lat,
-                    lon: manifest.levee_geometry.settlement.lon,
-                    name: "the settlement" }
-                : null}
-              to={null}
-              vehicle={vehicle}
-              onVehicle={setVehicle}
-              plan={null}
-              onRoutes={(r) => setRouteLines(
-                r ? { ...(r as object), forTab: "district" } as typeof routeLines : null)}
-            />
-          </div>
-        )}
-
-        {tab === "district" && section === "plan" && unavailable && (
-          <div className="m-4 rounded-lg border border-warn/40 bg-warn/5 p-3">
-            <p className="text-[13px] font-medium text-warn">Options not available yet</p>
-            <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
-              {unavailable} The flood model runs on a cluster and its results are
-              published here when complete.
-            </p>
-          </div>
-        )}
-
-        {tab === "district" && section === "plan" && ops && mode === "build"
-          && manifest?.levee_geometry && (
-          <div className="px-5 pb-5">
-            <MeasureBuilder
-              siteCount={manifest.levee_geometry.sites.length}
-              siteElev={manifest.levee_geometry.sites.map((s) => s.elev)}
-              heights={custom}
-              onHeights={setCustom}
-              eventScale={scale}
-              crestLengths={ops.sites.map((s) => s.crest_length_m)}
-              budgetM={budget}
-            />
-          </div>
-        )}
-
-        {tab === "district" && section === "plan" && ops && (
-          <>
-            {mode === "options" && current && chosen !== "base" && (
-              <div className="p-4">
-                <p className="eyebrow mb-3">Projected impact</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <Metric
-                    label="Road cut"
-                    value={km(current.road_cut_km)}
-                    sub={`of ${ops.road_network_km.toFixed(0)} km network`}
-                    tone={current.makes_worse ? "bad" : "default"}
-                  />
-                  <Metric
-                    label="Land flooded"
-                    value={`${current.area_flooded_km2.toFixed(1)} km²`}
-                  />
-                  {current.id !== "base" && (
-                    <>
-                      <Metric
-                        label="Change vs no action"
-                        value={`${(current.road_cut_change_km ?? 0) >= 0 ? "+" : ""}${km(current.road_cut_change_km ?? 0, 2)}`}
-                        tone={current.makes_worse ? "bad" : "good"}
-                      />
-                      <Metric
-                        label="Cost"
-                        value={money(current.cost_aud)}
-                        sub={current.cost_per_km_protected
-                          ? `${money(current.cost_per_km_protected)} per km kept open`
-                          : "no road kept open"}
-                      />
-                    </>
-                  )}
-                </div>
-
-                {current.makes_worse && (
-                  <div className="mt-4 rounded-lg border border-bad/40 bg-bad/5 p-3">
-                    <p className="text-[13px] font-semibold text-bad">
-                      This option increases flooding
-                    </p>
-                    <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
-                      It sits on a drainage path. Walling it off holds water in
-                      the floodplain rather than keeping it out, cutting{" "}
-                      {km(current.road_cut_change_km ?? 0, 2)} more road than
-                      taking no action at all.
-                    </p>
-                  </div>
-                )}
-
-                {current.named_roads_cut.length > 0 && (
-                  <div className="mt-4">
-                    <p className="eyebrow mb-2">Roads affected</p>
-                    <ul className="flex flex-col gap-1">
-                      {current.named_roads_cut.slice(0, 6).map((r) => (
-                        <li key={r.name} className="flex items-baseline gap-2 text-[13px]">
-                          <span className="flex-1 truncate text-ink-mute">{r.name}</span>
-                          <span className="tnum text-ink-faint">{km(r.km, 1)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {ops.cost_note && (
-                  <p className="mt-4 border-t border-line-soft pt-3 text-[12px] leading-relaxed text-ink-faint">
-                    {ops.cost_note}
-                  </p>
-                )}
-              </div>
-            )}
-          </>
-        )}
       </aside>
 
       {/* ---- map, and the section under it ----------------------------- */}
       <div className="flex min-w-0 flex-1 flex-col">
       <div className="relative min-h-0 flex-1">
-        {manifest ? (
+        {mapBounds ? (
           <PlannerMap
-            manifest={manifest}
-            frame={frame}
-            roads={tab === "district" ? roads
-              : tab === "trip" ? (trip?.roads ?? null) : adHocRoads}
+            bounds={mapBounds}
+            roads={tab === "trip" ? (trip?.roads ?? null) : adHocRoads}
             focusBounds={tab === "street" && street?.ok ? street.bounds : null}
-            markers={tab === "district" ? markers : []}
             pins={tab === "trip" && trip
               ? [{ lon: trip.origin.lon, lat: trip.origin.lat, label: "from" },
                  { lon: trip.destination.lon, lat: trip.destination.lat, label: "to" }]
               : null}
-            onMarker={onMarker}
             onPick={onPick}
             pin={point ? { lon: point.lon, lat: point.lat } : null}
             cutFraction={roadQ?.cutFraction ?? null}
@@ -1108,7 +779,6 @@ export function Planner() {
             gauges={layers.gauges ? labelledGauges : null}
             radar={layers.radar ? liveBounds : null}
             place={tab === "anywhere" ? place : null}
-            observed={observed}
               analysis={tab === "trip"
                 ? (trip ? { bounds: trip.bounds, depth_png: trip.depth_png,
                             terrain_png: trip.terrain_png } : null)
@@ -1118,8 +788,7 @@ export function Planner() {
                         ? street.frames[streetFrame].depth_png
                         : street.depth_png,
                       terrain_png: street.terrain_png }
-                  : tab === "district" ? null
-                    : (analysis ?? (study
+                  : (analysis ?? (study
                        ? { bounds: study.bounds, depth_png: study.depth_png,
                            terrain_png: study.terrain_png }
                        : null))}
@@ -1128,10 +797,8 @@ export function Planner() {
             // study's 40 m field over the whole study box, and drawn under a
             // camera zoomed to one block it covers everything in sight. The
             // block's own 10 m field arrives as the depth overlay instead.
-            grids={tab === "district" ? grids
-              : tab === "trip" ? tripGrids
-                : tab === "street" ? null : adHocGrids}
-            heights={mode === "build" ? custom : (current?.heights ?? [])}
+            grids={tab === "trip" ? tripGrids
+              : tab === "street" ? null : adHocGrids}
             solid={solid}
           />
         ) : (

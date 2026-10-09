@@ -12,6 +12,9 @@
  * sentence, and it keeps columns of figures aligned without extra rules.
  */
 :root {
+  /* The ground the card sits on. Warm, so the white card reads as paper
+     rather than as a hole. */
+  --page:      #f1f0ed;
   --bg:        #ffffff;
   --bg-raised: #fafafa;
   --bg-inset:  #f4f4f5;
@@ -42,6 +45,7 @@
 }
 
 @theme inline {
+  --color-page: var(--page);
   --color-bg: var(--bg);
   --color-bg-raised: var(--bg-raised);
   --color-bg-inset: var(--bg-inset);
@@ -65,7 +69,7 @@
 html, body { height: 100%; }
 
 body {
-  background: var(--bg);
+  background: var(--page);
   color: var(--ink);
   font-family: var(--font-sans-stack);
   -webkit-font-smoothing: antialiased;
@@ -200,7 +204,8 @@ body {
 .maplibregl-ctrl-attrib a { color: var(--ink-mute) !important; }
 .maplibregl-canvas { outline: none; }
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
+* { scrollbar-width: thin; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #d4d4d8; }

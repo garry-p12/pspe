@@ -19,19 +19,20 @@ await p.waitForTimeout(14000);
 
 const aside = p.locator("aside");
 let t = await aside.innerText();
-ok("the study row names Austin first", /Study[\s\S]{0,40}Austin, Texas/.test(t));
-ok("Austin is the selected study",
-   await p.getByRole("button", { name: "Austin, Texas", exact: true })
-     .getAttribute("data-on") === "true");
-ok("Richmond is still reachable", await p.getByRole("button", { name: /Richmond Valley/ }).count() === 1);
+// There is no study switch any more: the portal ships one place. What has to
+// be true is that nothing of the Richmond archive is left in the running app.
+ok("Richmond is gone from the portal",
+   !/Richmond/i.test(await aside.innerText())
+   && !/Richmond/i.test(await p.locator("header").innerText()));
+ok("the nav is the three tabs the design has, with no Study or Area rows",
+   (await p.getByRole("tab").count()) === 3
+   && !/\bArea\b/.test(await aside.innerText()));
 ok("the header names the place",
    /Onion Creek, Austin, Texas/.test(await p.locator("header").innerText()),
    (await p.locator("header").innerText()).replace(/\n/g, " ").slice(0, 70));
 ok("it opens on a solved place, not a search box", !/Search for a town/i.test(t.slice(0, 400)));
 
-// The answer lives under Plan.
-await p.getByRole("tab", { name: "Plan" }).click();
-await p.waitForTimeout(2500);
+// The evidence card sits with the layer it describes, in Forecast.
 t = await aside.innerText();
 ok("the evidence label is PROJECTION, not a bare map", /PROJECTION/.test(t));
 ok("the skill score is on the face of it",
@@ -41,8 +42,8 @@ ok("it says how much of FEMA's floodplain it finds",
 ok("and how much of ours falls outside",
    new RegExp(`${Math.round(sk.far * 100)}%`).test(t));
 ok("the terrain is named and it is bare earth", /3DEP bare earth/.test(t));
-ok("the flooded area matches the bundle",
-   t.includes(String(Math.round(bundle.flooded_km2))), `${bundle.flooded_km2} km2`);
+ok("the flooded area is stated beside the layer that draws it",
+   t.includes(String(bundle.flooded_km2)), `${bundle.flooded_km2} km2`);
 ok("the caveats are reachable", /What this answer is not/.test(t));
 
 // The map drew something.
@@ -56,11 +57,14 @@ const hash = await p.evaluate(() => {
 ok("the map rendered", hash !== "nocanvas" && hash !== "0", hash);
 await p.screenshot({ path: `${OUT}/80_austin_default.png` });
 
-// Switching to Richmond must still work.
-await p.getByRole("button", { name: /Richmond Valley/ }).click();
-await p.waitForTimeout(4000);
-ok("Richmond still opens", await p.getByRole("button", { name: "This district" }).count() === 1);
-await p.screenshot({ path: `${OUT}/81_richmond_study.png` });
+// There is nothing to switch to. The portal ships one place, and the check
+// that matters is that the Plan tab reaches the planning tools rather than an
+// archive's precomputed option library.
+await p.getByRole("tab", { name: "Plan" }).click();
+await p.waitForTimeout(2000);
+ok("Plan opens on the planning tools, not an archive library",
+   /Build a plan|Cross-section/.test(await aside.innerText()));
+await p.screenshot({ path: `${OUT}/81_plan_tab.png` });
 
 console.log(fails ? `\n${fails} FAILED` : "\nall checks passed");
 await b.close();

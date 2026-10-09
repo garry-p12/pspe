@@ -14,19 +14,33 @@ const p = await b.newPage({ viewport: { width: 1700, height: 1250 }, deviceScale
 p.on("pageerror", (e) => { console.log("PAGE ERROR:", e.message); fails++; });
 await p.goto("http://localhost:3000/", { waitUntil: "domcontentloaded" });
 
-// Click until the state flips: a click can land before React attaches its
-// handlers and is then simply lost.
-async function pick(name) {
-  const btn = p.getByRole("button", { name, exact: true });
-  await btn.waitFor({ state: "visible", timeout: 120000 });
+// The nav is three tabs plus two controls that are not tabs: Street is a map
+// zoom, and the two planning tools are steps inside Plan. Each helper clicks
+// until the state flips, because a click can land before React hydrates and
+// is then simply lost.
+async function tab(name) {
+  const b = p.getByRole("tab", { name });
+  await b.waitFor({ state: "visible", timeout: 120000 });
   for (let i = 0; i < 25; i++) {
-    await btn.click();
-    await p.waitForTimeout(700);
-    if ((await btn.getAttribute("data-on")) === "true") return true;
+    await b.click();
+    await p.waitForTimeout(600);
+    if ((await b.getAttribute("data-on")) === "true") return true;
   }
   return false;
 }
-ok("the section tab can be selected", await pick("Cross-section"));
+async function pick(name) {
+  const b = p.getByRole("button", { name, exact: true });
+  await b.waitFor({ state: "visible", timeout: 90000 });
+  for (let i = 0; i < 25; i++) {
+    await b.click();
+    await p.waitForTimeout(600);
+    if ((await b.getAttribute("data-on")) === "true") return true;
+  }
+  return false;
+}
+
+ok("the Plan tab opens", await tab("Plan"));
+ok("and Cross-section is a step inside it", await pick("Cross-section"));
 const aside = p.locator("aside");
 ok("it opens on step one", /1 · Choose a line to protect/.test(await aside.innerText()));
 

@@ -13,24 +13,40 @@ const b = await chromium.launch();
 const p = await b.newPage({ viewport: { width: 1600, height: 1200 }, deviceScaleFactor: 2 });
 p.on("pageerror", (e) => { console.log("PAGE ERROR:", e.message); fails++; });
 await p.goto("http://localhost:3000/", { waitUntil: "domcontentloaded" });
-// Click until the state actually flips.
-//
-// A Playwright click can land after the markup is in the DOM and before React
-// has attached its handlers, and the click is then simply lost -- which is
-// what made four runs of this harness report a broken street view that was
-// not broken. Waiting for `visible` does not help: visible is a DOM property
-// and hydration is not. Assert the thing the click was supposed to change.
-async function pick(name) {
-  const btn = p.getByRole("button", { name, exact: true });
-  await btn.waitFor({ state: "visible", timeout: 120000 });
+// The nav is three tabs plus two controls that are not tabs: Street is a map
+// zoom, and the two planning tools are steps inside Plan. Each helper clicks
+// until the state flips, because a click can land before React hydrates and
+// is then simply lost.
+async function tab(name) {
+  const b = p.getByRole("tab", { name });
+  await b.waitFor({ state: "visible", timeout: 120000 });
   for (let i = 0; i < 25; i++) {
-    await btn.click();
-    await p.waitForTimeout(700);
-    if ((await btn.getAttribute("data-on")) === "true") return true;
+    await b.click();
+    await p.waitForTimeout(600);
+    if ((await b.getAttribute("data-on")) === "true") return true;
   }
   return false;
 }
-ok("the street tab can be selected", await pick("Street"));
+async function pick(name) {
+  const b = p.getByRole("button", { name, exact: true });
+  await b.waitFor({ state: "visible", timeout: 90000 });
+  for (let i = 0; i < 25; i++) {
+    await b.click();
+    await p.waitForTimeout(600);
+    if ((await b.getAttribute("data-on")) === "true") return true;
+  }
+  return false;
+}
+
+const streetChip = p.getByRole("button", { name: "Zoom to street level" });
+await streetChip.waitFor({ state: "visible", timeout: 120000 });
+for (let i = 0; i < 25; i++) {
+  await streetChip.click();
+  await p.waitForTimeout(700);
+  if (/This street/.test(await p.locator("aside").innerText())) break;
+}
+ok("the street view opens from the map's zoom chips",
+   /This street/.test(await p.locator("aside").innerText()));
 await p.waitForTimeout(900);
 const aside = p.locator("aside");
 ok("the street tab opens", /This street/.test(await aside.innerText()));

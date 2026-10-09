@@ -7,9 +7,9 @@ import type { Layer } from "@deck.gl/core";
 import { TerrainLayer, TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer, ColumnLayer, GeoJsonLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import type { InspectGrids } from "@/lib/inspect";
-import { leveeWalls, waterColumns } from "@/lib/watermesh";
-import type { Manifest } from "@/lib/types";
-import { ELEVATION_DECODER, frameUrl } from "@/lib/data";
+import { waterColumns } from "@/lib/watermesh";
+import type { Box } from "@/lib/types";
+import { ELEVATION_DECODER } from "@/lib/data";
 
 const IMAGERY =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -22,12 +22,40 @@ export interface MeasureMarker {
   worsens: boolean;
 }
 
+/** The zoom that makes a box COVER its pane, not fit inside it.
+ *
+ * `fitBounds` fits, which letterboxes: a wide box in a tall pane leaves the
+ * page showing above and below it, and the study box then reads as a
+ * rectangle of model floating on the world rather than as the map. Covering
+ * means the shorter axis overflows and the imagery reaches every edge.
+ */
+function coverZoom(
+  box: { west: number; south: number; east: number; north: number },
+  size: { w: number; h: number } | null,
+  fallback = 11.6,
+): number {
+  if (!size || size.w < 2 || size.h < 2) return fallback;
+  const vp = new WebMercatorViewport({ width: size.w, height: size.h });
+  const fit = vp.fitBounds([[box.west, box.south], [box.east, box.north]],
+                           { padding: 0 });
+  // Measure how big the box actually is at the fitted zoom, then zoom in by
+  // whichever axis still has slack.
+  const at = new WebMercatorViewport({
+    width: size.w, height: size.h,
+    longitude: fit.longitude, latitude: fit.latitude, zoom: fit.zoom,
+  });
+  const a = at.project([box.west, box.south]);
+  const b2 = at.project([box.east, box.north]);
+  const pw = Math.abs(b2[0] - a[0]);
+  const ph = Math.abs(b2[1] - a[1]);
+  if (pw < 1 || ph < 1) return fit.zoom;
+  const grow = Math.max(size.w / pw, size.h / ph);
+  return fit.zoom + Math.log2(Math.max(grow, 1));
+}
+
 export function PlannerMap({
-  manifest,
-  frame,
+  bounds,
   roads,
-  markers,
-  onMarker,
   onPick,
   pin,
   cutFraction,
@@ -52,11 +80,10 @@ export function PlannerMap({
   heights,
   solid = true,
 }: {
-  manifest: Manifest;
-  frame: number;
+  /** The study's own box. This was `manifest`, the Richmond archive, which
+   *  made every other place a special case layered over a valley in NSW. */
+  bounds: Box;
   roads: GeoJSON.FeatureCollection | null;
-  markers: MeasureMarker[];
-  onMarker: (id: number) => void;
   onPick?: (lon: number, lat: number) => void;
   pin?: { lon: number; lat: number } | null;
   cutFraction?: Map<number, number> | null;
@@ -141,9 +168,7 @@ export function PlannerMap({
   /** False falls back to the flat painted flood. */
   solid?: boolean;
 }) {
-  const b = manifest.bounds;
-  const ext = manifest.frame_ext ?? "png";
-  const settle = manifest.levee_geometry?.settlement;
+  const b = bounds;
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const host = useRef<HTMLDivElement>(null);
 
@@ -159,18 +184,28 @@ export function PlannerMap({
   }, []);
 
   const ab = focusBounds ?? analysis?.bounds;
+  // Only the street view is pitched; see the camera memo.
+  const tilted = Boolean(buildings?.length);
   const view = useMemo(() => {
-    const base = { pitch: 48, bearing: -18, transitionDuration: 900 };
+    // FLAT and north-up, except in the street view.
+    //
+    // The scene was pitched 48 degrees and rotated -18 for every view, which
+    // turns a city into a tilted slab with the page showing round its cut
+    // edges, and turns the study box into an obvious rectangle of model
+    // floating over the world. A flood map is read as a map: north up, filling
+    // its pane. Pitch is worth paying for in exactly one place -- the street
+    // view, where the thing being read IS the height of buildings against a
+    // water surface -- and nowhere else.
+    const base = tilted
+      ? { pitch: 48, bearing: -18, transitionDuration: 900 }
+      : { pitch: 0, bearing: 0, transitionDuration: 900 };
     if (ab) {
       return {
         ...base,
         longitude: (ab.west + ab.east) / 2,
         latitude: (ab.south + ab.north) / 2,
-        zoom: focusBounds ? 15.4 : 11.6,
+        zoom: focusBounds ? 15.4 : coverZoom(ab, size),
       };
-    }
-    if (focus === "town" && settle) {
-      return { ...base, longitude: settle.lon, latitude: settle.lat, zoom: 12.3 };
     }
     const c = {
       ...base,
@@ -179,10 +214,9 @@ export function PlannerMap({
       zoom: 9.6,
     };
     if (!size) return c;
-    const vp = new WebMercatorViewport({ width: size.w, height: size.h });
-    const fit = vp.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: 70 });
-    return { ...c, zoom: fit.zoom + 0.5 };
-  }, [b, size, focus, settle, ab, focusBounds]);
+    return { ...c, zoom: coverZoom(b, size, 9.6) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [b, size, focus, ab, focusBounds, tilted]);
 
   const cutKey = cutFraction ? `${cutFraction.size}:${cutSignature}` : "none";
   // Primitive keys for the array props, for the same reason cutKey exists: the
@@ -241,16 +275,16 @@ export function PlannerMap({
         },
       }) as unknown as Layer,
     );
-    // An ad-hoc analysis replaces the archive layer entirely: its terrain and
-    // flood are self-contained, so nothing from the Richmond bundle is mixed in.
+    // The solved study IS the terrain layer. It used to be an override on a
+    // shipped Richmond raster, which is why every other place rendered as a
+    // patch on a valley in New South Wales.
     const terr = analysis
       ? { elev: `data:image/png;base64,${analysis.terrain_png}`,
           tex: `data:image/png;base64,${analysis.depth_png}`,
           bb: [analysis.bounds.west, analysis.bounds.south,
                analysis.bounds.east, analysis.bounds.north] as [number, number, number, number] }
-      : { elev: "/data/terrain.png", tex: frameUrl(frame, ext),
-          bb: [b.west, b.south, b.east, b.north] as [number, number, number, number] };
-    out.push(
+      : null;
+    if (terr) out.push(
       new TerrainLayer({
         id: analysis ? "terrain-adhoc" : "terrain",
         elevationData: terr.elev,
@@ -361,27 +395,6 @@ export function PlannerMap({
           },
           material: { ambient: 0.4, diffuse: 0.7, shininess: 120,
                       specularColor: [160, 190, 220] },
-          updateTriggers: { getFillColor: [frame], getElevation: [frame] },
-        }) as unknown as Layer,
-      );
-    }
-
-    if (solid && heights?.some((h) => h > 0) && manifest.levee_geometry?.sites) {
-      const walls = leveeWalls(manifest.levee_geometry.sites, heights, {});
-      out.push(
-        new PolygonLayer({
-          id: "levee-walls",
-          data: walls,
-          extruded: true,
-          pickable: false,
-          getPolygon: (d: { polygon: [number, number][] }) => d.polygon,
-          getElevation: (d: { height: number }) => d.height,
-          elevationScale: 5,
-          getFillColor: [238, 238, 232, 255],
-          getLineColor: [40, 40, 40, 255],
-          material: { ambient: 0.6, diffuse: 0.5, shininess: 10,
-                      specularColor: [60, 60, 60] },
-          updateTriggers: { getElevation: [heights.join(",")] },
         }) as unknown as Layer,
       );
     }
@@ -797,6 +810,14 @@ export function PlannerMap({
           getPixelOffset: [0, -26],
           getTextAnchor: "middle",
           getAlignmentBaseline: "bottom",
+          // The arrows must be in the atlas or deck.gl drops them SILENTLY.
+          // Without this the readings rendered as "4.27 m  2" -- the trend
+          // number with its arrow missing, which reads as a second quantity
+          // nobody can identify, and "0.59 m  0" reads as a measurement of
+          // zero. A dropped glyph is worse than a missing feature.
+          characterSet: [...new Set(
+            "0123456789.,-+ m³/s↑↓abcdefghijklmnopqrstuvwxyz"
+            + "ABCDEFGHIJKLMNOPQRSTUVWXYZ'()".split(""))],
           lineHeight: 1.25,
           fontWeight: 600,
           fontSettings: { sdf: true },
@@ -839,88 +860,10 @@ export function PlannerMap({
         }) as unknown as Layer,
       );
     }
-    if (markers.length) {
-      out.push(
-        new ScatterplotLayer<MeasureMarker>({
-          id: "measures",
-          data: markers,
-          pickable: true,
-          radiusUnits: "pixels",
-          getPosition: (d) => [d.lon, d.lat],
-          getRadius: (d) => (d.selected ? 20 : 16),
-          getFillColor: (d) =>
-            d.selected
-              ? d.worsens
-                ? [248, 113, 113, 240]
-                : [56, 189, 248, 240]
-              : [148, 163, 184, 170],
-          stroked: true,
-          getLineColor: (d) => (d.selected ? [255, 255, 255, 235] : [8, 11, 16, 190]),
-          getLineWidth: 2,
-          lineWidthUnits: "pixels",
-          onClick: ({ object }) => object && onMarker(object.id),
-          updateTriggers: { getRadius: markers, getFillColor: markers, getLineColor: markers },
-          parameters: { depthCompare: "always" as const },
-        }) as unknown as Layer,
-      );
-    const settle = analysis ? null : manifest.levee_geometry?.settlement;
-    if (settle) {
-      out.push(
-        new ScatterplotLayer({
-          id: "settlement-ring",
-          data: [settle],
-          radiusUnits: "pixels",
-          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
-          getRadius: 26,
-          filled: false,
-          stroked: true,
-          getLineColor: [255, 255, 255, 220],
-          getLineWidth: 2.5,
-          lineWidthUnits: "pixels",
-          parameters: { depthCompare: "always" as const },
-        }) as unknown as Layer,
-        new TextLayer({
-          id: "settlement-label",
-          data: [settle],
-          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
-          getText: () => "the town",
-          getSize: 13,
-          getColor: [255, 255, 255, 245],
-          fontWeight: 700,
-          getPixelOffset: [0, -36],
-          getTextAnchor: "middle",
-          outlineWidth: 3,
-          outlineColor: [10, 14, 20, 220],
-          fontSettings: { sdf: true },
-          parameters: { depthCompare: "always" as const },
-        }) as unknown as Layer,
-      );
-    }
-
-      out.push(
-        new TextLayer<MeasureMarker>({
-          id: "measure-labels",
-          data: markers,
-          pickable: false,
-          getPosition: (d) => [d.lon, d.lat],
-          getText: (d) => String(d.id),
-          getSize: 15,
-          outlineWidth: 2,
-          outlineColor: [10, 14, 20, 200],
-          fontSettings: { sdf: true },
-          getColor: (d) => (d.selected ? [255, 255, 255, 255] : [255, 255, 255, 225]),
-          fontWeight: 700,
-          getTextAnchor: "middle",
-          getAlignmentBaseline: "center",
-          parameters: { depthCompare: "always" as const },
-          updateTriggers: { getColor: markers },
-        }) as unknown as Layer,
-      );
-    }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [b, frame, ext, roads, markers, onMarker, pin, cutFraction, cutKey,
-      observed, analysis, placed, place, settle, solid, grids,
+  }, [b, roads, pin, cutFraction, cutKey,
+      observed, analysis, placed, place, solid, grids,
       heightKey, placedKey, routeKey, sectionKey, gaugeKey, radarKey,
       buildingKey, onBuilding, siteKey, onSite, pins]);
 
