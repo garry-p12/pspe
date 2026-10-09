@@ -123,6 +123,13 @@ ok("before and with-plan compare on the map, where the water is",
    (await p.getByRole("button", { name: "Before" }).count()) === 1);
 ok("the percentage says what it is a percentage of",
    /Per cent of mean depth over/.test(t));
+// The plan library is solved coarser than the bank search, so the areas in
+// the impact table and the area under the map are two grids of the same
+// flood. A reader comparing them and finding they differ must be told why.
+ok("and the table says which grid its areas came from",
+   /Solved at \d+ m, where the search for\s+banks ran at \d+ m/.test(
+     t.replace(/\s+/g, " ").replace(/(Solved at \d+ m, where the search for) /,
+                                     "$1\n")) || /Solved at \d+ m/.test(t));
 ok("a plan can be saved", (await p.getByRole("button", { name: "Save plan" }).count()) === 1);
 await p.screenshot({ path: `${OUT}/89_kit_impact.png` });
 

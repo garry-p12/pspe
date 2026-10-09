@@ -625,7 +625,7 @@ export function Planner() {
                   core_reduction_pct: number }[];
       band_pct?: number; reduction_pct?: number;
       band_attainable?: boolean; band_note?: string;
-      protect_basis?: string; protect_km2?: number;
+      protect_basis?: string; protect_km2?: number; dx_m?: number;
     } | null;
     if (!d?.options?.length) return null;
     const base = d.options.find((o) => o.id === "base") ?? d.options[0];
@@ -653,8 +653,13 @@ export function Planner() {
       // and this one used to be averaged over an undisclosed circle.
       protectBasis: d.protect_basis ?? null,
       protectKm2: typeof d.protect_km2 === "number" ? d.protect_km2 : null,
+      // The plan library is solved coarser than the bank search, so the
+      // areas in this table and the area under the map are two grids of the
+      // same flood. Carried so the panel can say which is which.
+      dxM: typeof d.dx_m === "number" ? d.dx_m : null,
+      sitesDxM: kit?.dx_m ?? null,
     };
-  }, [kitPlan]);
+  }, [kitPlan, kit]);
 
   const kitSites = useMemo(() => {
     if (!kit?.ok) return null;

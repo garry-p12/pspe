@@ -2095,6 +2095,12 @@ def _solve_plan(req: PlanRequest, key: str) -> dict:
         "attribution": attribution,
         "steps": trace,
         "scenarios_solved": b,
+        # What this library was solved at. Coarser than the bank search --
+        # one bed per candidate combination against one for the search -- so
+        # the areas here and the area on the Plan tab's map are two different
+        # grids of the same flood and do not agree to the decimal. The panel
+        # says so rather than letting a reader assume a change it cannot see.
+        "dx_m": dom.dx,
         # Over WHAT the reduction was averaged. The percentage is meaningless
         # without it, and it used to be an undisclosed circle.
         "protect_basis": protect_basis,

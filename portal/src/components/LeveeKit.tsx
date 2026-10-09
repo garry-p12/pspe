@@ -203,6 +203,8 @@ export function LeveeKit({
     band_reason?: string;
     protectBasis: string | null;
     protectKm2: number | null;
+    dxM: number | null;
+    sitesDxM: number | null;
   } | null;
   planBusy: boolean;
   onPlan: () => void;
@@ -433,6 +435,18 @@ export function LeveeKit({
                      after={impact.with.homes} unit="" better="down" />
                 <Row label="Road cut" before={impact.base.cut_km}
                      after={impact.with.cut_km} unit=" km" better="down" />
+                {impact.dxM !== null && impact.sitesDxM !== null
+                  && Math.abs(impact.dxM - impact.sitesDxM) > 1 && (
+                  <p className="anno mt-1.5 leading-relaxed">
+                    Solved at {impact.dxM.toFixed(0)} m, where the search for
+                    banks ran at {impact.sitesDxM.toFixed(0)} m — one bed per
+                    candidate combination against one for the search. These
+                    areas and the one under the map are two grids of the same
+                    flood and will not agree to the decimal; the before and
+                    after here are both from this grid, so the CHANGE is
+                    comparable even where the totals are not.
+                  </p>
+                )}
                 {(impact.with.homes === null || impact.with.cut_km === null) && (
                   <p className="anno mt-1.5 leading-relaxed">
                     Homes and road cut are not counted for a plan yet. Both need

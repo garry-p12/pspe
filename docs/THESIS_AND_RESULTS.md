@@ -7376,6 +7376,26 @@ larger and far more variable half of a short solve" — was wrong by a factor
 of eighteen. The fix survived; the justification did not, and a comment that
 misattributes a cost is how the next person optimises the wrong thing.
 
+**The same mismatch, one layer down.** Fixing the run length left its twin in
+place and I did not see it until a screenshot of the finished panel showed
+"Land flooded 4.0 km² → 4.0 km²" beside a map the search had reported as
+6.35 km². The bank search solves at 40 m and the plan library at 60 m — one
+bed per candidate combination against one for the search, which is a real
+cost trade and not a mistake, but two grids of the same flood do not agree to
+the decimal and nothing said so.
+
+Reconciling them is the wrong fix in both directions: at 60 m the search
+found two candidate banks where 40 m finds six, and at 40 m the twenty-bed
+library would take six minutes rather than two. So the panel states it, and
+states the part that *is* comparable — the before and the after in that table
+are both from the 60 m grid, so the CHANGE is sound even where the totals are
+not the map's.
+
+**Rule 85: when two solves share a page, the page says which grid each
+number came from.** A reader who compares two areas and finds they disagree
+has found either a bug or a resolution, and only the page can tell them
+which.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:
