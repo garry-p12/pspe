@@ -491,6 +491,70 @@ FLOOR_ABOVE_GROUND_M = 0.17
 # so a mean taken straight off the service returns -70,005,326.
 AUSTIN_BUILDINGS = ("https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/"
                     "services/STRUCTURE_building_footprints_2013/FeatureServer/0/query")
+_NAMED_CACHE: dict = {}
+
+
+def fetch_named_lines(west: float, south: float, east: float, north: float,
+                      timeout: float = 45.0) -> list[dict]:
+    """Named roads and waterways, for calling a place something findable.
+
+    "Site 3" is not something anyone can locate on the ground. Optional and
+    cached: a failure here costs a name, not an answer.
+    """
+    key = (round(west, 4), round(south, 4), round(east, 4), round(north, 4))
+    if key in _NAMED_CACHE:
+        return _NAMED_CACHE[key]
+    q = (f"[out:json][timeout:{int(timeout)}];("
+         f'way["waterway"~"^(river|stream|canal|drain)$"]["name"]'
+         f"({south},{west},{north},{east});"
+         f'way["highway"]["name"]({south},{west},{north},{east});'
+         f");out geom 400;")
+    payload = None
+    for url in OVERPASS_MIRRORS:
+        try:
+            r = urllib.request.Request(
+                url, data=urllib.parse.urlencode({"data": q}).encode(),
+                headers={"User-Agent": "PSPE-floodplain-planner/1.0"})
+            with urllib.request.urlopen(r, timeout=timeout) as f:
+                payload = json.loads(f.read().decode())
+            break
+        except Exception:                                  # noqa: BLE001
+            continue
+    out = []
+    for el in (payload or {}).get("elements", []):
+        nm = (el.get("tags") or {}).get("name")
+        geom = el.get("geometry") or []
+        if not nm or not geom:
+            continue
+        kind = "waterway" if (el.get("tags") or {}).get("waterway") else "road"
+        out.append({"name": nm, "kind": kind,
+                    "pts": [(g["lat"], g["lon"]) for g in geom[::3]] or
+                           [(geom[0]["lat"], geom[0]["lon"])]})
+    if len(_NAMED_CACHE) > 24:
+        _NAMED_CACHE.pop(next(iter(_NAMED_CACHE)))
+    _NAMED_CACHE[key] = out
+    return out
+
+
+def nearest_name(lines: list[dict], lat: float, lon: float,
+                 max_km: float = 0.6) -> str | None:
+    """The nearest named line, preferring a waterway: a levee follows a bank."""
+    best, bestd, bestkind = None, 1e9, ""
+    for ln in lines:
+        for plat, plon in ln["pts"]:
+            dy = (plat - lat) * 110.574
+            dx = (plon - lon) * 111.320 * math.cos(math.radians(lat))
+            dkm = math.hypot(dx, dy)
+            # A waterway at the same distance wins: the bank is the thing
+            # being raised, and the road beside it is just the road beside it.
+            score = dkm * (0.6 if ln["kind"] == "waterway" else 1.0)
+            if score < bestd:
+                best, bestd, bestkind = ln["name"], score, ln["kind"]
+    if best is None or bestd > max_km:
+        return None
+    return f"{best} bank" if bestkind == "waterway" else f"near {best}"
+
+
 _FOOTPRINT_CACHE: dict = {}
 US_FT = 0.3048
 
@@ -1301,6 +1365,157 @@ class BuildingsRequest(BaseModel):
     max_buildings: int = Field(500, ge=1, le=2000)
     parent_km: float = Field(12.0, ge=2.0, le=40.0)
     parent_dx: float = Field(40.0, ge=20.0, le=120.0)
+
+
+class SitesRequest(BaseModel):
+    """Where a levee would pay, taken from the terrain rather than clicked."""
+    west: float
+    south: float
+    east: float
+    north: float
+    name: str = "Area"
+    dx: float = Field(40.0, ge=20.0, le=120.0)
+    rain_mm_h: float = Field(50.0, ge=0.0, le=300.0)
+    storm_hours: float = Field(6.0, ge=0.5, le=48.0)
+    run_hours: float = Field(12.0, ge=1.0, le=72.0)
+    driver: str = Field("rain", pattern="^(rain|river|coastal)$")
+    river_q_m3s: Optional[float] = None
+    surge_m: float = Field(2.5, ge=0.0, le=10.0)
+    max_sites: int = Field(6, ge=1, le=12)
+    shortfall_m: float = Field(2.0, ge=0.2, le=8.0)
+
+
+@app.post("/sites")
+def sites(req: SitesRequest) -> dict:
+    """Candidate levee alignments, from where the ground only just fails.
+
+    The district's six sites were surveyed by hand and the Anywhere tab made
+    the user click them, which asks a planner to guess at the one question the
+    terrain can answer for them. A levee pays where the bank is ALMOST high
+    enough: raising ground that is four metres under water buys nothing for the
+    money, and raising ground already above the flood buys nothing at all. The
+    band in between is short, and it is computable.
+
+    So: solve the baseline, take the water surface, and find the dry cells that
+    touch wet ones and sit within `shortfall_m` of being overtopped. Those are
+    the places a wall of a metre or two changes the answer. Contiguous runs of
+    them become alignments, each carrying the height it would actually need --
+    the deepest shortfall along it, not the average, because a levee is only as
+    good as its lowest point.
+
+    Named from the nearest mapped road or waterway where there is one, because
+    "site 3" is not something anyone can find on the ground.
+    """
+    key = "sites:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
+    if key in CACHE:
+        return {**CACHE[key], "cached": True}
+
+    dom = build_domain(req.west, req.south, req.east, req.north,
+                       dx=req.dx, name=req.name, source=TERRAIN)
+    fx = build_forcing(dom, req)
+    z0 = torch.as_tensor(dom.z, dtype=torch.float32)[None]
+    peak, steps, _ = solve_beds(dom, req, z0, fx, snap_hours=[])
+    z = np.asarray(dom.z, dtype=np.float32)
+    d = np.asarray(peak[0].numpy() if hasattr(peak[0], "numpy") else peak[0],
+                   dtype=np.float32)
+    wet = d > WET_M
+    if not wet.any():
+        return {"ok": False, "reason":
+                "Nothing floods here under this storm, so there is nowhere a "
+                "levee would change the answer."}
+
+    surface = z + d
+    H, W = z.shape
+    # The highest water touching each cell, from its four neighbours.
+    near_surface = np.full_like(surface, -1e9)
+    for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        sh = np.full_like(surface, -1e9)
+        rs = slice(max(dr, 0), H + min(dr, 0))
+        rt = slice(max(-dr, 0), H + min(-dr, 0))
+        cs = slice(max(dc, 0), W + min(dc, 0))
+        ct = slice(max(-dc, 0), W + min(-dc, 0))
+        sh[rt, ct] = np.where(wet[rs, cs], surface[rs, cs], -1e9)
+        near_surface = np.maximum(near_surface, sh)
+
+    shortfall = near_surface - z            # how far under the water this bank is
+    cand = (~wet) & (near_surface > -1e8) & (shortfall > -0.05) & (shortfall <= req.shortfall_m)
+
+    # Contiguous runs, four-connected, by flood fill.
+    lab = np.zeros((H, W), dtype=np.int32)
+    runs = []
+    nxt = 0
+    idx = np.argwhere(cand)
+    for r0, c0 in idx:
+        if lab[r0, c0]:
+            continue
+        nxt += 1
+        stack = [(int(r0), int(c0))]
+        lab[r0, c0] = nxt
+        cells = []
+        while stack:
+            r, c = stack.pop()
+            cells.append((r, c))
+            # Eight-connected, and that is not a detail. A bank traced on a
+            # grid steps diagonally wherever it runs off-axis, so four
+            # connectivity cuts it at every one of those steps: measured, it
+            # returned six "sites" of 160 to 320 m needing 0.09 to 0.46 m,
+            # which are fragments of one bank rather than alignments anyone
+            # would build.
+            for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                           (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                rr, cc = r + dr, c + dc
+                if 0 <= rr < H and 0 <= cc < W and cand[rr, cc] and not lab[rr, cc]:
+                    lab[rr, cc] = nxt
+                    stack.append((rr, cc))
+        if len(cells) >= 3:
+            runs.append(cells)
+
+    if not runs:
+        return {"ok": False, "reason":
+                f"No bank here sits within {req.shortfall_m:.1f} m of being "
+                "overtopped. Everything either stays dry or goes far under, "
+                "and a levee changes neither."}
+
+    b = dom.bounds
+    named = fetch_named_lines(req.west, req.south, req.east, req.north)
+    out = []
+    for cells in sorted(runs, key=len, reverse=True)[:req.max_sites]:
+        rs = np.array([c[0] for c in cells])
+        cs = np.array([c[1] for c in cells])
+        need = float(shortfall[rs, cs].max())
+        lat = float(b["north"] - (b["north"] - b["south"]) * rs.mean() / max(H - 1, 1))
+        lon = float(b["west"] + (b["east"] - b["west"]) * cs.mean() / max(W - 1, 1))
+        # Length along the run. The cell count is right for a bank one cell
+        # thick and too big where it thickens, so it is capped against the
+        # run's own diagonal extent -- a wall cannot be much longer than the
+        # box it fits in without doubling back.
+        extent = math.hypot(float(rs.max() - rs.min()), float(cs.max() - cs.min())) + 1.0
+        span = min(float(len(cells)), extent * 1.6)
+        out.append({
+            "lat": round(lat, 6), "lon": round(lon, 6),
+            "cells": len(cells),
+            "length_m": round(float(span) * dom.dx),
+            "extent_m": round(float(extent) * dom.dx),
+            "needs_m": round(max(need, 0.0), 2),
+            "width_m": round(float(span) * dom.dx / 2),
+            "name": nearest_name(named, lat, lon),
+            "outline": [[round(float(b["west"] + (b["east"] - b["west"]) * c / max(W - 1, 1)), 6),
+                         round(float(b["north"] - (b["north"] - b["south"]) * r / max(H - 1, 1)), 6)]
+                        for r, c in cells[::max(len(cells) // 40, 1)]],
+        })
+
+    res = {"ok": True, "sites": out, "dx_m": dom.dx,
+           "bounds": b, "driver": fx["driver"], "driver_note": fx["note"],
+           "shortfall_m": req.shortfall_m,
+           "note": ("Each site is a run of ground that touches the flood and "
+                    "sits within "
+                    f"{req.shortfall_m:.1f} m of being overtopped. The height "
+                    "shown is what the lowest point along it would need, "
+                    "because a levee is only as good as its lowest point.")}
+    if len(CACHE) > 24:
+        CACHE.pop(next(iter(CACHE)))
+    CACHE[key] = res
+    return {**res, "cached": False}
 
 
 @app.post("/buildings")

@@ -6824,6 +6824,85 @@ between the instruments is 2 m. The relative form — depth above the solver's
 own ground, offset above the building's own ground — has no absolute term in
 it at all.
 
+### 5.14j The levee kit, and the framework doing visible work (2026-10-08)
+
+Wireframe 1c: drag parts from a tray onto the map, watch the budget and the
+damage move. Built as `/sites` plus a Levee kit tab on top of the existing
+`/plan`, which already fits `pspe.plan.surrogate` and takes the conformal
+margin from `pspe.plan.margins`. This is the view where the framework is the
+product rather than a citation.
+
+**The sites are computed, not clicked.** The district's six were surveyed by
+hand and the Anywhere tab makes the user click candidates, which hands back
+the one question the terrain can answer. A levee pays where the bank is
+ALMOST high enough: raising ground four metres under water buys nothing for
+the money, and raising ground already above the flood buys nothing at all. So
+`/sites` solves the baseline, takes the water surface, and keeps the dry cells
+that touch wet ones and sit within a couple of metres of being overtopped.
+Contiguous runs of those are the alignments, each carrying the height its
+LOWEST point would need — a levee is only as good as its lowest point — and
+named from the nearest mapped waterway or road, because "site 3" is not
+something anyone can find on the ground.
+
+**Eight-connectivity, and that is not a detail.** Four-connected flood fill
+returned six "sites" of 160–320 m needing 0.09–0.46 m: fragments of one bank,
+not alignments anyone would build. A bank traced on a grid steps diagonally
+wherever it runs off-axis and four-connectivity cuts it at every one of those
+steps. Eight-connected gives 520–1015 m runs with street names on them.
+
+**Where the guarantee comes from, and when it refuses.** The impact row's
+right-hand number is the surrogate's prediction and the margin beside it is
+the conformal band. Measured on Onion Creek:
+
+| sites placed | calibration runs | 9 needed for δ = 0.1 |
+|---|---|---|
+| 2 | 2 | **refuses** |
+| 3 | 7 | **refuses** |
+| 4 | 17 | attainable |
+
+With four the service returns `band_attainable: true`, a band of 0.013 points
+over "split-conformal 90% quantile over 17 held-out combinations". With two it
+returns a band of 0.0 and `band_attainable: false`, and the panel must check
+the flag rather than the number — reading `band_pct` alone would quote a
+guarantee the framework had explicitly declined to make. The panel now says
+how many more pieces are needed and why, which is actionable in a way that "a
+margin could not be calibrated" is not.
+
+**Scoring the whole box was a true answer to the wrong question.** Two
+one-kilometre walls on a 130 km² domain moved the mean depth by 0.04%. The
+endpoint takes a `protect` area and the kit now passes the centroid of the
+placed pieces: the money is spent on what is behind the walls, so that is what
+the reduction should be measured over.
+
+**Two places the implementation departs from the wireframe, deliberately.**
+The mockup drags parts onto the map; this arms a part and then takes a click
+on a site, because the sites are specific runs of ground and a drop point has
+to snap to one anyway — the drag would be decoration over a choice from six.
+And the Homes-over-floor and Road-cut rows show a dash with the sentence "the
+dash is 'not computed', not 'unchanged'": scoring those for a plan means
+re-running the buildings and the network against every candidate field, which
+is another pass over the whole library.
+
+A row that rounds its own result away is worse than no row — two small walls
+moved the flooded area by a fraction of a square kilometre and the table
+printed "21 km² → 21 km², no change" over a solve that had in fact changed
+something. Precision now follows the size of the change.
+
+**Harness defects, three more, all mine and all the same shape.** A loop
+waited for "a wall would pay" and matched the *spinner*, which reads "Finding
+the places a wall would pay". A helper waited for A's coordinates, which only
+render once BOTH ends are set, so it clicked straight past the pair. And the
+section harness asserted `A -?\d+\.\d{4}, \d+\.\d{4}` — a negative latitude
+and a positive longitude — which cannot match any address in the western
+hemisphere, so it failed the moment the default study moved from Lismore at
++153 to Austin at −97.
+
+**Rule 76: when a framework declines to answer, the interface has to carry the
+refusal, not the empty value it returns alongside it.** `margins.py` sets
+`band_attainable: false` and a band of `0.0`. The number is there, it is
+typed, it renders, and showing it would have put "guaranteed at least 0.56%
+less flooding" on screen under a 90% label the calibration could not support.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

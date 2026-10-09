@@ -17,6 +17,8 @@ import { RoutePanel } from "./RoutePanel";
 import { TripPanel, type TripResult } from "./TripPanel";
 import { SectionPanel, type SectionEnds, type SectionOverlay } from "./SectionPanel";
 import { StreetPanel, type StreetResult } from "./StreetPanel";
+import { LeveeKit, PIECES, costOf, type SitesFeed, type Placed,
+         type PieceId } from "./LeveeKit";
 import type { RoadQuery } from "@/lib/roadquery";
 import { loadManifest } from "@/lib/data";
 import type { Manifest } from "@/lib/types";
@@ -67,7 +69,7 @@ export function Planner() {
    *  the wrong one. */
   const [vehicle, setVehicle] = useState(0.25);
   const [routeLines, setRouteLines] = useState<{
-    forTab: "district" | "anywhere" | "trip" | "section" | "street";
+    forTab: "district" | "anywhere" | "trip" | "section" | "street" | "kit";
     quickest: { coords: [number, number][]; minutes: number } | null;
     robust: { coords: [number, number][]; minutes: number } | null;
     dest: { lat: number; lon: number } | null;
@@ -87,7 +89,7 @@ export function Planner() {
   // score, rather than a reference flood being replayed. The two are labelled
   // differently on purpose: Richmond is a VALIDATED MODEL, Austin a
   // PROJECTION that recovers about half of FEMA's mapped 1% floodplain.
-  const [tab, setTab] = useState<"district" | "anywhere" | "trip" | "section" | "street">("anywhere");
+  const [tab, setTab] = useState<"district" | "anywhere" | "trip" | "section" | "street" | "kit">("anywhere");
   const [study, setStudy] = useState<(AnalysisResult & { study?: StudyMeta }) | null>(null);
   const [studyErr, setStudyErr] = useState(false);
   /** What is drawn over the terrain, and the live feed behind one of them. */
@@ -114,6 +116,18 @@ export function Planner() {
   const [streetSel, setStreetSel] = useState<string | null>(null);
   /** Where the block sits. Clicking the map in this tab moves it. */
   const [streetAt, setStreetAt] = useState<{ lat: number; lon: number } | null>(null);
+
+  /** The levee kit: where a wall would pay, what is placed, what it buys. */
+  const [kit, setKit] = useState<SitesFeed | null>(null);
+  const [kitBusy, setKitBusy] = useState(false);
+  const [kitSec, setKitSec] = useState(0);
+  const [kitErr, setKitErr] = useState<string | null>(null);
+  const [placedPieces, setPlacedPieces] = useState<Placed[]>([]);
+  const [armed, setArmed] = useState<PieceId | null>(null);
+  const [kitBudget, setKitBudget] = useState(20);
+  const [kitPlan, setKitPlan] = useState<Record<string, unknown> | null>(null);
+  const [kitPlanBusy, setKitPlanBusy] = useState(false);
+  const [showPlan, setShowPlan] = useState(true);
   const [placed, setPlaced] = useState<PlacedLevee[]>([]);
   const [placing, setPlacing] = useState(false);
   const [observed, setObserved] = useState<Observation | null>(null);
@@ -346,6 +360,127 @@ export function Planner() {
     }));
   }, [street, streetFrame, streetSel]);
 
+  const kitBox = useMemo(() => {
+    const b = analysis?.bounds ?? study?.bounds;
+    return b ? { west: b.west, south: b.south, east: b.east, north: b.north } : null;
+  }, [analysis, study]);
+
+  const findSites = useCallback(async () => {
+    if (!kitBox) return;
+    setKitBusy(true); setKitErr(null); setKit(null); setKitSec(0);
+    setPlacedPieces([]); setKitPlan(null);
+    const tick = setInterval(() => setKitSec((n) => n + 1), 1000);
+    try {
+      const r = await fetch("/api/sites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...kitBox, name: analysis?.name ?? "Area", dx: 40,
+          driver: analysis?.driver ?? "rain", rain_mm_h: 50, storm_hours: 6,
+          run_hours: 18, max_sites: 6, shortfall_m: 2.0,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail ?? d.error ?? `HTTP ${r.status}`);
+      if (!d.ok) throw new Error(d.reason ?? "no sites here");
+      setKit(d);
+    } catch (e) {
+      setKitErr(e instanceof Error ? e.message : "could not find sites");
+    } finally { setKitBusy(false); clearInterval(tick); }
+  }, [kitBox, analysis]);
+
+  const solveKitPlan = useCallback(async () => {
+    if (!kitBox || !kit?.ok || placedPieces.length < 2) return;
+    setKitPlanBusy(true);
+    try {
+      // Only the sites with something on them go to the planner: the library
+      // it enumerates is exponential in the number of sites, and asking it to
+      // consider six when two are in play pays for combinations nobody chose.
+      const chosen = placedPieces.map((p) => kit.sites[p.site]);
+      const maxH = Math.max(...placedPieces.map(
+        (p) => PIECES.find((x) => x.id === p.piece)?.h ?? 1));
+      const r = await fetch("/api/plan-anywhere", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // 60 m and twelve hours, not 40 and eighteen. This solves one bed
+          // per candidate combination, and at 40 m over the whole study box it
+          // measured seven minutes for two sites -- which is not a thing
+          // anyone will sit through, and the margin needs more sites than
+          // that before it can be calibrated at all.
+          ...kitBox, name: analysis?.name ?? "Area", dx: 60,
+          driver: analysis?.driver ?? "rain", rain_mm_h: 50, storm_hours: 6,
+          run_hours: 12,
+          sites: chosen.map((s) => ({ lat: s.lat, lon: s.lon, width_m: s.width_m })),
+          // What the plan is bought to protect. Without this the service
+          // scores the mean depth over the WHOLE box, and two one-kilometre
+          // walls on a 130 km2 domain moved it 0.04% -- a true number about
+          // the wrong question. Behind the walls is where the money is spent.
+          protect: {
+            lat: chosen.reduce((a, s) => a + s.lat, 0) / chosen.length,
+            lon: chosen.reduce((a, s) => a + s.lon, 0) / chosen.length,
+            radius_m: 2000,
+          },
+          max_height_m: maxH,
+          budget_aud: kitBudget * 1e6,
+          delta: 0.1,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.reason ?? d.detail ?? `HTTP ${r.status}`);
+      setKitPlan(d);
+    } catch (e) {
+      setKitErr(e instanceof Error ? e.message : "could not solve this plan");
+    } finally { setKitPlanBusy(false); }
+  }, [kitBox, kit, placedPieces, kitBudget, analysis]);
+
+  const kitImpact = useMemo(() => {
+    const d = kitPlan as {
+      options?: { id: string; heights: number[]; area_flooded_km2: number;
+                  core_reduction_pct: number }[];
+      band_pct?: number; reduction_pct?: number;
+      band_attainable?: boolean; band_note?: string;
+    } | null;
+    if (!d?.options?.length) return null;
+    const base = d.options.find((o) => o.id === "base") ?? d.options[0];
+    // The best option the solve actually produced within budget, which is the
+    // honest "with plan": the greedy allocation can propose heights no solved
+    // option carries, and showing its predicted area beside a solved baseline
+    // would compare a prediction with a measurement.
+    const best = d.options.reduce((a, o) =>
+      o.core_reduction_pct > a.core_reduction_pct ? o : a, base);
+    return {
+      base: { area_km2: base.area_flooded_km2, cut_km: null, homes: null },
+      with: { area_km2: best.area_flooded_km2, cut_km: null, homes: null },
+      // The service says whether the margin was ATTAINABLE, and that is not
+      // the same as whether a number came back: split conformal needs enough
+      // calibration points before any finite order statistic carries the
+      // stated rate, and `margins.py` refuses rather than returning one it
+      // cannot justify. Showing `band_pct` without checking this would quote a
+      // guarantee the framework declined to make.
+      band_pct: d.band_attainable === false ? null
+        : (typeof d.band_pct === "number" ? d.band_pct : null),
+      reduction_pct: best.core_reduction_pct,
+      band_reason: d.band_note
+        ?? "A margin needs enough calibrated combinations before it means 90%.",
+    };
+  }, [kitPlan]);
+
+  const kitSites = useMemo(() => {
+    if (!kit?.ok) return null;
+    return kit.sites.map((s, i) => {
+      const on = placedPieces.find((p) => p.site === i);
+      const piece = on && PIECES.find((x) => x.id === on.piece);
+      return {
+        lat: s.lat, lon: s.lon, name: s.name, outline: s.outline,
+        taken: Boolean(on),
+        label: piece
+          ? `${piece.label} ${piece.h.toFixed(1)} m`
+          : `${s.name ?? "bank"} · ${(s.length_m / 1000).toFixed(1)} km`,
+      };
+    });
+  }, [kit, placedPieces]);
+
   const sectionPicking =
     sectionArmed && !(sectionEnds.a && sectionEnds.b);
 
@@ -445,7 +580,7 @@ export function Planner() {
         <div className="border-b border-line px-5 py-3">
           <span className="text-[13px] text-ink-mute">Area</span>
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {(["district", "anywhere", "trip", "section", "street"] as const).map((k) => (
+            {(["district", "anywhere", "trip", "section", "street", "kit"] as const).map((k) => (
               <button
                 key={k}
                 className="pill whitespace-nowrap"
@@ -460,7 +595,8 @@ export function Planner() {
                 {k === "district" ? "This district"
                   : k === "anywhere" ? "Anywhere"
                     : k === "trip" ? "Plan a trip"
-                      : k === "section" ? "Cross-section" : "Street"}
+                      : k === "section" ? "Cross-section"
+                        : k === "street" ? "Street" : "Levee kit"}
               </button>
             ))}
           </div>
@@ -487,6 +623,28 @@ export function Planner() {
                 : undefined}
             />
           </>
+        )}
+
+        {tab === "kit" && (
+          <LeveeKit
+            feed={kit}
+            busy={kitBusy}
+            elapsed={kitSec}
+            err={kitErr}
+            onFindSites={findSites}
+            canFind={Boolean(kitBox)}
+            placed={placedPieces}
+            onPlaced={setPlacedPieces}
+            budgetM={kitBudget}
+            onBudget={setKitBudget}
+            armed={armed}
+            onArm={setArmed}
+            impact={kitImpact}
+            planBusy={kitPlanBusy}
+            onPlan={solveKitPlan}
+            showPlan={showPlan}
+            onShowPlan={setShowPlan}
+          />
         )}
 
         {tab === "street" && (
@@ -776,6 +934,16 @@ export function Planner() {
             routes={routeLines?.forTab === tab ? routeLines : null}
             section={tab === "section" ? sectionOverlay : null}
             buildings={tab === "street" ? streetBuildings : null}
+            sites={tab === "kit" ? kitSites : null}
+            onSite={(i) => {
+              if (armed) {
+                setPlacedPieces((l) => [...l.filter((p) => p.site !== i),
+                                        { site: i, piece: armed }]);
+                setArmed(null);
+              } else {
+                setPlacedPieces((l) => l.filter((p) => p.site !== i));
+              }
+            }}
             onBuilding={setStreetSel}
             gauges={layers.gauges ? (gaugeFeed?.gauges ?? null) : null}
             radar={layers.radar ? liveBounds : null}
@@ -790,7 +958,11 @@ export function Planner() {
                         ? street.frames[streetFrame].depth_png
                         : street.depth_png,
                       terrain_png: street.terrain_png }
-                  : tab === "district" ? null : analysis}
+                  : tab === "district" ? null
+                    : (analysis ?? (study
+                       ? { bounds: study.bounds, depth_png: study.depth_png,
+                           terrain_png: study.terrain_png }
+                       : null))}
             focus={focus}
             // No solid water body in the street view: the grids are the
             // study's 40 m field over the whole study box, and drawn under a

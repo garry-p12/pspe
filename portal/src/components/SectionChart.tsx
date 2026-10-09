@@ -160,6 +160,7 @@ export function SectionChart({
       viewBox={`0 0 ${W} ${H}`}
       width="100%"
       role="img"
+      data-chart="section"
       aria-label={
         `Elevation section ${(res.length_m / 1000).toFixed(1)} km long. ` +
         `Ground from ${yMin.toFixed(0)} to ${Math.max(...p.map((q) => q.ground_m)).toFixed(0)} metres. ` +

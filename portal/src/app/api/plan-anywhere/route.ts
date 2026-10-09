@@ -3,14 +3,14 @@ import { NextResponse } from "next/server";
 /**
  * Plan an arbitrary place, under a calibrated guarantee.
  *
- * Proxies the service's Perceive stage. This is the half of a digital twin that
- * a simulator does not have: the model says what it believes is flooded, and
- * this says what an instrument actually recorded on its last usable overpass,
- * so the two can be put side by side and disagree.
+ * Proxies the service's `/plan`: it builds the candidate library on demand,
+ * solves every plan in one batched timestep loop, then fits
+ * `pspe.plan.surrogate` and takes the conformal margin from
+ * `pspe.plan.margins` — the same code the district uses, not a copy, because
+ * a guarantee that means one thing in Richmond and another here would be
+ * worse than no guarantee.
  *
- * Slower than /analyse is fast but faster than it is slow: the scenes are
- * fetched from a public archive as windowed reads, so a minute is normal and
- * two is not alarming.
+ * Slow: it is a solve, and it is many of them. A minute is normal.
  */
 const SERVICE = process.env.FLOOD_SERVICE ?? "http://127.0.0.1:8000";
 

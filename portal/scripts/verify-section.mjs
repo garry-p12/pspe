@@ -30,7 +30,17 @@ await p.route("**/api/section", (r) =>
 await p.goto("http://localhost:3000/", { waitUntil: "domcontentloaded" });
 await p.waitForTimeout(12000);
 
-await p.getByRole("button", { name: "Cross-section" }).click();
+// Click until the state flips: a click can land before React attaches its
+// handlers and is then simply lost.
+{
+  const btn = p.getByRole("button", { name: "Cross-section", exact: true });
+  await btn.waitFor({ state: "visible", timeout: 120000 });
+  for (let i = 0; i < 25; i++) {
+    await btn.click();
+    await p.waitForTimeout(700);
+    if ((await btn.getAttribute("data-on")) === "true") break;
+  }
+}
 await p.waitForTimeout(800);
 const aside = p.locator("aside");
 ok("panel invites a line", /Click the map where the section should start/i
@@ -44,19 +54,37 @@ ok("panel invites a line", /Click the map where the section should start/i
 // broken picker that was its own aim.
 const canvas = p.locator("canvas").first();
 const box = await canvas.boundingBox();
-await p.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.55);
-await p.waitForTimeout(500);
-ok("first click sets A and asks for B",
-   /Now click the far side of the floodplain/i.test(await aside.innerText()));
-await p.mouse.click(box.x + box.width * 0.60, box.y + box.height * 0.72);
-await p.waitForTimeout(500);
+// Draw the line by clicking until the panel shows both ends.
+//
+// Not every click on the scene becomes a coordinate -- only where there is
+// terrain under the cursor -- and which fractions of the canvas those are
+// moved when the default study did. So this walks a grid of candidate points
+// and stops on the thing it wanted, rather than assuming two clicks land.
+const PTS = [];
+for (const fy of [0.6, 0.68, 0.52, 0.76, 0.44]) {
+  for (const fx of [0.5, 0.62, 0.38, 0.72, 0.28]) PTS.push([fx, fy]);
+}
+let sawA = false;
+for (const [fx, fy] of PTS) {
+  const t0 = await aside.innerText();
+  if (/B -?\d+\.\d{4}/.test(t0)) break;
+  await p.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+  await p.waitForTimeout(700);
+  const t1 = await aside.innerText();
+  if (/Now click the far side/.test(t1)) sawA = true;
+  if (/B -?\d+\.\d{4}/.test(t1)) break;
+}
+ok("first click sets A and asks for B", sawA);
+
 const ends = await aside.innerText();
-ok("both ends are shown", /A -?\d+\.\d{4}, \d+\.\d{4}/.test(ends) && /B -?\d+\.\d{4}/.test(ends));
+const COORD = /A (-?\d+\.\d{4}, -?\d+\.\d{4})/;
+ok("both ends are shown", COORD.test(ends) && /B -?\d+\.\d{4}, -?\d+\.\d{4}/.test(ends),
+   (ends.match(COORD) || [""])[0]);
 
 // A third click must NOT throw the line away: picking disarms itself.
 await p.mouse.click(box.x + box.width * 0.75, box.y + box.height * 0.62);
 await p.waitForTimeout(400);
-const aCoord = (ends.match(/A (-?\d+\.\d{4}, \d+\.\d{4})/) || [])[1];
+const aCoord = (ends.match(COORD) || [])[1];
 ok("a later map click does not restart the line",
    Boolean(aCoord) && (await aside.innerText()).includes(aCoord), aCoord ?? "(A never set)");
 
@@ -95,7 +123,7 @@ ok("the driver that actually ran is on the face of the answer",
    (t.match(/Forced by [^\n]*/) || [""])[0].slice(0, 60));
 
 // --- the chart -------------------------------------------------------------
-const svg = p.locator("aside svg[role=img]");
+const svg = p.locator("aside svg[data-chart=section]");
 ok("chart rendered", await svg.count() === 1);
 const paths = await p.locator("aside svg[role=img] path").count();
 ok("ground, water runs and the embankment are all drawn", paths >= 8, `${paths} paths`);

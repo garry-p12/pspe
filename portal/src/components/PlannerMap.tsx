@@ -43,6 +43,8 @@ export function PlannerMap({
   radar,
   buildings,
   onBuilding,
+  sites,
+  onSite,
   focusBounds,
   place,
   focus,
@@ -117,6 +119,14 @@ export function PlannerMap({
    *  it; without this the scene stays where the study was and the buildings
    *  render off screen. */
   focusBounds?: { west: number; south: number; east: number; north: number } | null;
+  /** Candidate levee alignments: the ground that only just fails to hold the
+   *  water. Drawn as outlines because they are places to build, not things
+   *  that are built. */
+  sites?: {
+    lat: number; lon: number; name: string | null;
+    outline: [number, number][]; taken: boolean; label: string;
+  }[] | null;
+  onSite?: (i: number) => void;
   /** The town the user searched for, marked like the archive settlement. */
   place?: { lat: number; lon: number; name: string } | null;
   focus: "region" | "town";
@@ -184,6 +194,9 @@ export function PlannerMap({
   const buildingKey = buildings
     ? `${buildings.length}:${buildings.filter((b) => b.over > 0).length}:` +
       `${buildings.find((b) => b.selected)?.id ?? ""}`
+    : "none";
+  const siteKey = sites
+    ? sites.map((x) => `${x.lat.toFixed(4)}${x.taken ? "*" : ""}`).join(",")
     : "none";
   const gaugeKey = gauges
     ? gauges.map((g) => `${g.site}:${g.stage_m ?? ""}`).join(",")
@@ -679,6 +692,53 @@ export function PlannerMap({
       );
     }
 
+    // ---- where a wall would pay -----------------------------------------
+    // Outlines, not fills: these are candidates. A taken one is drawn solid
+    // and dark so the plan reads at a glance against the places still open.
+    if (sites?.length) {
+      const rows = sites.map((s, i) => ({ ...s, i }));
+      out.push(
+        new ScatterplotLayer({
+          id: "site-cells",
+          data: rows.flatMap((s) => s.outline.map((p) => ({ p, s }))),
+          pickable: true,
+          radiusUnits: "pixels",
+          getPosition: (d: { p: [number, number] }) => d.p,
+          getRadius: (d: { s: { taken: boolean } }) => (d.s.taken ? 6 : 4.5),
+          getFillColor: (d: { s: { taken: boolean } }) =>
+            d.s.taken ? [24, 24, 27, 235] : [255, 255, 255, 170],
+          stroked: true,
+          getLineColor: [10, 14, 20, 215],
+          getLineWidth: 1.4,
+          lineWidthUnits: "pixels",
+          onClick: ({ object }) => {
+            const o = object as { s: { i: number } } | undefined;
+            if (o && onSite) onSite(o.s.i);
+          },
+          updateTriggers: { getFillColor: siteKey, getRadius: siteKey },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new TextLayer({
+          id: "site-labels",
+          data: rows,
+          getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
+          getText: (d: { label: string }) => d.label,
+          getSize: 11,
+          getColor: [16, 20, 28, 255],
+          background: true,
+          getBackgroundColor: [255, 255, 255, 235],
+          backgroundPadding: [6, 4, 6, 4],
+          getPixelOffset: [0, -16],
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "bottom",
+          fontWeight: 600,
+          fontSettings: { sdf: true },
+          updateTriggers: { getText: siteKey },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+
     // ---- rain radar ----------------------------------------------------
     // One image over the analysed box rather than a tile pyramid: the box is a
     // few kilometres across, the product refreshes every six minutes, and a
@@ -863,7 +923,7 @@ export function PlannerMap({
   }, [b, frame, ext, roads, markers, onMarker, pin, cutFraction, cutKey,
       observed, analysis, placed, place, settle, solid, grids,
       heightKey, placedKey, routeKey, sectionKey, gaugeKey, radarKey,
-      buildingKey, onBuilding, pins]);
+      buildingKey, onBuilding, siteKey, onSite, pins]);
 
   if (!size) return <div ref={host} className="h-full w-full bg-bg-inset" />;
 
