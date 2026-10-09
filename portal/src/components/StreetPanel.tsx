@@ -78,7 +78,8 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 export function StreetPanel({
-  result, busy, elapsed, err, frame, onFrame, selected, onSelect, onSolve, canSolve,
+  result, busy, elapsed, err, frame, onFrame, selected, onSelect, onSolve,
+  canSolve, place, onBack,
 }: {
   result: StreetResult | null;
   busy: boolean;
@@ -91,6 +92,9 @@ export function StreetPanel({
   onSelect: (id: string | null) => void;
   onSolve: (p: { driver: string; storm: number; q: number | null }) => void;
   canSolve: boolean;
+  /** The study this block sits in, for the breadcrumb out of it. */
+  place: string | null;
+  onBack: () => void;
 }) {
   const [q, setQ] = useState("");
   // River by default, and that is a physical claim rather than a preference.
@@ -127,10 +131,47 @@ export function StreetPanel({
     [frame],
   );
 
+  // What the block is called, from the addresses on it. The design puts a
+  // street name in the breadcrumb and in the heading; the city's address
+  // points give one, so the heading can say where you are rather than "this
+  // street". Two names where the block spans a corner, which is how anyone
+  // describes a corner out loud.
+  const streetName = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const b of result?.buildings ?? []) {
+      const a = b.address;
+      if (!a) continue;
+      const st = a.replace(/^\s*[\d-]+\s+/, "").trim();
+      if (st) counts.set(st, (counts.get(st) ?? 0) + 1);
+    }
+    const top = [...counts.entries()].sort((x, y) => y[1] - x[1]).slice(0, 2);
+    if (!top.length) return null;
+    return top.length > 1 && top[1][1] >= top[0][1] * 0.4
+      ? `${top[0][0]} & ${top[1][0]}`
+      : top[0][0];
+  }, [result]);
+
+  const grounds = (result?.buildings ?? []).map((b) => b.ground_m);
+
   return (
     <div className="px-5 pb-5 pt-4">
-      <h2 className="eyebrow mb-2">This street</h2>
-      <p className="mb-3 text-[13px] leading-relaxed text-ink-mute">
+      {/* Back out to the whole valley. The street is a zoom, so the way out
+          of it is a zoom out, and the design puts that above the heading
+          rather than leaving the reader to find the map chip again. */}
+      <button onClick={onBack}
+              className="mb-1 text-[12px] text-ink-faint hover:text-ink">
+        ← {place ? place.split(",")[0] : "Whole valley"}
+      </button>
+      <h2 className="text-[19px] font-semibold leading-tight text-ink">
+        {streetName ?? "This street"}
+      </h2>
+      {grounds.length > 0 && (
+        <p className="anno mt-0.5">
+          {grounds.length} buildings · ground {Math.min(...grounds).toFixed(1)}–
+          {Math.max(...grounds).toFixed(1)} m NAVD88
+        </p>
+      )}
+      <p className="mb-3 mt-2 text-[13px] leading-relaxed text-ink-mute">
         Every building in the block, and whether the water got over its floor —
         not over the ground outside it.
       </p>

@@ -1769,21 +1769,62 @@ def plan_anywhere(req: PlanRequest) -> dict:
     peak, steps, _ = solve_beds(dom, req, z, fx, structures=structures)
     b = z.shape[0]
 
-    # What the plan is bought to change: depth over the protected area, or the
-    # whole domain when nothing is named.
-    if req.protect:
-        h_, w_ = dom.z.shape
-        yy, xx = torch.meshgrid(torch.arange(h_), torch.arange(w_), indexing="ij")
-        r = (dom.bounds["north"] - req.protect["lat"]) / (
-            dom.bounds["north"] - dom.bounds["south"]) * h_
-        c = (req.protect["lon"] - dom.bounds["west"]) / (
-            dom.bounds["east"] - dom.bounds["west"]) * w_
+    # What the plan is bought to change.
+    #
+    # This was a circle of invented radius: 2,000 m from one caller and
+    # 2,500 m from another, so the SAME plan on the SAME terrain reported a
+    # different percentage depending which tab opened it. Nothing on the
+    # ground corresponds to it either -- a disc centred between two levees
+    # contains the channel and the hills, and their depth dominates the mean
+    # and dilutes whatever the walls did.
+    #
+    # Where the measures carry the alignment `/sites` found, the protected
+    # set is derived instead: the cells LANDWARD of those alignments and
+    # within the length of the section that was cut across them. Landward is
+    # not guessed -- `_section_line` already decided which end is dry by
+    # counting solved water on each side, and `line.a` is that end. The disc
+    # survives only for a levee dropped on the map by hand, which carries no
+    # alignment, and the response says which was used.
+    h_, w_ = dom.z.shape
+    yy, xx = torch.meshgrid(torch.arange(h_, dtype=torch.float32),
+                            torch.arange(w_, dtype=torch.float32), indexing="ij")
+    bb = dom.bounds
+
+    def to_rc(lon: float, lat: float) -> tuple[float, float]:
+        return ((bb["north"] - lat) / (bb["north"] - bb["south"]) * (h_ - 1),
+                (lon - bb["west"]) / (bb["east"] - bb["west"]) * (w_ - 1))
+
+    aligned = [sp for sp in req.sites
+               if (sp.get("line") or {}).get("a") and (sp.get("outline") or [])]
+    protect_basis = "whole domain"
+    sel = torch.zeros(dom.z.shape, dtype=torch.bool)
+    if aligned:
+        for sp in aligned:
+            pts = [to_rc(float(q[0]), float(q[1])) for q in sp["outline"]]
+            if len(pts) < 2:
+                continue
+            d = _polyline_dist(yy, xx, pts)
+            ln = sp["line"]
+            ra, ca = to_rc(float(ln["a"]["lon"]), float(ln["a"]["lat"]))
+            rb, cb = to_rc(float(ln["b"]["lon"]), float(ln["b"]["lat"]))
+            da = torch.sqrt((yy - ra) ** 2 + (xx - ca) ** 2)
+            db = torch.sqrt((yy - rb) ** 2 + (xx - cb) ** 2)
+            reach = float(ln.get("length_m", 800.0)) / 2.0 / dom.dx
+            sel |= (d <= reach) & (da < db)
+        if bool(sel.any()):
+            protect_basis = (f"the ground landward of {len(aligned)} alignment"
+                             f"{'' if len(aligned) == 1 else 's'}, within "
+                             f"{float(aligned[0]['line'].get('length_m', 800.0)) / 2:.0f} m "
+                             "of each")
+    if not bool(sel.any()) and req.protect:
+        r, c = to_rc(float(req.protect["lon"]), float(req.protect["lat"]))
         rad = float(req.protect.get("radius_m", 2000.0)) / dom.dx
         sel = (((yy - r) ** 2 + (xx - c) ** 2) <= rad ** 2)
-    else:
-        sel = torch.ones(dom.z.shape, dtype=torch.bool)
+        protect_basis = (f"a {float(req.protect.get('radius_m', 2000.0)):.0f} m "
+                         "circle, because these measures carry no alignment")
     if not bool(sel.any()):
         sel = torch.ones(dom.z.shape, dtype=torch.bool)
+        protect_basis = "the whole box, because nothing named a smaller area"
 
     core = (peak * sel[None]).sum(dim=(1, 2)) / float(sel.sum())
     base = float(core[0])
@@ -1950,6 +1991,10 @@ def plan_anywhere(req: PlanRequest) -> dict:
         "attribution": attribution,
         "steps": trace,
         "scenarios_solved": b,
+        # Over WHAT the reduction was averaged. The percentage is meaningless
+        # without it, and it used to be an undisclosed circle.
+        "protect_basis": protect_basis,
+        "protect_km2": round(float(sel.sum()) * (dom.dx ** 2) / 1e6, 2),
         "driver": fx["driver"],
         "driver_note": fx["note"],
         "river_q_m3s": fx["q_m3s"],

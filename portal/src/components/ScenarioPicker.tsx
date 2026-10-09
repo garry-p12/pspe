@@ -74,6 +74,16 @@ export function ScenarioPicker({
         </optgroup>
       </select>
       <p className="anno mt-1.5 leading-relaxed">{chosen.note}</p>
+      {chosen.kind === "recorded" && (
+        <p className="anno mt-1 leading-relaxed">
+          The DISCHARGE is the recorded one. What the map then draws is this
+          solver&apos;s response to it, not a reconstruction of that day: the
+          flow enters at the edge of the box rather than down eighty
+          kilometres of catchment, and the model recovers about half of
+          FEMA&apos;s mapped floodplain. Read it as &quot;a flood of this
+          size&quot;, not as &quot;the flood of that date&quot;.
+        </p>
+      )}
       {chosen.driver === "rain" && (
         <p className="mt-1.5 text-[12px] leading-relaxed text-bad">
           Measured on this reach: two 2 m levees under this storm made the

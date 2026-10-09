@@ -75,6 +75,15 @@ ok("the floor assumption is on the face of it", /floor assumed \+0\.17 m/.test(t
 ok("the deepest-on-ground figure is separate", /Deepest on the ground/.test(t));
 ok("a time slider is offered", (await p.locator("#street-t").count()) === 1);
 ok("the street is listed", /On this street/.test(t));
+// The street REPLACES the live column rather than stacking under it. Both
+// rendered at once before, because `section` and the street zoom are
+// independent, and the street panel sat below three screens of forecast.
+ok("the street replaces the live column rather than stacking under it",
+   !/Roads out of/.test(t) && !/Rain radar/.test(t));
+ok("the block is named from its own addresses, not called \"this street\"",
+   !/^This street$/m.test(t.split("\n")[1] ?? ""));
+ok("there is a way back out to the whole study",
+   (await p.getByRole("button", { name: /^←/ }).count()) === 1);
 await p.screenshot({ path: `${OUT}/84_street.png` });
 
 // Click a building in the list; the card must name it and the map must follow.

@@ -26,8 +26,8 @@ import type { Gauge } from "./LayersPanel";
 // pixels it lands on. It used to be 1000 units wide under the map; squeezed
 // into the panel the same drawing set 10.5-unit type at four real pixels,
 // which is a chart nobody can read.
-const H = 128;
-const PAD = { l: 30, r: 86, t: 15, b: 20 };
+const H = 140;
+const PAD = { l: 30, r: 90, t: 16, b: 26 };
 const W = 440;
 
 const BANDS: [keyof NonNullable<Gauge["flood_levels_m"]>, string][] = [
@@ -182,15 +182,17 @@ export function Hydrograph({ gauge }: { gauge: Gauge }) {
         now {pts[pts.length - 1].m.toFixed(2)} m
       </text>
 
-      <text x={PAD.l} y={11} fontSize="9" fill="var(--ink-mute)"
+      {/* One line, not two. At 440 units the gauge's name on the left and the
+          provenance on the right ran into each other and overprinted. */}
+      <text x={PAD.l - 20} y={9} fontSize="9" fill="var(--ink-mute)"
             fontFamily="var(--font-mono-stack)">
-        {gauge.name.split(",")[0]} · {gauge.lid ?? gauge.site} · every 15 min
+        {gauge.lid ?? gauge.site} · 15 min ·{" "}
+        {fc.length > 1 ? "observed, then NWS forecast" : "observed"}
       </text>
-      <text x={W - PAD.r} y={11} textAnchor="end" fontSize="9"
-            fill="var(--ink-faint)" fontFamily="var(--font-mono-stack)">
-        {fc.length > 1 ? "observed · NWS forecast" : "observed"}
-        {offScale ? ` · ${offScale}` : gauge.flood_levels_m ? " · flood levels" : ""}
-      </text>
+      {offScale && (
+        <text x={PAD.l - 20} y={H - 1} fontSize="8.5" fill="var(--ink-faint)"
+              fontFamily="var(--font-mono-stack)">{offScale}</text>
+      )}
       {[yMin, yMax].map((v, i) => (
         <text key={i} x={PAD.l - 6} y={y(v) + (i ? 9 : 0)} textAnchor="end"
               fontSize="9" fill="var(--ink-faint)"

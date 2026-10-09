@@ -115,8 +115,10 @@ export function Planner() {
    *  because rain lands on both sides of a wall. */
   const [peaks, setPeaks] = useState<PeaksFeed | null>(null);
   const [scenarioId, setScenarioId] = useState<string | null>(null);
-  /** Whether the Plan tab has already gone looking for its sites. */
+  /** Whether the Plan tab has already gone looking for its sites, and for
+   *  which flood. */
   const autoSites = useRef(false);
+  const solvedFor = useRef<string | null>(null);
   /** Which hour of the solved run the map is showing. Null is the peak, which
    *  is where everything sits until someone presses play. */
   const [runFrame, setRunFrame] = useState<number | null>(null);
@@ -415,6 +417,7 @@ export function Planner() {
   const chooseScenario = useCallback((id: string) => {
     setScenarioId(id);
     autoSites.current = false;
+    solvedFor.current = null;
     setKit(null); setKitErr(null); setPlacedPieces([]); setKitPlan(null);
     setSecSite(null); setSecRes(null); setSecErr(null);
   }, []);
@@ -485,20 +488,30 @@ export function Planner() {
     } finally { setKitBusy(false); clearInterval(tick); }
   }, [kitBox, analysis, forcing]);
 
-  // The Plan tab finds its own sites.
+  // The Plan tab finds its own sites, for the scenario it is actually
+  // judging against.
   //
   // It used to open on a button and a paragraph explaining what the button
   // would do. But the sites are not a choice the planner makes -- they come
   // out of the terrain and the solved flood, the same way the flood field
   // does -- so asking for a click before showing them put a turnstile in
-  // front of the one thing the tab exists to show. The design has the tray
-  // and the outlines already on screen. This is what puts them there.
+  // front of the one thing the tab exists to show.
+  //
+  // It waits for `peaks`. Without that it fired on the default scenario --
+  // the study's design rainstorm -- and when the gauge record arrived a
+  // moment later the heading flipped to "31 Oct 2013 flood" over a site set
+  // and a map that were still the rainstorm's. The panel named one flood and
+  // showed another, which is the exact failure the scenario control was
+  // added to fix. Keyed on the scenario rather than on a once-only flag, so
+  // a change of flood re-finds the banks it changes.
   useEffect(() => {
-    if (section !== "plan" || !kitBox) return;
-    if (kit || kitBusy || kitErr || autoSites.current) return;
+    if (section !== "plan" || !kitBox || !peaks) return;
+    if (kitBusy || solvedFor.current === scenario.id) return;
+    if (kitErr && autoSites.current) return;
+    solvedFor.current = scenario.id;
     autoSites.current = true;
     void findSites();
-  }, [section, kitBox, kit, kitBusy, kitErr, findSites]);
+  }, [section, kitBox, peaks, scenario.id, kitBusy, kitErr, findSites]);
 
   const solveKitPlan = useCallback(async () => {
     if (!kitBox || !kit?.ok || placedPieces.length < 2) return;
@@ -564,6 +577,7 @@ export function Planner() {
                   core_reduction_pct: number }[];
       band_pct?: number; reduction_pct?: number;
       band_attainable?: boolean; band_note?: string;
+      protect_basis?: string; protect_km2?: number;
     } | null;
     if (!d?.options?.length) return null;
     const base = d.options.find((o) => o.id === "base") ?? d.options[0];
@@ -587,6 +601,10 @@ export function Planner() {
       reduction_pct: best.core_reduction_pct,
       band_reason: d.band_note
         ?? "A margin needs enough calibrated combinations before it means 90%.",
+      // A percentage is meaningless without the area it is a percentage of,
+      // and this one used to be averaged over an undisclosed circle.
+      protectBasis: d.protect_basis ?? null,
+      protectKm2: typeof d.protect_km2 === "number" ? d.protect_km2 : null,
     };
   }, [kitPlan]);
 
@@ -840,7 +858,12 @@ export function Planner() {
           />
         )}
 
-        {section === "forecast" && (
+        {/* `section` and `streetOn` are independent -- the street is a zoom,
+            not a tab -- so both columns rendered at once and the street panel
+            sat below three screens of forecast. The street REPLACES the live
+            column while it is open, the way the design has it, and the
+            Forecast tab is still what you return to when you zoom back out. */}
+        {section === "forecast" && !streetOn && (
           <>
             <GaugeHeadline feed={gaugeFeed} />
             {/* Three days of river, with the gauge reading it belongs to.
@@ -908,6 +931,8 @@ export function Planner() {
             onSelect={setStreetSel}
             onSolve={solveStreet}
             canSolve={Boolean(streetCentre)}
+            place={analysis?.name ?? study?.name ?? null}
+            onBack={() => setTab("anywhere")}
           />
         )}
 
@@ -1082,6 +1107,33 @@ export function Planner() {
             Water depth
           </button>
         </div>
+
+        {/* What the colours on a street mean.
+            Three swatches, because the street view is the one place the map
+            is not a depth ramp: a building is salmon or it is bone, and
+            which it is depends on a floor height the reader cannot see.
+            Spelling that out on the map is cheaper than making them find it
+            in the panel. */}
+        {tab === "street" && streetBuildings?.length ? (
+          <div className="absolute bottom-4 left-4 z-10 rounded-[10px] border border-line
+                          bg-bg/92 px-3 py-2.5 backdrop-blur
+                          shadow-[0_2px_8px_rgba(16,20,28,0.12)]">
+            {[["#f7f5f2", "Floor above water"],
+              ["#e8887a", "Water over floor"],
+              ["#2563a8", "Water on the ground"]].map(([c, label]) => (
+              <div key={label} className="flex items-center gap-2 py-[3px]">
+                <span className="h-[11px] w-[11px] shrink-0 rounded-[2px]
+                                 border border-ink/15"
+                      style={{ background: c }} />
+                <span className="text-[12px] text-ink">{label}</span>
+              </div>
+            ))}
+            <p className="anno mt-1 leading-snug">
+              floor assumed {((street?.ok && street.floor_above_ground_m) || 0.17)
+                .toFixed(2)} m above ground
+            </p>
+          </div>
+        ) : null}
 
         {/* Before / With plan, on the map.
             It was a pair of pills in the panel, which is where the design

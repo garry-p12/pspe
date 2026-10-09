@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Scratch capture scripts: underscore-prefixed, written for one debugging
+# session and not part of the verification suite.
+scripts/_*.mjs

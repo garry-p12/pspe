@@ -7160,12 +7160,57 @@ dimensionless intensity per measure — metres of crest, 1.22 m barrels, cubic
 metres a second — drives the enumeration, the surrogate, the conformal margin
 and the price, so the number solved and the number costed cannot drift apart.
 
-**Still open, from the audit.** The planner's headline reduction is averaged
-over a circle of invented radius (2,000 m in one caller, 2,500 m in another,
-so the same plan reports different percentages depending which tab opened it);
-the surrogate assumes effect exactly linear in height while measuring it at
-one height only; `river_q_m3s` under the storm presets is `rain_mm_h / 20`
-times bankfull, which relates two quantities that have no relation.
+**The protected area was a circle nobody drew.** The planner's headline
+reduction is the change in mean depth over a `protect` region, and that region
+was a disc of invented radius — 2,000 m from one caller and 2,500 m from
+another, so the *same* plan on the *same* terrain reported a different
+percentage depending which tab opened it. A disc centred between two levees
+also contains the channel and the hills, whose depth dominates the mean and
+dilutes whatever the walls did.
+
+It is now derived from measured geometry: the cells landward of the chosen
+alignments and within half the length of the section cut across them. Landward
+is not guessed — `_section_line` already decided which end of each section is
+dry by counting solved water on either side. The disc survives only for a
+levee dropped on the map by hand, which carries no alignment, and the response
+returns `protect_basis` and `protect_km2` so the panel can say what the
+percentage is a percentage of. It does.
+
+**Still open.** The surrogate assumes effect exactly linear in height while
+measuring it at one height only — `enumerate_plans` puts each site alone at
+`max_h` and nowhere else, so every intermediate height on the greedy search's
+0.5 m ladder is an unmeasured straight line through the origin, and the
+physics is a sigmoid with its threshold at the local water level that `/sites`
+already computes as `needs_m`. And `river_q_m3s` under the storm presets is
+`rain_mm_h / 20` times bankfull, which relates two quantities that have no
+relation; the `/peaks` quantiles are the replacement and are not yet wired to
+those presets.
+
+### 5.14p The panel named one flood and showed another (2026-10-09)
+
+The scenario control landed and then immediately lied, for a reason that is
+worth recording because it is a shape of bug rather than a typo.
+
+The Plan tab finds its sites when it opens. The scenario list comes from
+`/peaks`, which is a separate fetch. The site search fired on whatever
+`scenario` was at first paint — the study's design rainstorm, the fallback
+when no gauge record has arrived — and a moment later `/peaks` resolved, the
+default flipped to 31 Oct 2013, and the heading changed. Nothing re-solved.
+So the panel read "Judged against 31 Oct 2013 flood · 3.82 × 10³ m³/s" over a
+site set and a map that were a 50 mm/h rainstorm.
+
+Every part was right. The search was right, the scenario list was right, the
+heading was right about what the user had selected. What was wrong was the
+order, and the symptom — a label over the wrong map — is exactly the symptom
+the scenario control had been added to *fix* three hours earlier.
+
+The search now waits for `peaks` and is keyed on the scenario id rather than a
+once-only flag, so a change of flood re-finds the banks it changes.
+
+**Rule 82: a control that selects what a computation is about must be settled
+before the computation starts.** Not "before it finishes" — a late-arriving
+default silently invalidates work already in flight, and the only visible
+trace is a caption that disagrees with a picture.
 
 ### 5.14o Nine frames the solver was already computing (2026-10-09)
 

@@ -44,19 +44,16 @@ ok("and Cross-section is a step inside it", await pick("Cross-section"));
 const aside = p.locator("aside");
 ok("it opens on step one", /1 · Choose a line to protect/.test(await aside.innerText()));
 
-const find = p.getByRole("button", { name: /Find the lines|Waiting for a solved place/ });
-for (let i = 0; i < 40; i++) {
-  if (!(await find.isDisabled())) break;
-  await p.waitForTimeout(1000);
-}
-ok("it waits for a solved place rather than doing nothing", !(await find.isDisabled()));
-await find.click();
-
-let t = "";
+// Nothing to press. The Plan tab finds its lines when it opens -- the same
+// search the kit runs, one solve for both -- so what is on screen until they
+// arrive is a progress report.
+let t = await aside.innerText();
+ok("the tab goes looking by itself rather than offering a button",
+   !/Find the lines/.test(t));
 for (let i = 0; i < 200; i++) {
   await p.waitForTimeout(3000);
   t = await aside.innerText();
-  if (/unnamed bank|bank\n|Could not/.test(t) && !/Looking for banks/.test(t)) break;
+  if (/unnamed bank|bank\n|near |Could not/.test(t) && !/Looking for banks/.test(t)) break;
 }
 const lines = p.locator("aside ul button[aria-pressed]");
 ok("it offers lines instead of asking for clicks", (await lines.count()) > 0,

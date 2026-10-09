@@ -44,29 +44,42 @@ const aside = p.locator("aside");
 ok("it explains where sites come from",
    /almost high enough/.test(await aside.innerText()));
 
-const find = p.getByRole("button", { name: /Find the sites|Waiting for a solved place/ });
-// The study loads asynchronously and the kit needs its box.
-for (let i = 0; i < 40; i++) {
-  if (!(await find.isDisabled())) break;
-  await p.waitForTimeout(1000);
-}
-ok("the button waits for a place rather than doing nothing", !(await find.isDisabled()));
-await find.click();
+// Nothing to press: the tab goes looking for its sites when it opens, and
+// the only thing on screen until they arrive is a progress report.
 let t = "";
+for (let i = 0; i < 20; i++) {
+  await p.waitForTimeout(1000);
+  t = await aside.innerText();
+  if (/Looking for banks that almost hold/.test(t)) break;
+}
+ok("the tab goes looking by itself rather than offering a button",
+   /Looking for banks that almost hold/.test(t)
+   && !/Find the sites/.test(t));
+ok("the plan is judged against a named flood, not whatever the map showed",
+   /Judged against/.test(t) && /USGS annual peak streamflow|annual chance/.test(t),
+   (t.match(/\d+ \w+ \d{4} flood · [^\n]*/) || [""])[0]);
 for (let i = 0; i < 160; i++) {
   await p.waitForTimeout(3000);
   t = await aside.innerText();
-  if (/Pick a piece|No sites here/.test(t)) break;
+  if (/Place on the map|No sites here/.test(t)) break;
 }
-ok("it found sites", /place(s)? a wall would pay/.test(t) && /Pick a piece/.test(t),
+ok("it found sites", /place(s)? a wall would pay/.test(t) && /Place on the map/.test(t),
    (t.match(/\d+ places? a wall would pay/) || [""])[0]);
-if (!/Pick a piece/.test(t)) {
+if (!/Place on the map/.test(t)) {
   console.log(t.slice(t.indexOf("Build a plan"), t.indexOf("Build a plan") + 400));
   await b.close(); process.exit(1);
 }
+ok("the banks are named from the map, not numbered",
+   /near [A-Z][a-z]+|bank/.test(t) && !/unnamed bank/.test(t));
 ok("each site carries the height its lowest point needs", /needs \d+\.\d+ m/.test(t));
-ok("the budget is shown as money left", /M left/.test(t), (t.match(/A\$[\d.]+ M left/) || [""])[0]);
-ok("the tray offers parts with unit rates", /Earth levee/.test(t) && /\/m\/m/.test(t));
+ok("the budget is shown as money left in US dollars",
+   /US\$[\d.]+ M left/.test(t), (t.match(/US\$[\d.]+ M left/) || [""])[0]);
+ok("the tray offers all five parts",
+   ["Earth levee", "Raised levee", "Flood wall", "Floodgate", "Pump station"]
+     .every((x) => t.includes(x)));
+ok("the two point structures are there as parts, not pictures",
+   /drains one way/.test(t) && /lifts\s+water from inside/.test(t));
+ok("the rates say where they came from", /USACE construction rates/.test(t));
 await p.screenshot({ path: `${OUT}/87_kit.png` });
 
 // Arm a piece and place it on two sites.
@@ -82,7 +95,8 @@ await p.waitForTimeout(250);
 await rows.nth(1).click();
 await p.waitForTimeout(500);
 t = await aside.innerText();
-ok("placing pieces spends the budget", /spent A\$[\d.]+ M/.test(t), (t.match(/spent A\$[^\n]*/) || [""])[0]);
+ok("placing pieces spends the budget", /spent US\$[\d.]+ M/.test(t),
+   (t.match(/spent US\$[^\n]*/) || [""])[0]);
 ok("two pieces are counted", /2 pieces/.test(t));
 await p.screenshot({ path: `${OUT}/88_kit_placed.png` });
 
@@ -98,7 +112,11 @@ ok("the impact is before and after", /Homes over floor/.test(t) && /Road cut/.te
 ok("the guarantee comes from the margin, or says it cannot",
    /conformal margin is ±/.test(t) || /No guarantee on this one/.test(t),
    (t.match(/At least [\d.]+% less flooding|No guarantee on this one/) || [""])[0]);
-ok("before and with-plan can be compared", (await p.getByRole("button", { name: "Before" }).count()) === 1);
+ok("before and with-plan compare on the map, where the water is",
+   (await p.getByRole("button", { name: "Before" }).count()) === 1);
+ok("the percentage says what it is a percentage of",
+   /Per cent of mean depth over/.test(t));
+ok("a plan can be saved", (await p.getByRole("button", { name: "Save plan" }).count()) === 1);
 await p.screenshot({ path: `${OUT}/89_kit_impact.png` });
 
 await p.getByRole("button", { name: "Undo", exact: true }).click();

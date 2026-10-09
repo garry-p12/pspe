@@ -201,6 +201,8 @@ export function LeveeKit({
     band_pct: number | null;
     reduction_pct: number;
     band_reason?: string;
+    protectBasis: string | null;
+    protectKm2: number | null;
   } | null;
   planBusy: boolean;
   onPlan: () => void;
@@ -448,6 +450,15 @@ export function LeveeKit({
                           floor is what is promised. The margin is calibrated on the
                           solved combinations, not assumed.</>}
                   </p>
+                  {impact.protectBasis && (
+                    <p className="anno mt-1.5 leading-relaxed">
+                      Per cent of mean depth over {impact.protectBasis}
+                      {impact.protectKm2 !== null
+                        ? ` — ${impact.protectKm2.toFixed(1)} km²` : ""}. Not
+                      over the whole box: a wall that halves the water behind
+                      it moves a box-wide average by almost nothing.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
