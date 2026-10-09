@@ -7299,6 +7299,37 @@ difference between them is a single `if not els: return []`. This is the
 third fetch in this service to have had the bug (§5.14o, the gauge names) and
 the first where it changed a physical answer rather than a label.
 
+**The retry was not enough, so the map is kept on disk.** With two of three
+mirrors returning 500 the retry still failed often, and each failure silently
+swapped the mapped channel for the terrain heuristic: 2.56 km² flooded
+against 6.35 for the identical request. `data/osm_cache/` now holds a
+thirty-day copy of each successful waterway and name fetch. OSM geometry for
+a river or a street changes on a timescale of years, so this is not
+staleness — it is the difference between a tool that works and a tool that
+works when a volunteer-run mirror happens to be up. Empty answers are still
+never written.
+
+With the cache warm the request is reproducible: 3,823 m³/s as given, on the
+west edge, from the mapped network, 6.35 km² wet, and all six banks named
+from the streets beside them — South Pleasant Valley Road, Pinehurst Drive
+South, Onion Creek bank, South Boggy Creek bank.
+
+That 6.35 km² is worth stating plainly next to FEMA's 23.69 km² for the same
+box. The 2013 peak is 3,823 m³/s and the fitted 1% discharge is 6,870, so the
+model is being asked for a smaller event than the regulatory map draws — but
+it is still under-predicting, which is the same forcing limitation the CSI
+0.389 in §5.14g measures and not a new one. Removing the 2.5× multiple did
+not create that gap; it stopped the multiple from hiding it.
+
+**The section harness got its fixture back.** `verify-section-math.mjs` took
+a path on the command line pointing at a file in `/tmp`, which is how it
+became unrunnable: the file was deleted and nothing recorded how to make
+another. `make-section-fixture.mjs` builds one — it asks `/sites` for the
+banks under the 2013 flood, takes the one with the deepest shortfall, widens
+its section to ±900 m so the tie-back arithmetic has floodplain to tie into,
+and refuses to write a section with fewer than twelve wet samples, because a
+dry profile exercises none of the levee maths.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

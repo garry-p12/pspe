@@ -1,20 +1,29 @@
 // The cross-section's levee arithmetic, checked against a REAL solved section.
 //
 // `src/lib/section.ts` is the only place the portal decides how high a crest
-// has to be, how far it runs and what it costs, and none of that is checked by
-// the service: /section returns a profile and nothing more. So it is checked
-// here, on the response from an actual 7.1 km solve across the Wilsons River
-// floodplain at Lismore (80 m cells, river driver, 18,750 m3/s), against
-// figures computed independently in Python from the same JSON.
+// has to be, how far it runs and what it costs, and none of that is checked
+// by the service: /section returns a profile and nothing more. So it is
+// checked here, against a REAL solved section -- a cut across an Onion Creek
+// bank under the 31 October 2013 flood -- with the figures computed
+// independently from the same JSON.
 //
-// Compile first:
-//   npx tsc src/lib/section.ts --outDir <dir> --module commonjs --target es2020
+// The fixture used to be a path on the command line pointing at /tmp, which
+// is how the harness became unrunnable: the file was deleted and nothing
+// recorded how to make another. It now has a default and a generator.
+//
+//   node scripts/make-section-fixture.mjs                 # needs the service
+//   npx tsc src/lib/section.ts src/lib/rates.ts \
+//     --outDir /tmp/secjs --module commonjs --target es2020
+//   node scripts/verify-section-math.mjs /tmp/secjs/section.js
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
-const [, , jsPath, jsonPath] = process.argv;
-if (!jsPath || !jsonPath) {
-  console.error("usage: node verify-section-math.mjs <section.js> <section_response.json>");
+const [, , jsPath, jsonArg] = process.argv;
+const jsonPath = jsonArg
+  ?? new URL("./fixtures/section_onion_creek.json", import.meta.url).pathname;
+if (!jsPath) {
+  console.error("usage: node verify-section-math.mjs <section.js> [section_response.json]");
+  console.error("  compile section.ts first; see the header of this file.");
   process.exit(2);
 }
 const S = createRequire(import.meta.url)(jsPath);
