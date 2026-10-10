@@ -1,5 +1,6 @@
 "use client";
 
+import { Explain } from "./Explain";
 import { useMemo } from "react";
 import { DEPTH_PRESETS, queryRoads } from "@/lib/roadquery";
 import type { InspectGrids } from "@/lib/inspect";
@@ -20,7 +21,7 @@ import type { Box } from "@/lib/types";
  * stretch under a centimetre is not.
  */
 export function RoadsOut({
-  roads, grids, bounds, place, vehicle, onVehicle, onQuery,
+  roads, grids, bounds, place, vehicle, onVehicle,
 }: {
   roads: GeoJSON.FeatureCollection | null;
   grids: InspectGrids | null;
@@ -28,7 +29,6 @@ export function RoadsOut({
   place: string | null;
   vehicle: number;
   onVehicle: (m: number) => void;
-  onQuery?: (q: ReturnType<typeof queryRoads>) => void;
 }) {
   const q = useMemo(
     () => queryRoads(roads, grids, bounds, vehicle),
@@ -53,7 +53,7 @@ export function RoadsOut({
       <div className="mt-1.5 flex flex-wrap gap-1">
         {DEPTH_PRESETS.map((d) => (
           <button key={d.m} className="pill" data-on={Math.abs(vehicle - d.m) < 1e-6}
-                  onClick={() => { onVehicle(d.m); onQuery?.(q); }} title={d.note}>
+                  onClick={() => onVehicle(d.m)} title={d.note}>
             {d.label}
           </button>
         ))}
@@ -83,9 +83,23 @@ export function RoadsOut({
               </li>
             ))}
           </ul>
-          <p className="anno mt-1.5 leading-relaxed">
-            {q.cutKm.toFixed(1)} km of {q.totalKm.toFixed(0)} km cut · deepest first,
-            because a road is closed by its worst point
+          {/* The numbers stay -- they are the answer. Why the list is
+              sorted that way is visible in the column itself. */}
+          <p className="anno mt-1.5 flex items-center gap-1.5 leading-relaxed">
+            {q.cutKm.toFixed(1)} km of {q.totalKm.toFixed(0)} km cut
+            <Explain title="How a road is judged closed">
+              <p>
+                A road is scored by its deepest sampled point, because that
+                is where a vehicle stops. Depth is read at each segment
+                midpoint from the solved peak field, so a flooded dip
+                between two points can be missed.
+              </p>
+              <p>
+                The {q.totalKm.toFixed(0)} km denominator is every mapped
+                road in the box, residential streets included — not roads
+                out of town.
+              </p>
+            </Explain>
           </p>
         </>
       )}

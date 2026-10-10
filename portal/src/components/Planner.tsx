@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PlannerMap } from "./PlannerMap";
+import { PlannerMap, STREET_VE } from "./PlannerMap";
 import { LayersPanel, DEFAULT_LAYERS, type LayerState,
          type GaugeFeed } from "./LayersPanel";
-import { GaugeHeadline } from "./GaugeHeadline";
+import { GaugeHeadline, pickGauge } from "./GaugeHeadline";
 import { Hydrograph } from "./Hydrograph";
 import { RoadsOut } from "./RoadsOut";
+import { queryRoads } from "@/lib/roadquery";
 import { AnywherePanel, type AnalysisResult, type PlacedLevee,
          type StudyMeta } from "./AnywherePanel";
 import { TripPanel, type TripResult } from "./TripPanel";
+import { RoutePanel } from "./RoutePanel";
 import { SectionPanel, type SectionEnds, type SectionOverlay } from "./SectionPanel";
 import { SectionStrip } from "./SectionStrip";
 import { wallAt, crestToHold, bestStation, reaches, channelBelts,
@@ -21,15 +23,32 @@ import { scenariosFrom, type PeaksFeed, type Scenario } from "@/lib/scenarios";
 import { StreetPanel, type StreetResult } from "./StreetPanel";
 import { LeveeKit, PIECES, pieceOf, costOf, type SitesFeed, type Placed,
          type PieceId } from "./LeveeKit";
-import type { RoadQuery } from "@/lib/roadquery";
 import { useRegion } from "./RegionContext";
+import { withDepth } from "@/lib/depthtex";
 import { decodeGrids, sampleAt,
          type InspectGrids, type PointInfo } from "@/lib/inspect";
+
+/** A 1x1 fully transparent PNG, for drawing the ground with no flood on it.
+ *
+ *  Generated and decoded rather than copied: the first constant here was a
+ *  "transparent" PNG off the shelf whose single pixel is RGBA (0, 0, 255,
+ *  127) -- half-opaque blue -- so switching the depth layer off would have
+ *  washed the entire map blue. Checking that a PNG is VALID is not checking
+ *  that it is transparent. This one's IDAT inflates to `00 00 00 00 00`:
+ *  filter 0, then RGBA all zero. */
+const BLANK_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNg"
+  + "AAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
 
 export function Planner() {
   const [focus, setFocus] = useState<"region" | "town">("region");
   /** Water drawn as a body, or painted flat over the terrain. */
-  const [solid, setSolid] = useState(true);
+  /* Off by default. A flood map is read as a map -- north up, flat, filling
+     its pane -- and the solid body is the opt-in second reading, which is why
+     it now brings the pitch with it. It was on by default and invisible: the
+     columns were drawn from z = 0 while the terrain mesh put the ground six
+     hundred metres up, so the chip had never shown anything. */
+  const [solid, setSolid] = useState(false);
   const [place, setPlace] = useState<{ lat: number; lon: number; name: string } | null>(null);
   const [adHocGrids, setAdHocGrids] = useState<InspectGrids | null>(null);
   /** Heights of the option being drawn for an arbitrary place, per placed site. */
@@ -48,7 +67,11 @@ export function Planner() {
     dest: { lat: number; lon: number } | null;
   } | null>(null);
   const [point, setPoint] = useState<PointInfo | null>(null);
-  const [roadQ, setRoadQ] = useState<RoadQuery | null>(null);
+  /* `roadQ` is derived further down, not stored. The only other writer was
+     `RoadQueryPanel`, which renders inside `AnywherePanel` under
+     `section === "roads"` while `AnywherePanel` itself needs
+     `section === "forecast"` -- conditions that cannot both hold, so that
+     panel is unreachable and never set it. */
   const [adHocRoads, setAdHocRoads] = useState<GeoJSON.FeatureCollection | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   // Austin opens the portal, not the Richmond archive.
@@ -99,17 +122,38 @@ export function Planner() {
   const [streetSel, setStreetSel] = useState<string | null>(null);
   /** Where the block sits. Clicking the map in this tab moves it. */
   const [streetAt, setStreetAt] = useState<{ lat: number; lon: number } | null>(null);
+  /** How far the street block has been turned, in degrees. A model on a
+   *  table is turned to be read; the two buttons over the map step this. */
+  const [streetSpin, setStreetSpin] = useState(0);
+  /** Which house the camera is centred on, when that is not the densest
+   *  cluster. Picking from the LIST is navigation -- the list is a
+   *  directory, sorted by depth, and its top row is often nowhere near the
+   *  street on screen. Picking on the MAP is not: the reader is already
+   *  looking at the thing they clicked, and moving the camera under them
+   *  throws away the view they built. */
+  const [streetGoTo, setStreetGoTo] = useState<string | null>(null);
 
   /** The levee kit: where a wall would pay, what is placed, what it buys. */
   const [kit, setKit] = useState<SitesFeed | null>(null);
   const [kitBusy, setKitBusy] = useState(false);
   const [kitSec, setKitSec] = useState(0);
   const [kitErr, setKitErr] = useState<string | null>(null);
-  const [placedPieces, setPlacedPieces] = useState<Placed[]>([]);
+  const [placedPieces, setPlacedPiecesRaw] = useState<Placed[]>([]);
   const [armed, setArmed] = useState<PieceId | null>(null);
   const [kitBudget, setKitBudget] = useState(20);
   const [kitPlan, setKitPlan] = useState<Record<string, unknown> | null>(null);
   const [kitPlanBusy, setKitPlanBusy] = useState(false);
+  /* Changing the plan throws away the answer to the old one. "Solve this
+     plan" used to unmount itself the moment a result arrived, so after one
+     solve you could add, remove or clear pieces and the readout -- "Land
+     flooded 6.35 -> 6.12 km2, at least 12.3% less flooding" -- stayed on
+     screen describing a plan that was no longer on the map, with no way to
+     re-run it short of changing the scenario. */
+  const setPlacedPieces = useCallback(
+    (next: Placed[] | ((l: Placed[]) => Placed[])) => {
+      setKitPlan(null);
+      setPlacedPiecesRaw(next);
+    }, []);
   const [showPlan, setShowPlan] = useState(true);
   /** Which flood the plan is judged against. See `lib/scenarios`: the study's
    *  own design rainstorm is the wrong question to put a levee in front of,
@@ -141,6 +185,10 @@ export function Planner() {
         : section === "plan" ? planMode
           : "anywhere";
   const setTab = (t: "anywhere" | "trip" | "section" | "street" | "kit") => {
+    // A depth reading belongs to the view it was taken in. Carrying it across
+    // is how a number sampled from the study's peak field ends up floating
+    // over a street solve or a different scenario's flood.
+    setPoint(null);
     if (t === "street") { setStreetOn(true); return; }
     setStreetOn(false);
     if (t === "trip") setSection("roads");
@@ -172,13 +220,20 @@ export function Planner() {
   }, [kitBudget, section]);
   const { setRegion, setLive } = useRegion();
 
-  // The header says LIVE only when something on the page really is. A badge
-  // over a replayed archive would be a lie, and the Richmond study has no
-  // gauge feed at all.
+  /* The header says LIVE only when something on the page really is.
+     It used to read "27 gauges every 15 min" while nothing re-fetched at
+     all -- the cadence of the SOURCE, printed as though it were the
+     cadence of this page. The panel now polls, so the badge states when
+     the reading on screen was taken, which is the fact a reader needs to
+     judge whether it is still worth anything. */
   useEffect(() => {
     const n = gaugeFeed?.gauges.length ?? 0;
+    const at = gaugeFeed?.gauges.find((g) => g.at)?.at;
+    const read = at
+      ? new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : null;
     setLive(n
-      ? `${n} gauge${n === 1 ? "" : "s"} every ${gaugeFeed?.cadence_min ?? 15} min`
+      ? `${n} gauge${n === 1 ? "" : "s"}${read ? ` · read ${read}` : ""}`
       : null);
   }, [gaugeFeed, setLive]);
 
@@ -278,6 +333,10 @@ export function Planner() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail ?? d.error ?? `HTTP ${r.status}`);
+      // "Still solving" is neither an answer nor a failure. The service runs
+      // one solve per distinct block and lets every caller wait on it, so
+      // asking again joins that run instead of starting a second.
+      if (d.pending) return "pending" as const;
       if (!d.ok) throw new Error(d.reason ?? "this block could not be solved");
       setStreet(d);
     } catch (e) {
@@ -286,7 +345,34 @@ export function Planner() {
       setStreetBusy(false);
       clearInterval(tick);
     }
+    return "done" as const;
   }, [streetCentre, analysis, study]);
+
+  /** Keep asking until the block answers.
+   *
+   *  A cold street solve is a parent catchment plus the block itself and runs
+   *  past the five minutes a browser's fetch waits for response headers. Each
+   *  call waits on the one run the service is already doing, so this loop
+   *  costs nothing but patience. */
+  const solveStreetUntilDone = useCallback(async (
+    opts: { driver: string; storm: number; q: number | null },
+  ) => {
+    for (let i = 0; i < 8; i++) {
+      if (await solveStreet(opts) !== "pending") return;
+    }
+  }, [solveStreet]);
+
+  /* A new street is a new model on the table: it starts square-on and with
+     nothing picked. Adjusted during render rather than in an effect, which
+     is React's own prescription for resetting state when an input changes
+     -- an effect here would paint the previous street's camera for a frame
+     and costs a second render. */
+  const [spinFor, setSpinFor] = useState(street);
+  if (street !== spinFor) {
+    setSpinFor(street);
+    setStreetSpin(0);
+    setStreetGoTo(null);
+  }
 
   const streetBuildings = useMemo(() => {
     if (!street?.ok) return null;
@@ -294,6 +380,13 @@ export function Planner() {
       id: b.id,
       ring: b.ring,
       height_m: b.height_m,
+      // The ground the SOLVER used, not the one the panel quotes. Depth, and
+      // therefore `over`, is measured against the DEM; the city survey is up
+      // to 2.1 m away from it on this block. A box standing on the city
+      // ground inside a water plane built from the DEM would contradict its
+      // own colour. The panel keeps the surveyed figure, which is the better
+      // number for a reader; the drawing keeps one frame throughout.
+      base_m: b.dem_ground_m,
       over: streetFrame !== null && b.over_floor_series[streetFrame] !== undefined
         ? b.over_floor_series[streetFrame]
         : (b.over_floor_m ?? -1),
@@ -301,10 +394,171 @@ export function Planner() {
     }));
   }, [street, streetFrame, streetSel]);
 
+  /**
+   * The block the street view draws, as a scene rather than a flood map.
+   *
+   * Three numbers the map needs and nothing else computes:
+   *
+   * `datum` — the lowest ground on the block. The terrain decoder returns
+   * absolute elevation, so a 1.7 km block of ground at 165-178 m renders as
+   * a slab floating 165 m over the basemap (and, at the 5x exaggeration the
+   * valley views use, 825 m over it, which is what made this view a blue
+   * mountain). Subtracting the datum puts the ground back on the imagery.
+   *
+   * `waterM` — the water SURFACE for the hour on screen, in the same frame.
+   * Measured on Onion Creek it is flat to 0.18 m across the block, which is
+   * why one plane is an honest drawing of it and a per-cell wash is not.
+   * It is built from `dem_ground_m + floor + over_floor_series[i]` rather
+   * than the response's own `water_surface_m`, which is the city survey's
+   * ground plus the DEM's depth and so disagrees with the colours by up to
+   * half a metre here and 2.1 m at worst.
+   *
+   * `ceilingM` — the highest thing in the scene, for the vertical scale note.
+   */
+  const streetScene = useMemo(() => {
+    if (!street?.ok || !street.buildings.length) return null;
+    const bs = street.buildings;
+    const grounds = bs.map((b) => b.dem_ground_m);
+    const floor = street.floor_above_ground_m ?? 0.17;
+    const surfaces = bs
+      .map((b) => {
+        const over = streetFrame !== null
+          ? b.over_floor_series[streetFrame] : b.over_floor_m;
+        return over !== null && over !== undefined && over > 0
+          ? b.dem_ground_m + floor + over : null;
+      })
+      .filter((x): x is number => x !== null)
+      .sort((a, b) => a - b);
+    const waterM = surfaces.length
+      ? surfaces[Math.floor(surfaces.length / 2)] : null;
+    const ceilingM = Math.max(
+      ...bs.map((b) => b.dem_ground_m + Math.max(b.height_m ?? 4, 2.5)));
+    /* The plane's own footprint. A bare quad over the block floods the hill
+       as well as the creek, because a terrain mesh carrying a transparent
+       texture writes no depth and so occludes nothing. The solver already
+       ships the shape of the water for every hour -- the depth PNG, which is
+       transparent wherever the ground is dry -- so the plane is that image,
+       hung at the water's elevation rather than painted on the ground. */
+    const frame = streetFrame !== null ? street.frames[streetFrame] : null;
+    const waterPng = frame ? frame.depth_png : street.depth_png;
+    const surfacePng = frame ? frame.surface_png : street.surface_png;
+
+    /* What the camera should frame: a STREET, which is what the panel is
+       about. The solved box is 1.7 km of catchment either side of the houses
+       so the water has somewhere to come from, and framing all of it puts a
+       nine-metre house at four pixels -- which is how this view came to show
+       a sheet of water with no buildings on it. Framing the footprints'
+       extent is no better: they are scattered across the whole box, so their
+       bounding box IS the box.
+
+       So frame the house the reader is looking at, with its neighbours
+       around it: the selected one, or failing that the worst-affected one,
+       which is the row at the top of the list. Everything else is a pan
+       away, and the overview is one click on "Whole valley". */
+    const centre = (ring: [number, number][]) => {
+      let sx = 0, sy = 0;
+      for (const [lon, lat] of ring) { sx += lon; sy += lat; }
+      return [sx / ring.length, sy / ring.length] as [number, number];
+    };
+    /* The anchor is the densest place, not the worst-hit one. The deepest
+       house on this block turns out to stand alone in woodland, and framing
+       it gave a screen of trees with one pink roof in it -- an answer to a
+       question nobody asked. A street is where the houses are, so count
+       neighbours and take the winner; ties go to the one with more water in
+       it, which is the row the panel puts at the top. */
+    const cs = bs.map((x) => centre(x.ring));
+    const R_LAT = 0.0016;                       // ~175 m
+    const R_LON = R_LAT / Math.cos((cs[0][1] * Math.PI) / 180);
+    let best = 0, bestN = -1, bestOver = -99;
+    for (let i = 0; i < bs.length; i++) {
+      let n = 0;
+      for (let j = 0; j < bs.length; j++) {
+        if (Math.abs(cs[j][0] - cs[i][0]) <= R_LON
+          && Math.abs(cs[j][1] - cs[i][1]) <= R_LAT) n++;
+      }
+      const over = bs[i].over_floor_m ?? -99;
+      if (n > bestN || (n === bestN && over > bestOver)) {
+        best = i; bestN = n; bestOver = over;
+      }
+    }
+    /* Clicking a house SELECTS it. It used to re-frame on it too, because
+       the selection fed this box and this box is the camera -- so every
+       click threw away whatever the reader had panned to and flew somewhere
+       else, and clicking the worst-hit house (which stands alone in
+       woodland here) left a screen of trees. The mock's instruction is
+       "click a house", not "go to a house". */
+    const goIdx = bs.findIndex((x) => x.id === streetGoTo);
+    const [cx, cy] = cs[goIdx >= 0 ? goIdx : best];
+    // About 175 m across, then widened to hold whatever neighbours fall
+    // inside it -- a house on a big lot should not be framed tighter than a
+    // terrace. This is the single biggest lever on whether a house reads as
+    // a building or as four pixels of roof.
+    const RADIUS_DEG_LAT = 0.0008;
+    const RADIUS_DEG_LON = RADIUS_DEG_LAT / Math.cos((cy * Math.PI) / 180);
+    let w = cx - RADIUS_DEG_LON, e = cx + RADIUS_DEG_LON;
+    let so = cy - RADIUS_DEG_LAT, no = cy + RADIUS_DEG_LAT;
+    for (const bb of bs) {
+      const [bx, by] = centre(bb.ring);
+      if (bx < w || bx > e || by < so || by > no) continue;
+      for (const [lon, lat] of bb.ring) {
+        if (lon < w) w = lon; if (lon > e) e = lon;
+        if (lat < so) so = lat; if (lat > no) no = lat;
+      }
+    }
+    const padLon = Math.max((e - w) * 0.16, 0.0004);
+    const padLat = Math.max((no - so) * 0.16, 0.0004);
+
+    /* The datum is the ground under the houses in FRAME, not the lowest
+       ground anywhere in the block. The imagery is a flat sheet at z = 0
+       and the terrain stands off it; centring the datum on what the camera
+       is looking at keeps a house and its own driveway in register. */
+    const inFrame = bs.filter((x) => {
+      const [bx, by] = centre(x.ring);
+      return bx >= w - padLon && bx <= e + padLon
+        && by >= so - padLat && by <= no + padLat;
+    });
+    const near = (inFrame.length ? inFrame : bs).map((x) => x.dem_ground_m);
+    const datum = near.reduce((a, x) => a + x, 0) / near.length;
+
+    return {
+      datum,
+      waterM,
+      waterPng,
+      surfacePng,
+      wetCount: surfaces.length,
+      groundLoM: Math.min(...grounds),
+      groundHiM: Math.max(...grounds),
+      ceilingM,
+      blockBox: { west: w - padLon, south: so - padLat,
+                  east: e + padLon, north: no + padLat },
+      floorM: floor,
+    };
+  }, [street, streetFrame, streetGoTo]);
+
   /** The solved run, hour by hour. Nine instantaneous depth fields the
    *  solver computed on its way to the peak and used to throw away. */
   const runFrames: Frame[] = useMemo(
     () => (study?.frames ?? []) as Frame[], [study]);
+
+  /* Both the scrubber and the click readout want the bottom-left corner, and
+     the scrubber is painted after it, so a click on the Forecast tab put the
+     answer underneath the transport control -- the map looked like it had
+     ignored the click. Whoever is second moves up. */
+  const scrubberOn = runFrames.length > 1 && section === "forecast"
+    && !streetOn;
+
+  /** The two fields the Plan tab's "Before" / "With plan" pair swaps
+   *  between: the do-nothing bed and the best solved option, both from the
+   *  plan library's own grid. Null until a plan has been solved. */
+  const planFields = useMemo(() => {
+    const d = kitPlan as {
+      bounds?: { west: number; south: number; east: number; north: number };
+      depth_png?: string; best_option_depth_png?: string | null;
+    } | null;
+    if (!d?.bounds || !d.depth_png) return null;
+    return { bounds: d.bounds, base_png: d.depth_png,
+             with_png: d.best_option_depth_png ?? null };
+  }, [kitPlan]);
 
   /**
    * The flood the map paints, and which solve it came from.
@@ -318,8 +572,17 @@ export function Planner() {
    */
   const mapField = useMemo(() => {
     if (tab === "trip") {
-      return trip ? { bounds: trip.bounds, depth_png: trip.depth_png,
-                      terrain_png: trip.terrain_png } : null;
+      // Before a trip is solved this returned null, so the Roads tab drew a
+      // bare basemap -- and the evacuation answer below it, which is computed
+      // from the shipped study's flood, had nothing on screen to stand on.
+      // Fall back to that same study field, so the panel and the map are
+      // talking about one flood.
+      if (trip) {
+        return { bounds: trip.bounds, depth_png: trip.depth_png,
+                 terrain_png: trip.terrain_png };
+      }
+      return study ? { bounds: study.bounds, depth_png: study.depth_png,
+                       terrain_png: study.terrain_png } : null;
     }
     if (tab === "street" && street?.ok) {
       return { bounds: street.bounds,
@@ -327,6 +590,21 @@ export function Planner() {
                  ? street.frames[streetFrame].depth_png
                  : street.depth_png,
                terrain_png: street.terrain_png };
+    }
+    /* Before / With plan. These two buttons wrote `showPlan` and nothing
+       read it, so both states painted the baseline and the pair was a
+       decoration over a map that never changed. The solved plan library
+       holds a bed per option; the service now also returns the field of the
+       option the table calls "with plan", so the pair on the map is the pair
+       in the table -- and both come from the library's own 60 m grid rather
+       than one of them from the 40 m bank search. */
+    if (section === "plan" && planFields) {
+      return {
+        bounds: planFields.bounds,
+        depth_png: showPlan && planFields.with_png
+          ? planFields.with_png : planFields.base_png,
+        terrain_png: study?.terrain_png ?? "",
+      };
     }
     if (section === "plan" && kit?.ok && kit.depth_png && kit.bounds) {
       return { bounds: kit.bounds, depth_png: kit.depth_png,
@@ -342,21 +620,16 @@ export function Planner() {
           terrain_png: study.terrain_png }
       : null);
   }, [tab, section, trip, street, streetFrame, kit, runFrame, runFrames,
-      analysis, study]);
+      analysis, study, planFields, showPlan]);
 
-  /**
-   * Is every road out cut?
-   *
-   * Measured, not asserted: the road query already scores every named road
-   * in the box against the vehicle depth, so this is the share of named
-   * roads whose worst point is under it. It is the fact that decides whether
-   * a levee is the right instrument at all -- a place nobody can leave needs
-   * a route before it needs a wall.
-   */
-  const noWayOut = useMemo(() => {
-    const named = roadQ?.roads.filter((r) => r.name) ?? [];
-    return named.length >= 3 && named.every((r) => r.maxDepthM > (roadQ?.threshold ?? 0));
-  }, [roadQ]);
+  /** The same terrain with no water painted on it, for when the depth layer
+   *  is switched off. The terrain layer needs a texture either way, so the
+   *  flood is removed by handing it a transparent one rather than by
+   *  unmounting the ground. */
+  const dryField = useMemo(
+    () => (mapField ? { ...mapField, depth_png: BLANK_PNG } : null),
+    [mapField],
+  );
 
   const kitBox = useMemo(() => {
     const b = analysis?.bounds ?? study?.bounds;
@@ -422,6 +695,7 @@ export function Planner() {
   // just drew, and there is no external system here to synchronise with.
   const chooseScenario = useCallback((id: string) => {
     setScenarioId(id);
+    setPoint(null);
     autoSites.current = false;
     solvedFor.current = null;
     setKit(null); setKitErr(null); setPlacedPieces([]); setKitPlan(null);
@@ -750,6 +1024,46 @@ export function Planner() {
     () => analysis?.bounds ?? study?.bounds ?? null,
     [analysis, study]);
 
+  /**
+   * Which roads this vehicle cannot cross, and how much of each is cut.
+   *
+   * Derived here rather than handed up from the panel. `RoadsOut` used to
+   * call `onQuery` from its own pill handler, which passed the query
+   * computed from the threshold being REPLACED -- so the map's road colours
+   * sat one click behind the selected pill, and clicking the same pill twice
+   * was what synced them. It also meant every road drew uniform white until
+   * someone happened to click a pill at all. `RoadsOut` itself lives under
+   * `section === "forecast"`, so that click was only ever available there.
+   */
+  const roadQ = useMemo(
+    () => queryRoads(adHocRoads, adHocGrids, mapBounds, vehicle),
+    [adHocRoads, adHocGrids, mapBounds, vehicle],
+  );
+
+  /**
+   * Is every road out cut?
+   *
+   * Measured, not asserted: the road query already scores every named road
+   * in the box against the vehicle depth, so this is the share of named
+   * roads whose worst point is under it. It is the fact that decides whether
+   * a levee is the right instrument at all -- a place nobody can leave needs
+   * a route before it needs a wall.
+   */
+  const noWayOut = useMemo(() => {
+    // Against the whole network, not against the cut list.
+    //
+    // `queryRoads` pushes a road into `roads` only `if (cut > 0.01)`, so that
+    // array contains cut roads and nothing else -- asking whether every entry
+    // in it is cut is asking whether every cut road is cut, which is true the
+    // moment anything floods. The chip claims "every named road out is cut",
+    // so the comparison has to be against every named road there is.
+    if (!roadQ || !adHocRoads) return false;
+    const namedTotal = adHocRoads.features.filter(
+      (f) => (f.properties as { name?: string | null } | null)?.name).length;
+    const namedCut = roadQ.roads.filter((r) => r.name).length;
+    return namedTotal >= 3 && namedCut >= namedTotal;
+  }, [roadQ, adHocRoads]);
+
   const sectionPicking =
     sectionArmed && !(sectionEnds.a && sectionEnds.b);
 
@@ -759,6 +1073,88 @@ export function Planner() {
     const line = i !== null && kit?.ok ? kit.sites[i]?.line : null;
     setSectionEnds(line ? { a: line.a, b: line.b } : { a: null, b: null });
   }, [kit]);
+
+  /** Where "getting out" starts from: the middle of the solved place. */
+  const studyCentre = useMemo(() => {
+    const b = analysis?.bounds ?? study?.bounds;
+    const name = analysis?.name ?? study?.study?.short ?? study?.name;
+    if (!b || !name) return null;
+    return { lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2, name };
+  }, [analysis, study]);
+
+  /** The trip planner owns the map's route lines once it has solved one, so
+   *  the two route panels cannot fight over them. */
+  const tripRoutesOwned = Boolean(trip);
+
+  /** The evacuation question's own vehicle threshold, separate from the one
+   *  the Forecast tab's road list uses. */
+  const [outVehicle, setOutVehicle] = useState(0.25);
+
+  /**
+   * Is the map still showing the place that shipped with the app?
+   *
+   * `analysis` is not the test: `AnywherePanel` falls back to the shipped
+   * study (`res = ownRes ?? initial`), so it is non-null from the first
+   * paint. What distinguishes an ad-hoc solve is that it is a different BOX
+   * -- and that matters because `adHocGrids` is replaced by such a solve
+   * while `adHocRoads` is not, so anything reading both would be scoring one
+   * place's roads against another place's flood.
+   */
+  const showingShippedStudy = useMemo(() => {
+    const a = analysis?.bounds, b = study?.bounds;
+    if (!b) return false;
+    if (!a) return true;
+    return Math.abs(a.west - b.west) < 1e-6 && Math.abs(a.south - b.south) < 1e-6
+        && Math.abs(a.east - b.east) < 1e-6 && Math.abs(a.north - b.north) < 1e-6;
+  }, [analysis, study]);
+
+  /**
+   * Is the road query describing the flood the map is painting?
+   *
+   * `roadQ` is computed from the shipped study's network and field. That is
+   * what the Forecast column's road list is about, and what the Roads tab
+   * shows before a trip is solved. The Plan tab paints its scenario's flood
+   * and the street view its own block, so study cut-fractions over either
+   * would be one flood's colours on another flood's water.
+   */
+  const roadColoursMatchTheMap =
+    showingShippedStudy && (tab === "anywhere" || (tab === "trip" && !trip));
+
+  /** The Plan tab's solved plan, in the shape the route panel wants, so the
+   *  route verdict can carry the conformal margin rather than only saying
+   *  whether the road is open today. */
+  const routePlan = useMemo(() => {
+    const d = kitPlan as {
+      ok?: boolean; heights?: number[]; max_height_m?: number;
+      saturation_S?: number; confidence_pct?: number;
+      options?: { heights: number[]; depth_u8?: string }[];
+      chosen_solved?: boolean;
+    } | null;
+    if (!d?.ok || !d.heights || !d.options?.length) return null;
+    return {
+      heights: d.heights,
+      max_height_m: d.max_height_m ?? Math.max(...d.heights, 1),
+      saturation_S: d.saturation_S ?? 0,
+      confidence_pct: d.confidence_pct ?? 90,
+      options: d.options,
+      chosen_solved: d.chosen_solved,
+    };
+  }, [kitPlan]);
+
+  /** The grids for one solved option, for calibrating a route against it.
+   *  The plan ships its own coarse ground + baseline depth in `inspect`, and
+   *  each option's field is a depth byte-array over that same grid. */
+  const routePlanGrids = useMemo(() => {
+    const d = kitPlan as { ok?: boolean; inspect?: unknown } | null;
+    return d?.ok && d.inspect
+      ? decodeGrids(d.inspect as Parameters<typeof decodeGrids>[0])
+      : null;
+  }, [kitPlan]);
+
+  const routePlanGridFor = useCallback((i: number) => {
+    const u8 = routePlan?.options?.[i]?.depth_u8;
+    return routePlanGrids && u8 ? withDepth(routePlanGrids, u8) : null;
+  }, [routePlan, routePlanGrids]);
 
   const onPick = useCallback(
     (lon: number, lat: number) => {
@@ -776,8 +1172,12 @@ export function Planner() {
                                    : { a: { lat, lon }, b: null }));
         return;
       }
-      if (tab === "anywhere") {
-        if (!placing) return;
+      // Placing a levee by hand consumes the click; otherwise it falls
+      // through to the depth query. It used to RETURN here when not placing,
+      // which made `setPoint` unreachable on the tab the portal opens on --
+      // so clicking the map on Forecast did nothing at all, and the sampled
+      // depth, ground elevation and wet flag were computed nowhere.
+      if (tab === "anywhere" && placing) {
         setPlaced((l) => [...l, { lat, lon, height_m: 2.5, width_m: 600 }]);
         setPlacing(false);
         return;
@@ -818,11 +1218,10 @@ export function Planner() {
     return gs.map((g) => ({ ...g, labelled: keep.has(g.site) }));
   }, [gaugeFeed]);
 
+  // The same gauge the headline speaks for. See `pickGauge`.
   const hydroGauge = useMemo(() => {
-    const gs = gaugeFeed?.gauges ?? [];
-    return gs.find((g) => g.series.length > 2 && g.flood_levels_m)
-      ?? gs.find((g) => g.series.length > 2)
-      ?? null;
+    const g = pickGauge(gaugeFeed);
+    return g && g.series.length > 2 ? g : null;
   }, [gaugeFeed]);
 
   /** The top of the depth ramp on screen, for the legend. */
@@ -860,7 +1259,11 @@ export function Planner() {
                 role="tab"
                 aria-selected={section === k}
                 data-on={section === k}
-                onClick={() => setSection(k)}
+                // The tabs set `section` directly rather than going through
+                // `setTab`, so the depth readout has to be cleared here too:
+                // a number sampled from the study's peak field must not
+                // follow the reader onto a tab drawing a different flood.
+                onClick={() => { setSection(k); setPoint(null); }}
               >
                 {k === "forecast" ? "Forecast" : k === "roads" ? "Roads" : "Plan"}
               </button>
@@ -903,6 +1306,51 @@ export function Planner() {
           </div>
         )}
 
+        {/* Can people get out of THIS place, by road.
+            A different question from the trip planner above it, which routes
+            between two points someone names. This one asks the one that gets
+            asked on the night -- is there any way out of here at all -- and
+            answers it from the shipped study's own network and flood, so it
+            needs no solve.
+
+            It was unreachable. `RoutePanel` was mounted inside
+            `AnywherePanel` under `section === "plan"`, while `AnywherePanel`
+            itself renders only when `section === "forecast"` -- conditions
+            that cannot both hold, so the whole panel, and with it the only
+            route-level statement of the conformal margin, had been dead since
+            the nav became three tabs. */}
+        {/* Only while the shipped study is what is loaded. An ad-hoc solve
+            in Forecast replaces `adHocGrids` but not `adHocRoads`, so the
+            panel would score this place's roads against another place's
+            flood and cheerfully report that nothing is cut off. */}
+        {tab === "trip" && !tripRoutesOwned && showingShippedStudy
+          && adHocRoads && adHocGrids && mapBounds && (
+          <div className="border-t border-line">
+            <RoutePanel
+              roads={adHocRoads}
+              grids={adHocGrids}
+              bounds={mapBounds}
+              from={studyCentre}
+              to={null}
+              // Its own threshold. Sharing Planner's `vehicle` meant moving
+              // this row silently retuned the Forecast tab's "Roads out"
+              // list, which is a different question about a different
+              // network.
+              vehicle={outVehicle}
+              onVehicle={setOutVehicle}
+              // The plan solved in the Plan tab, where there is one. This is
+              // what carries the route-level conformal margin -- without it
+              // the panel answers "is there a way out" and says nothing
+              // about what a plan would change, which is most of why it was
+              // worth restoring.
+              plan={routePlan}
+              planGridFor={routePlanGridFor}
+              onRoutes={(r) => setRouteLines(
+                r ? { ...(r as object), forTab: "trip" } as typeof routeLines : null)}
+            />
+          </div>
+        )}
+
         {tab === "trip" && (
           <TripPanel
             onResult={setTrip}
@@ -932,6 +1380,7 @@ export function Planner() {
               layers={layers}
               onLayers={setLayers}
               onGauges={setGaugeFeed}
+              reach={analysis?.name ?? study?.name ?? ""}
               modelRunNote={analysis
                 ? `solved at ${analysis.dx_m.toFixed(0)} m · ${analysis.flooded_km2} km² over 10 cm`
                 : undefined}
@@ -944,7 +1393,6 @@ export function Planner() {
                 place={analysis?.name ?? study?.study?.short ?? null}
                 vehicle={vehicle}
                 onVehicle={setVehicle}
-                onQuery={setRoadQ}
               />
             )}
           </>
@@ -984,8 +1432,8 @@ export function Planner() {
             frame={streetFrame}
             onFrame={setStreetFrame}
             selected={streetSel}
-            onSelect={setStreetSel}
-            onSolve={solveStreet}
+            onSelect={(id) => { setStreetSel(id); setStreetGoTo(id); }}
+            onSolve={solveStreetUntilDone}
             canSolve={Boolean(streetCentre)}
             place={analysis?.name ?? study?.name ?? null}
             onBack={() => setTab("anywhere")}
@@ -1001,6 +1449,7 @@ export function Planner() {
             onOverlay={setSectionOverlay}
             sites={kit}
             sitesBusy={kitBusy}
+            sitesErr={kitErr}
             onFindSites={findSitesUntilDone}
             canFind={Boolean(kitBox) && Boolean(peaks)}
             chosenSite={secSite}
@@ -1030,8 +1479,7 @@ export function Planner() {
             initial={study}
             section={section}
             onResult={setAnalysis}
-            onRoadQuery={setRoadQ}
-            onRoads={setAdHocRoads}
+
             onPreview={() => {}}
             levees={placed}
             onLevees={setPlaced}
@@ -1053,21 +1501,35 @@ export function Planner() {
         {mapBounds ? (
           <PlannerMap
             bounds={mapBounds}
-            roads={tab === "trip" ? (trip?.roads ?? null) : adHocRoads}
-            focusBounds={tab === "street" && street?.ok ? street.bounds : null}
+            roads={tab === "trip" ? (trip?.roads ?? adHocRoads) : adHocRoads}
+            focusBounds={tab === "street" && street?.ok
+              ? (streetScene?.blockBox ?? street.bounds) : null}
             pins={tab === "trip" && trip
               ? [{ lon: trip.origin.lon, lat: trip.origin.lat, label: "from" },
                  { lon: trip.destination.lon, lat: trip.destination.lat, label: "to" }]
               : null}
             onPick={onPick}
             pin={point ? { lon: point.lon, lat: point.lat } : null}
-            cutFraction={roadQ?.cutFraction ?? null}
-            cutSignature={roadQ ? `${roadQ.threshold}:${roadQ.cutKm.toFixed(2)}` : "none"}
+            // Only where the query and the painted flood are the same
+            // flood. Making `roadQ` always-derived fixed the one-click lag
+            // and introduced this: the query is always the shipped study's,
+            // so the Plan tab coloured roads by the design storm while the
+            // water under them was the chosen scenario, and the Roads tab
+            // coloured a trip's own network by study cut-fractions looked up
+            // on shared OSM way ids. Where they disagree, no colour.
+            cutFraction={roadColoursMatchTheMap ? (roadQ?.cutFraction ?? null) : null}
+            cutSignature={roadColoursMatchTheMap && roadQ
+              ? `${roadQ.threshold}:${roadQ.cutKm.toFixed(2)}` : "none"}
             placed={tab === "anywhere" ? placed : []}
             placedHeights={tab === "anywhere" ? adHocHeights : null}
             routes={routeLines?.forTab === tab ? routeLines : null}
             section={tab === "section" ? sectionOverlay : null}
             buildings={tab === "street" ? streetBuildings : null}
+            spin={tab === "street" ? streetSpin : 0}
+            scene={tab === "street"
+              ? (layers.depth ? streetScene
+                : streetScene && { ...streetScene, waterM: null })
+              : null}
             sites={tab === "kit" ? kitSites : null}
             onSite={(i) => {
               if (armed) {
@@ -1078,20 +1540,29 @@ export function Planner() {
                 setPlacedPieces((l) => l.filter((p) => p.site !== i));
               }
             }}
-            onBuilding={setStreetSel}
+            onBuilding={(id) => { setStreetSel(id); setStreetGoTo(null); }}
             gauges={layers.gauges ? labelledGauges : null}
             radar={layers.radar ? liveBounds : null}
             place={tab === "anywhere" ? place : null}
-              analysis={mapField}
+              /* The street view draws its water as a SURFACE, not as paint
+                 on the ground, so the terrain there carries no depth
+                 texture: the imagery reads through and the plane is the
+                 water. The depth switch still governs whether there is any
+                 water in the scene -- it just governs the plane now. */
+              analysis={layers.depth && tab !== "street" ? mapField : dryField}
             focus={focus}
             // No solid water body in the street view: the grids are the
             // study's 40 m field over the whole study box, and drawn under a
             // camera zoomed to one block it covers everything in sight. The
             // block's own 10 m field arrives as the depth overlay instead.
-            grids={tab === "trip" ? tripGrids
-              : tab === "street" ? null
-                : section === "plan" ? null
-                  : runFrame !== null ? null : adHocGrids}
+            // `layers.depth` was declared, drawn as a switch, and read by
+            // nothing -- the toggle moved and the water stayed. It gates the
+            // solved field here, which is what its label says it does.
+            grids={!layers.depth ? null
+              : tab === "trip" ? tripGrids
+                : tab === "street" ? null
+                  : section === "plan" ? null
+                    : runFrame !== null ? null : adHocGrids}
             solid={solid}
           />
         ) : (
@@ -1100,7 +1571,7 @@ export function Planner() {
         {/* The depth scale. A blue wash over a satellite photo is not
             self-explanatory, and the one number that makes it readable -- what
             the darkest blue means -- was nowhere on screen. */}
-        {depthVmax !== null && (
+        {depthVmax !== null && layers.depth && tab !== "street" && (
           <div className="absolute right-4 top-4 rounded-md border border-ink-faint/40
                           bg-bg/90 px-2.5 py-1.5 backdrop-blur">
             <p className="anno mb-1">Water depth</p>
@@ -1164,6 +1635,60 @@ export function Planner() {
           </button>
         </div>
 
+        {/* What is under the point you clicked.
+            `sampleAt` already returned the depth, the ground elevation and
+            whether the cell is wet, and all of it was thrown away except the
+            two numbers needed to draw a dot. A map you can click and that
+            answers nothing is worse than a map you cannot click. */}
+        {/* Only where the sampled field is the one on screen. `onPick`
+            samples `adHocGrids` -- the shipped study's peak -- and the Plan
+            tab draws its scenario's flood instead, so a reading there would
+            be a number from a different flood sitting over this one. */}
+        {point && (tab === "anywhere" || (tab === "trip" && !trip)) && (
+          <div data-readout
+               className={`absolute left-4 z-10 w-[188px] rounded-[10px]
+                          border border-line bg-bg/92 px-3 py-2.5 backdrop-blur
+                          shadow-[0_2px_8px_rgba(16,20,28,0.12)]
+                          ${scrubberOn ? "bottom-[128px]" : "bottom-4"}`}>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="eyebrow">Here</span>
+              <button onClick={() => setPoint(null)}
+                      className="text-[11px] text-ink-faint hover:text-ink">clear</button>
+            </div>
+            <p className="tnum mt-0.5 text-[17px] font-semibold leading-tight text-ink">
+              {point.flooded ? `${point.depth_m.toFixed(2)} m` : "dry"}
+            </p>
+            <p className="anno leading-snug">
+              {point.flooded ? "of water on the ground" : "no water in this cell"}
+            </p>
+            <p className="anno mt-1 leading-snug">
+              ground {point.elev_m.toFixed(1)} m · {point.lat.toFixed(4)},{" "}
+              {point.lon.toFixed(4)}
+            </p>
+          </div>
+        )}
+
+        {/* Turn the block. The scene is a model seen from one fixed angle,
+            and the house a reader wants is sometimes behind another one. */}
+        {tab === "street" && streetBuildings?.length ? (
+          <div className="absolute right-4 top-3 z-10 flex gap-1.5">
+            {[[-45, "Turn the block left", "\u21ba"],
+              [45, "Turn the block right", "\u21bb"]].map(([d, label, glyph]) => (
+              <button
+                key={label as string}
+                onClick={() => setStreetSpin((x) => x + (d as number))}
+                aria-label={label as string}
+                title={label as string}
+                className="grid h-8 w-8 place-items-center rounded-full border
+                           border-ink-faint/40 bg-bg/85 text-[15px] text-ink
+                           backdrop-blur transition-colors hover:bg-bg"
+              >
+                {glyph as string}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {/* What the colours on a street mean.
             Three swatches, because the street view is the one place the map
             is not a depth ramp: a building is salmon or it is bone, and
@@ -1174,9 +1699,16 @@ export function Planner() {
           <div className="absolute bottom-4 left-4 z-10 rounded-[10px] border border-line
                           bg-bg/92 px-3 py-2.5 backdrop-blur
                           shadow-[0_2px_8px_rgba(16,20,28,0.12)]">
+            {/* Four, not three. The near-black selected state was on the map
+                and missing from the key, and the old third swatch was
+                #2563a8 -- a blue that matched no pixel on screen, because
+                the water is drawn from the depth ramp and not from a flat
+                colour. The surface swatch is written from the same ramp. */}
             {[["#f7f5f2", "Floor above water"],
               ["#e8887a", "Water over floor"],
-              ["#2563a8", "Water on the ground"]].map(([c, label]) => (
+              ["#18181b", "The one you clicked"],
+              ["linear-gradient(90deg,#60c8ff,#1f8fd6,#04247f)",
+               "Water surface, deeper darker"]].map(([c, label]) => (
               <div key={label} className="flex items-center gap-2 py-[3px]">
                 <span className="h-[11px] w-[11px] shrink-0 rounded-[2px]
                                  border border-ink/15"
@@ -1184,9 +1716,19 @@ export function Planner() {
                 <span className="text-[12px] text-ink">{label}</span>
               </div>
             ))}
-            <p className="anno mt-1 leading-snug">
+            {/* The mock states its vertical scale and so does this. Heights
+                are exaggerated to make a waterline on a wall visible at a
+                street's width; the plan is not. */}
+            <p className="anno mt-1.5 leading-snug">
+              heights ×{STREET_VE} · ground, houses and water all on that
+              scale
+            </p>
+            <p className="anno leading-snug">
               floor assumed {((street?.ok && street.floor_above_ground_m) || 0.17)
                 .toFixed(2)} m above ground
+              {streetScene?.groundLoM != null && streetScene?.groundHiM != null
+                ? ` · block falls ${(streetScene.groundHiM - streetScene.groundLoM)
+                    .toFixed(1)} m` : ""}
             </p>
           </div>
         ) : null}
@@ -1208,10 +1750,24 @@ export function Planner() {
                 className={`px-3 py-1 text-[12px] transition-colors ${
                   showPlan === v ? "bg-ink font-medium text-bg"
                     : "text-ink hover:bg-bg"}`}
+                title={v && !planFields?.with_png
+                  ? "No solved option beat doing nothing, so there is no second field to show"
+                  : undefined}
               >
                 {v ? "With plan" : "Before"}
               </button>
             ))}
+          </div>
+        )}
+        {/* The honest case. The best solved option can BE the do-nothing bed
+            -- on this reach two 2 m levees under the design storm made the
+            flooded area slightly worse -- and then the two pills paint the
+            same water. Saying so is the difference between a null result and
+            a broken control. */}
+        {section === "plan" && kitImpact && showPlan && !planFields?.with_png && (
+          <div className="absolute left-1/2 top-12 z-10 -translate-x-1/2 rounded-md
+                          border border-line bg-bg/92 px-2.5 py-1 backdrop-blur">
+            <span className="anno">no option beat doing nothing — same water</span>
           </div>
         )}
 
@@ -1221,7 +1777,7 @@ export function Planner() {
             hydrograph is NOT here, and that is the point -- the gauge runs
             on a wall clock and the model on its own, and one play button
             over two clocks would be a control over nothing. */}
-        {runFrames.length > 1 && section === "forecast" && tab !== "street" && (
+        {scrubberOn && (
           <div className="pointer-events-none absolute inset-x-4 bottom-4 z-10">
             <RunScrubber
               frames={runFrames}

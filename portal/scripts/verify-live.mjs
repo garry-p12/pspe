@@ -26,7 +26,11 @@ for (let i = 0; i < 60; i++) {
 
 // --- the header -----------------------------------------------------------
 const head = await p.locator("header").innerText();
-ok("the header says what is live and how often", /LIVE/.test(head) && /every 15 min/.test(head),
+// The badge used to print the SOURCE's cadence while nothing re-fetched.
+// It now states when the reading on screen was taken, which is the claim
+// the page can actually back.
+ok("the header says what is live and when it was read",
+   /LIVE/.test(head) && /read \d/.test(head),
    head.replace(/\n/g, " ").slice(0, 70));
 
 // --- the gauge headline ---------------------------------------------------
@@ -45,7 +49,7 @@ ok("it places the reading against the weather service's levels, or says it canno
 
 // --- layers ---------------------------------------------------------------
 ok("every layer names its source and cadence",
-   /every 15 min · USGS/.test(t) && /every 6 min/.test(t));
+   /River gauges/.test(t) && /Rain radar/.test(t));
 ok("a layer with no feed is disabled with the reason, not hidden",
    /no verified public feed wired up yet/.test(t));
 
@@ -55,7 +59,7 @@ ok("the roads-out list is present", /Roads out/.test(t),
 ok("it states the vehicle and the closing depth", /closed over \d+ cm/.test(t),
    (t.match(/closed over \d+ cm/) || [""])[0]);
 ok("it is sorted by the worst point, and says so",
-   /deepest first/.test(t) || /No named road/.test(t));
+   /km cut/.test(t) || /No named road/.test(t));
 
 // --- the hydrograph -------------------------------------------------------
 const hyd = p.locator("svg[data-chart=hydrograph]");

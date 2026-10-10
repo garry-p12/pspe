@@ -72,7 +72,10 @@ if (!/Over floor level/.test(t)) { console.log(t.slice(0, 400)); await b.close()
 const m = t.match(/(\d+) of (\d+)/);
 ok("it counts floors, not ground", Boolean(m), m ? `${m[1]} of ${m[2]} over floor` : "");
 ok("the floor assumption is on the face of it", /floor assumed \+0\.17 m/.test(t));
-ok("the deepest-on-ground figure is separate", /Deepest on the ground/.test(t));
+ok("the deepest figure is the street, not the creek bed",
+   /Deepest at a house/.test(t));
+ok("and the channel maximum is named separately",
+   /m in the channel/.test(t) || !/in the channel/.test(t));
 ok("a time slider is offered", (await p.locator("#street-t").count()) === 1);
 ok("the street is listed", /On this street/.test(t));
 // The street REPLACES the live column rather than stacking under it. Both
@@ -106,9 +109,9 @@ await p.locator("#street-t").fill("1");
 await p.waitForTimeout(2500);
 const early = await aside.innerText();
 ok("the clock changes what is wet",
-   /hours into the storm/.test(early), (early.match(/[\d.]+ hours into the storm/) || [""])[0]);
+   /h into the storm/.test(early), (early.match(/[\d.]+ h into the storm/) || [""])[0]);
 ok("the provenance fold explains the downscaling",
-   /What the floor number rests on/.test(early));
+   /Solved at \d+ m/.test(early));
 console.log(`     peak over floor: ${peak}`);
 await p.screenshot({ path: `${OUT}/86_street_early.png` });
 

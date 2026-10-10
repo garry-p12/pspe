@@ -24,6 +24,7 @@ data/lismore/pdf/
 
 # Austin layers: tens of MB, re-fetchable with scripts/fetch_austin_data.py.
 data/austin/*.geojson
+data/austin_onion/*.geojson
 
 # The built default study: regenerate with scripts/build_austin_study.py.
 portal/public/data/austin/study.json

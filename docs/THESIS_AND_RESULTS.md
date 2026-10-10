@@ -7396,6 +7396,276 @@ number came from.** A reader who compares two areas and finds they disagree
 has found either a bug or a resolution, and only the page can tell them
 which.
 
+### 5.14s Writing the manual found five controls that did nothing (2026-10-09)
+
+The portal needed a navigation guide — `docs/PORTAL_GUIDE.md`, a tour in the
+order a flood forces the questions, with a captured screenshot at every step.
+Writing one honestly turns out to be an audit, because a manual has to say what
+each control does, and five of them did nothing.
+
+The method was eight readers over the source in parallel, one per area
+(Forecast, Roads, Plan, Cross-section, Street, the map, the research pages, the
+service), each returning the same structure: every control with its **exact**
+visible label and file:line, every readout with what it measures and where the
+number comes from, every step slower than five seconds with its real coded
+timeout, and — the part that paid — every gap between what a label implies and
+what the code computes. 1.2 M tokens of reading. What came back was 157
+controls and readouts and a long list of claims to check.
+
+**Five dead controls, all of the same shape.** Each writes a piece of state
+that nothing downstream reads.
+
+| Control | What it wrote | What read it |
+|---|---|---|
+| **Before / With plan** | `showPlan` | its own two buttons' CSS classes |
+| **Whole valley / Town** | `focus` | the camera memo's *dependency array*, never its body |
+| **Water depth** (map chip) | `solid` | a `ColumnLayer` drawn from z = 0 under a 5×-exaggerated terrain mesh |
+| hovering anything | — | a `getTooltip` cast to a layer that had been deleted |
+| the **"Here"** click readout | `point` | drawn correctly, then painted over by the run scrubber |
+
+The last two are worth separating. The tooltip rendered `Measure undefined /
+Click to add` over every building in the street view — a leftover from a removed
+layer, which type-checks because the cast asserts the shape. And the depth
+readout was not dead at all: it was correct, and it was at `absolute bottom-4
+left-4` with `z-10`, which is also where the run scrubber sits, and the scrubber
+is later in the JSX. Clicking the map on the Forecast tab put the answer
+underneath the transport control. That one had survived a 22-frame capture run
+whose log recorded `TIMEOUT waiting for the depth readout after 30s` — my own
+harness, polling `aside.innerText()` for a card that renders in the map
+container, so the test agreed with the bug.
+
+**Why none of this was caught.** Every one of them passes a unit test of its
+own logic. `showPlan` toggles. `focus` changes. The columns are built with the
+right geometry. The state is right; the wiring is not, and the wiring is only
+visible in pixels. The checks that did catch them, once written, read the WebGL
+buffer and the rendered text — `verify-before-after.mjs` switches the pair and
+requires the two frames to differ, and `verify-austin-default.mjs` now finds the
+wettest pixel on the map, clicks it, and asserts both that the card reads a
+depth and that nothing overlaps it.
+
+**Rule 86: a control that writes state nothing reads is indistinguishable, from
+the user's side, from a broken one — and only a test that reads the screen can
+tell them apart.** Three of the five had code comments explaining in detail the
+reasoning behind a behaviour that was never on screen. `waterColumns` computes
+each cell's ground height and comments "Stand the column on the ground"; the
+consumer passes a two-element position, so every column stood at z = 0 while
+the terrain drew the ground at 5 × 138–246 m. The comment was the design, the
+code was the shipped behaviour, and nothing reconciled them.
+
+**What the fixes are.** `showPlan` now swaps the painted field, which required
+the service to return it: `/plan` solves one bed per candidate plan and returned
+only the do-nothing one as a picture, so the client had nothing to draw for an
+option. It now also returns `best_option_depth_png` — the field of the option
+the impact table calls "with plan" — chosen server-side by the same argmax the
+client uses, so the pair on the map is the pair in the table and both come from
+the library's own 60 m grid rather than one of them from the 40 m bank search.
+"Town" is one zoom step in. The water body stands on the ground and brings the
+camera's pitch with it, because a body of water seen from a flat north-up camera
+is just an opaque, blockier copy of the painted wash — and it is off by default,
+which is what the file's own "a flood map is read as a map" comment always
+intended. The tooltip names the building or the bank. The readout lifts clear of
+the scrubber, both now derived from one `scrubberOn`.
+
+**And a null result that was being hidden by a broken control.** With the pair
+working, the Onion Creek plan paints the same water in both positions — because
+on this reach, under this scenario, the best solved option *is* the do-nothing
+bed: `Land flooded 4.0 km² → 4.0 km², no change`. That is the same negative
+result §5.14m measured, and it was previously indistinguishable from the control
+not working. The map now says `no option beat doing nothing — same water`.
+Changing the pieces after a solve retires the readout and brings the solve
+button back, so a result can no longer sit beside a plan that is not on the map.
+
+**What the audit found and this entry does not fix.** The guide's §8 states
+them to the reader rather than burying them: the two "km of network cut" figures
+that use different accounting and sit about 4× apart; the trip planner's
+discharge box, which multiplies a typed historical peak by the storm preset
+because it sends the number without the flag that says it is the design value;
+the live chrome that is fetched once and never polls; `FLOOR_ABOVE_GROUND_M =
+0.17` applied to every building in Austin; the depth legend's linear ticks over
+a gamma-compressed ramp. A manual that lists what a tool will not tell you is
+cheaper to write than a tool that cannot be asked.
+
+### 5.14t The street view was a blue mountain, and the panels were a methods section (2026-10-09)
+
+Two interface results, both measured rather than asserted.
+
+**The street view answered its own question with a picture of nothing.** The
+panel said "Dixie Dr · 57 of 78 over floor · coa:336505, 4.36 m of water
+inside" beside a map showing a solid blue massif with no building visible
+anywhere on it. Three faults compounded:
+
+1. The terrain decoder multiplied every term by five, **the offset included**,
+   so it exaggerated ELEVATION rather than relief. Ground at 161-168 m rendered
+   at 806-841 m: the block floated 0.8 km above the basemap and swallowed the
+   camera.
+2. The water was the terrain's TEXTURE. The depth ramp saturates at a 6 m
+   `vmax` and the block's deepest water is 16.27 m, so nearly every wet cell
+   landed in the last two rows of the ramp — one near-opaque sheet.
+3. The buildings were extruded from z = 0 against that mesh, and depth-tested
+   against it. They were drawn, at 1× magnification, 800 m below their own
+   ground.
+
+The fix is one vertical frame for the whole scene: true relief on the block's
+own datum, each box standing on its `dem_ground_m` via a 3-element polygon
+ring, and the water drawn as a **surface** — a second terrain mesh at the
+solved water-surface elevation, textured with the depth PNG so it is
+transparent where dry and its edge is the shoreline. Heights are exaggerated
+×4 and the legend says so; the plan is not, and ground, houses and water share
+one decoder object so the waterline sits where the two surfaces really cross.
+
+**The frame was the other half.** The solved box is 1.7 km of catchment either
+side of the houses, and framing all of it puts a nine-metre house at four
+pixels. The camera now frames ~175 m around the densest cluster of footprints.
+Anchoring on the worst-hit house instead was tried and abandoned: on this block
+it stands alone in open floodplain and the frame became trees.
+
+**Rule 87: a click on the map and a click in a list want different cameras.**
+Selecting on the map must not move the view — the reader is already looking at
+the thing they clicked. Selecting from the list must, because the list is a
+directory sorted by depth and its top row is routinely nowhere near the street
+on screen. Both behaviours were wrong in turn before the distinction was drawn.
+
+**And a frame mismatch that would have made the picture lie.** The response's
+`water_surface_m` is the CITY SURVEY ground plus the DEM's depth. The two
+grounds differ by up to 2.14 m on this block (median −0.25 m, RMS 0.36 m), so a
+surface built from that field disagrees with the salmon/bone colouring, which
+is computed in the DEM frame. The drawing is built from `dem_ground_m + floor +
+over_floor_series[i]` throughout and the panel keeps quoting the survey — two
+frames, one in each place, as §5.14i required.
+
+**The panels, measured.** `portal/scripts/panel-weight.mjs` walks the five
+views and counts what a reader is shown. Before: **8,251 characters, 4,315 of
+them explanatory prose (52%)** — 74% on the street panel, where a 464-character
+note about a calibration multiplier sat between the discharge input and the
+solve button. The portal had grown three disclosure habits at once: `<details>`
+folds, HTML `title` tooltips, and grey paragraphs.
+
+An audit classified every block against one rule — the verdict, the numbers
+with units, and anything that changes what the reader DOES stays visible;
+derivation and provenance move behind one marked control; restatements and
+Richmond leftovers go. After: **4,953 characters, 1,489 prose (30%)**, a 40%
+cut, with the street panel down 70%.
+
+**Rule 88: a test that asserts on panel prose is a test of the product's
+honesty, and it should fail when the prose goes.** Five assertions broke. Four
+were stale — they checked for sourcing that is now one click away, and were
+rewritten to check the thing that must stay (that cost is non-linear in height)
+plus the existence of the control that holds the rest. The fifth was not: the
+"Homes kept dry" tile lost its `not counted` sub-label, which leaves a bare dash
+beside a number and reads as *zero homes kept dry*. The harness caught a real
+regression in a change whose whole purpose was to remove text, which is the
+case for writing assertions against what is on screen rather than against
+state.
+
+### 5.14u From scenario simulator to shadow: the gauge drives the model, and the model gets marked (2026-10-10)
+
+A reviewer put the portal against the standard taxonomy — digital model, digital
+shadow, digital twin — and placed it in the first box: "a scenario simulator
+with a live-data sidebar. The physics and the reality never touch: the gauges
+are displayed, not assimilated." That was correct. Everything the solver had
+ever been given was a number a person chose.
+
+**Reality now sets the boundary.** `observed_discharge` asks the reach's own
+gauge for its latest USGS discharge and `build_forcing` uses it ahead of every
+chosen number — no storm multiple, no bankfull estimate. It sits in the shared
+forcing builder, so all six solving endpoints gained it at once. Three bugs
+surfaced in the building of it, each the same species:
+
+- the search box was the study box, so it found Williamson Creek's gauge and
+  missed Onion Creek's own; the gauge that governs a reach is upstream of it;
+- it took the first gauge reporting discharge, so one instrument outage would
+  have handed the boundary to a different river;
+- an early guard returned the rainfall driver when no discharge was published,
+  and it ran BEFORE the observed branch, so a run explicitly asked to be driven
+  by a gauge could quietly become a rainstorm.
+
+All three would have produced a confident number from the wrong evidence, which
+is the failure mode that makes a twin claim untrue.
+
+**Rule 89: an observation that can be silently replaced by a scenario is not an
+observation.** Every path now refuses instead: no gauge on the reach, no
+reading near the moment in question, a hole in the record — each returns a
+refusal naming what was missing.
+
+**The model now gets marked.** `POST /validate` solves the box, pulls the
+latest Sentinel-1 pass, and scores CSI/POD/FAR on the satellite's own
+footprint. Its first run returned CSI 0.0 — and the fault was the test's: it
+drove the solve with this minute's discharge and scored it against a pass five
+days old. `discharge_at` now fetches the reading nearest the pass and the
+endpoint refuses when none sits within six hours, because a skill score is
+only as good as the simultaneity behind it.
+
+**And the loop immediately falsified a shipped number.** With observation and
+model finally in one frame, the satellite claimed 2.58 km² of new water on a
+day the creek ran at 0.138 m³/s, and 71 km² of a 138 km² box as *permanent*
+water. The detector takes Otsu's threshold on the scene's own histogram, and
+Otsu cannot refuse: given a unimodal histogram — a dry scene — it splits the
+land distribution down the middle and calls half of it water. The portal had
+been showing those figures under the OBSERVED badge, the one that means *a
+satellite recorded this, no model in between*. `otsu` now returns its
+separability and `detect` rejects splits the histogram does not support
+(separability < 0.55, or a water class above −12 dB where smooth water sits
+well below it). Measured on the dry scene: separability 0.41, threshold
+−8.3 dB — refused.
+
+**Rule 90: a method that cannot return "nothing here" will report something
+everywhere.** Otsu, a greedy search and a conformal band all share this shape,
+and all three have now produced a confident wrong answer in this project.
+
+**The boundary learned to move.** Replaying a dated flood needs a hydrograph,
+and every run until now held one stage for `storm_hours` and then let go — a
+design storm's shape and nobody's actual flood. `sea_series` is interpolated at
+each timestep and, when present, IS the boundary.
+
+**2013 cannot be replayed, and that is the finding.** Onion Creek's gauge at US
+Hwy 183 stopped for twenty-four hours across the peak of 31 October 2013 — the
+event this portal is largely about. The first replay interpolated through the
+hole and reported 0.01 km²: a model calmly stating that nothing happened during
+the flood the neighbourhood is named for. `/replay` now detects gaps over two
+hours and refuses, naming the hole. It also explains where the 3,823 m³/s
+everyone quotes comes from: USGS's annual-peak dataset, measured indirectly
+from high-water marks precisely *because* the instrument did not record it.
+
+**October 2015 could be, and was.** 576 readings over 48 h, no gaps, peaking at
+3,455 m³/s — the same order as 2013.
+
+| forcing | flooded |
+|---|---|
+| observed hydrograph, 30 Oct 2015 | **3.51 km²** |
+| design storm, 50 mm/h over the box for 6 h | 18.71 km² |
+| FEMA 1% annual chance | 23.69 km² |
+
+**This settles the street view's 2.5× multiplier, against my expectation.** A
+real hydrograph peaks and passes; the design discharge is *held* for six hours.
+The observed forcing therefore delivers LESS water than the design path, so the
+multiplier is not a forcing-shape artefact that replaying removes. The gap is
+missing physics — a 14 km box truncating an eighty-kilometre catchment, no
+culverts or bridges, a uniform n = 0.035. The reviewer's hypothesis was right
+and the replay is the evidence for it. (Not like-for-like totals: 3.51 km² is
+dx 60 against the study's dx 40, and the design storm wets the whole box while
+the replay only pushes water down the channel. What they share is the solver
+and the terrain.)
+
+**And the satellite cannot grade this hazard here.** Sentinel-1 flies this box
+on a single orbit with a twelve-day repeat. Onion Creek rises and drains inside
+a day, so no pass in the record coincides with any flood peak: the nearest to
+the May 2019 event (765 m3/s, peaking 4 May 09:25) is 8 May 00:35, by which
+time the creek was at 139 m3/s and falling. Asked to score that pass, the
+detector refused -- separability 0.48 at a -10.1 dB threshold -- exactly as it
+refused the dry day at 0.41. Two scenes, two refusals, and the same cause: there
+is no open water large enough to see. This is a mismatch between the sensor's
+revisit and the hazard's timescale, and no amount of code closes it. Extent
+validation at this site has to come from FEMA's map or from high-water marks.
+
+**Where this leaves the claim.** Reality now updates the model automatically
+and the model is scored against reality: a digital *shadow*, not a model. It is
+still not a twin — nothing here acts on the world, and that is an operational
+question rather than a code one. The honest ceiling on SAR validation at this
+site is narrower than hoped: the `sentinel-1-rtc` collection covers this box
+from March 2015 but sparsely, with no pass at all through the October 2015
+event, so extent validation of that flood has to come from FEMA's map or from
+high-water marks rather than from the satellite.
+
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
 A digital twin makes four claims. Assessed honestly:

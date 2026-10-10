@@ -1,6 +1,7 @@
 "use client";
 
 import type { GaugeFeed } from "./LayersPanel";
+import { Explain } from "./Explain";
 
 /**
  * What the river is doing right now, from the instrument rather than the model.
@@ -52,8 +53,29 @@ function band(stage: number, L: NonNullable<GaugeFeed["gauges"][number]["flood_l
   const next = L.action ?? L.minor;
   return next === undefined
     ? "Below every level the weather service has set here."
-    : `Below the action level, ${(next - stage).toFixed(2)} m under it.`;
+    : `${(next - stage).toFixed(2)} m below the action level`;
 }
+
+/**
+ * The gauge this panel speaks for, and the one the chart under it plots.
+ *
+ * These were two different predicates -- the headline wanted a stage plus
+ * flood levels, the chart wanted a series plus flood levels -- so on a feed
+ * where one gauge had a short series the sentence and the trace beneath it
+ * described two different creeks, identified only by a nine-pixel station
+ * code. The feed now arrives ranked with the study's own reach first, so
+ * taking the first usable gauge is both correct and the same answer in both
+ * places.
+ */
+export function pickGauge(feed: GaugeFeed | null) {
+  if (!feed) return null;
+  const gs = feed.gauges;
+  return gs.find((x) => x.stage_m !== null && x.series.length > 2 && x.flood_levels_m)
+    ?? gs.find((x) => x.stage_m !== null && x.flood_levels_m)
+    ?? gs.find((x) => x.stage_m !== null)
+    ?? null;
+}
+
 
 export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
   if (!feed) return null;
@@ -68,15 +90,14 @@ export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
   // Prefer a gauge the weather service has set flood levels for. Any gauge
   // can say how high the water is; only one with categories can say whether
   // that is a flood, which is the thing the headline is for.
-  const g = feed.gauges.find((x) => x.stage_m !== null && x.flood_levels_m)
-    ?? feed.gauges.find((x) => x.stage_m !== null);
+  const g = pickGauge(feed);
   if (!g) {
     return (
       <div className="border-b border-line-soft px-5 py-3">
         <p className="eyebrow">No gauged stream in this box</p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
-          Everything on this map is a model. Move to a reach with a gauge on it
-          and this panel will report the instrument instead.
+          No gauge here — everything on this map is a model. Move to a gauged
+          reach for a real reading.
         </p>
       </div>
     );
@@ -89,7 +110,7 @@ export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
   return (
     <div className="border-b border-line-soft px-5 py-3">
       <div className="flex items-baseline justify-between gap-2">
-        <p className="anno">now · observed</p>
+        <p className="anno">observed</p>
         <p className="anno">
           {when ? when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
         </p>
@@ -98,15 +119,16 @@ export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
         {verdict}
       </h2>
       <div className="mt-1.5 flex items-end justify-between gap-3">
+        {/* Three numbers with their units, not a sentence wrapped round
+            them. The connective prose ("reads", "an hour") was the longest
+            part of the line and carried nothing the units do not. */}
         <p className="text-[13px] leading-relaxed text-ink-mute">
-          {g.name.split(",")[0]} reads{" "}
+          {g.name.split(",")[0]}{" · "}
           <span className="tnum font-medium text-ink">{g.stage_m?.toFixed(2)} m</span>
           {g.trend_cm_h !== null && (
-            <>, {t >= 0 ? "up" : "down"}{" "}
-              <span className="tnum font-medium text-ink">
-                {Math.abs(t).toFixed(0)} cm
-              </span>{" "}
-              an hour</>
+            <> · <span className="tnum font-medium text-ink">
+              {t >= 0 ? "+" : "−"}{Math.abs(t).toFixed(0)} cm/h
+            </span></>
           )}
           {g.q_m3s !== null && (
             <> · <span className="tnum">{g.q_m3s.toFixed(1)}</span> m³/s</>
@@ -118,15 +140,19 @@ export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
         <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
           {band(g.stage_m ?? 0, g.flood_levels_m)}
           {peak !== null && (
-            <span className="anno"> · highest in three days {peak.toFixed(2)} m</span>
+            <span className="anno"> · 3-day high {peak.toFixed(2)} m</span>
           )}
         </p>
       ) : peak !== null && (
-        <p className="anno mt-1.5 leading-relaxed">
-          Highest in the last three days {peak.toFixed(2)} m. The weather service
-          publishes no flood levels for this gauge — 4 of the 25 gauged streams
-          here have them — so this compares the reading with its own recent range
-          rather than naming a category it has not been given.
+        <p className="anno mt-1.5 flex items-center gap-1.5 leading-relaxed">
+          3-day high {peak.toFixed(2)} m · no published flood level
+          <Explain title="No flood level here">
+            <p>
+              The weather service has not set flood categories for this
+              gauge, so the reading is compared with its own recent range
+              rather than named as a category it has not been given.
+            </p>
+          </Explain>
         </p>
       )}
       {g.forecast && (
@@ -136,11 +162,7 @@ export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
             weekday: "short", hour: "numeric" })}` : ""} · NWS
         </p>
       )}
-      {feed.gauges.length > 1 && (
-        <p className="anno mt-1 leading-relaxed">
-          {feed.gauges.length} gauges in this box · {feed.source}
-        </p>
-      )}
+
     </div>
   );
 }

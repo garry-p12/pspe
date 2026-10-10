@@ -1,0 +1,24 @@
+TIMEOUT waiting for the gauge layer subtitle after 120s
+  panel said: Forecast Roads Plan observed 4:50 PM River steady Colorado Rv at Austin · 3.87 m · −0 cm/h · 4.8 m³/s 3.75 m below the action level · 3-day high 4.37 m Forecast 4.27 m by Fri 11 PM · NWS Wed Thu Fri Sat Sun now 3.87 m ACRT2 · 15 min · observed, then NWS foreca
+shot 01-forecast-open
+shot 02-forecast-scrubbed
+shot 03-forecast-radar
+shot 04-forecast-inspect
+shot 05-forecast-town
+shot 06-roads-open
+shot 07-plan-scenario
+shot 08-plan-sites
+shot 09-plan-placed
+shot 10-plan-impact
+shot 11-plan-before
+shot 12-section-lines
+shot 13-section-cut
+shot 14-section-snapped
+shot 15-street-controls
+shot 16-street-solved
+shot 17-street-building
+shot 18-street-early
+shot 19-methodology
+shot 20-methodology-flood
+shot 21-methodology-margin
+shot 22-methodology-limits

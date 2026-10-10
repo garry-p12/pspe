@@ -30,6 +30,21 @@ export interface MeasureMarker {
  * rectangle of model floating on the world rather than as the map. Covering
  * means the shorter axis overflows and the imagery reaches every edge.
  */
+/** Vertical exaggeration for the street scene, and nothing else.
+ *
+ * At true scale a six-metre house against two metres of water is six pixels
+ * against two, which is geometrically honest and visually nothing: the whole
+ * point of this view -- how far up the wall the water came -- disappears
+ * into the thickness of a line. Four is enough to read and small enough that
+ * nobody mistakes the block for a mountain, and the legend states it, which
+ * is the trade the design mock makes explicitly with its "1 m = 18 px".
+ *
+ * It multiplies HEIGHTS, never slopes that carry meaning on their own: the
+ * water surface and the ground go through the same transform, so the
+ * shoreline stays where the two really cross.
+ */
+export const STREET_VE = 4;
+
 function coverZoom(
   box: { west: number; south: number; east: number; north: number },
   size: { w: number; h: number } | null,
@@ -72,11 +87,13 @@ export function PlannerMap({
   radar,
   buildings,
   onBuilding,
+  scene = null,
   sites,
   onSite,
   focusBounds,
   place,
   focus,
+  spin = 0,
   grids,
   heights,
   solid = true,
@@ -142,10 +159,33 @@ export function PlannerMap({
     id: string;
     ring: [number, number][];
     height_m: number | null;
+    /** The solver's ground under this footprint, metres. The box stands on
+     *  it, so that it and the water plane are in one frame. */
+    base_m: number;
     over: number;                      // metres over the floor; <= 0 is dry
     selected: boolean;
   }[] | null;
   onBuilding?: (id: string) => void;
+  /** The street block as a scene: the datum the whole thing is drawn
+   *  relative to, and the water surface for the hour on screen. Null
+   *  everywhere but the street view. */
+  scene?: {
+    datum: number;
+    waterM: number | null;
+    /** The solved water for the hour on screen, as an image: transparent
+     *  where the ground is dry, so the sheet has the flood's own shape. */
+    waterPng: string;
+    /** The water's SURFACE as terrain-RGB: the height the sheet hangs at,
+     *  cell by cell, which on a block that falls thirteen metres is not one
+     *  level. */
+    surfacePng: string;
+    groundLoM: number;
+    groundHiM: number;
+    ceilingM: number;
+    blockBox: { west: number; south: number; east: number; north: number };
+    /** The assumed floor height above ground, for the probe stick. */
+    floorM: number;
+  } | null;
   /** A box the view should sit on, overriding the analysed one. The street
    *  view solves a block inside the study's box and the camera has to follow
    *  it; without this the scene stays where the study was and the buildings
@@ -162,6 +202,9 @@ export function PlannerMap({
   /** The town the user searched for, marked like the archive settlement. */
   place?: { lat: number; lon: number; name: string } | null;
   focus: "region" | "town";
+  /** Degrees added to the street scene's bearing, from the two turn
+   *  buttons. A model on a table is turned to be read. */
+  spin?: number;
   /** Depth and ground grids, for drawing the flood as a body of water. */
   grids?: InspectGrids | null;
   /** Chosen levee heights, drawn as walls of that height. */
@@ -186,7 +229,12 @@ export function PlannerMap({
 
   const ab = focusBounds ?? analysis?.bounds;
   // Only the street view is pitched; see the camera memo.
-  const tilted = Boolean(buildings?.length);
+  /* A body of water is only a body from an angle. Seen from a flat, north-up
+     camera the column layer is just a blockier copy of the painted wash, and
+     an opaque one -- it hides the imagery the wash sits on. So the chip that
+     asks for the water "as a body, with its real depth" tilts the scene as
+     well as building it, and turning it off puts the map back flat. */
+  const tilted = Boolean(buildings?.length) || Boolean(solid && grids);
   const view = useMemo(() => {
     // FLAT and north-up, except in the street view.
     //
@@ -198,14 +246,29 @@ export function PlannerMap({
     // view, where the thing being read IS the height of buildings against a
     // water surface -- and nowhere else.
     const base = tilted
-      ? { pitch: 48, bearing: -18, transitionDuration: 900 }
+      ? { pitch: 48, bearing: -18 + spin, transitionDuration: 900 }
       : { pitch: 0, bearing: 0, transitionDuration: 900 };
     if (ab) {
+      /* "Whole valley" / "Town" were a pair of pills that set `focus`, which
+         arrived here, was typed, was listed in this memo's dependency array
+         -- and was never read. Both pills produced the same camera, so the
+         only thing that moved was the highlight. "Town" is one zoom step in
+         on the same centre: the study box is about twelve kilometres across
+         and a reader looking at a street wants the neighbourhood, not the
+         catchment. The street view keeps its own fixed zoom. */
+      /* Frame the block, rather than trusting a literal. 15.4 was tuned for
+         a mesh that stood 800 m in the air and had to be backed away from;
+         with the street scene drawn at true scale the camera can simply fit
+         what it is looking at. A tilted view loses the far edge to the
+         horizon, so give the pitch a little room. */
+      const cover = focusBounds
+        ? coverZoom(ab, size, 15.4) - (tilted ? 0.55 : 0)
+        : coverZoom(ab, size);
       return {
         ...base,
         longitude: (ab.west + ab.east) / 2,
         latitude: (ab.south + ab.north) / 2,
-        zoom: focusBounds ? 15.4 : coverZoom(ab, size),
+        zoom: !focusBounds && focus === "town" ? cover + 1.3 : cover,
       };
     }
     const c = {
@@ -217,7 +280,7 @@ export function PlannerMap({
     if (!size) return c;
     return { ...c, zoom: coverZoom(b, size, 9.6) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [b, size, focus, ab, focusBounds, tilted]);
+  }, [b, size, focus, ab, focusBounds, tilted, spin]);
 
   const cutKey = cutFraction ? `${cutFraction.size}:${cutSignature}` : "none";
   // Primitive keys for the array props, for the same reason cutKey exists: the
@@ -237,6 +300,12 @@ export function PlannerMap({
   const siteKey = sites
     ? sites.map((x) => `${x.lat.toFixed(4)}${x.taken ? "*" : ""}`).join(",")
     : "none";
+  // The scene is an object literal rebuilt on every render of the parent, so
+  // the layer memo needs a primitive to compare. The water level is the part
+  // that moves -- it is what the clock changes.
+  const sceneKey = scene
+    ? `${scene.datum}:${scene.waterM?.toFixed(2) ?? "dry"}:${scene.waterPng.length}:${scene.surfacePng.length}`
+    : "none";
   const gaugeKey = gauges
     ? gauges.map((g) => `${g.site}:${g.stage_m ?? ""}:${g.labelled ? 1 : 0}`).join(",")
     : "none";
@@ -250,6 +319,33 @@ export function PlannerMap({
 
   const layers = useMemo(() => {
     const out: Layer[] = [];
+    const street = Boolean(scene);
+    /* Vertical scale, and the datum it is measured from.
+       The decoder returns ABSOLUTE elevation, and multiplying every term by
+       five -- the offset included -- multiplies the elevation rather than
+       the relief. On the valley views that is the established look and the
+       lift is lost in a twelve-kilometre frame. On a 1.7 km block of ground
+       at 165-178 m it put the mesh 825 m into the air, where it swallowed
+       the camera, hid the houses standing at z = 0 underneath it, and turned
+       one street into a mountain. The street view therefore draws at TRUE
+       scale and subtracts the block's own lowest ground, so the ground sits
+       on the imagery and a 6 m house next to 3 m of water is 6 m next to
+       3 m. Everything else in that scene -- the boxes, the water plane --
+       is offset by the same datum. */
+    const exag = scene ? STREET_VE : 5;
+    const datum = scene ? scene.datum : 0;
+    /* ONE decoder, shared by the ground and by the water. If these two ever
+       drift apart the shoreline stops being the place where the surfaces
+       cross and becomes an artefact of two different vertical frames, which
+       is unreadable and silently wrong. */
+    const dec = {
+      rScaler: ELEVATION_DECODER.rScaler * exag,
+      gScaler: ELEVATION_DECODER.gScaler * exag,
+      bScaler: ELEVATION_DECODER.bScaler * exag,
+      offset: ELEVATION_DECODER.offset * exag - datum * exag,
+    };
+    const up = (m: number) => (m - datum) * exag;
+
     out.push(
       new TileLayer({
         id: "imagery",
@@ -271,11 +367,49 @@ export function PlannerMap({
             image: props.data as string,
             bounds: [boundingBox[0][0], boundingBox[0][1],
                      boundingBox[1][0], boundingBox[1][1]],
-            opacity: 0.92,
+            /* Dimmed under the street scene so a bone house and a salmon
+               one read as objects against it rather than as two more
+               patches of photograph. It is also the first thing drawn and
+               nothing should ever be hidden behind it, so it never writes
+               depth. */
+            opacity: street ? 0.5 : 0.92,
+            parameters: { depthWriteEnabled: false },
           });
         },
       }) as unknown as Layer,
     );
+    /* The block as an object on a table, which is what the design mock
+       draws and what makes one street legible: everything outside the frame
+       fades to the page colour (that mask is pushed last, below) and the
+       ground gets a visible lip here, so the block reads as a slab rather
+       than as a photograph that happens to stop. */
+    if (scene) {
+      const k = scene.blockBox;
+      // Under the lowest ground in frame, so only the lip is ever seen.
+      const plinthTop = up(scene.groundLoM) - 3;
+      const ring = [[k.west, k.south], [k.west, k.north],
+                    [k.east, k.north], [k.east, k.south]] as [number, number][];
+      out.push(
+        new PolygonLayer({
+          id: "street-plinth",
+          // Below everything, showing only its lip. Its top face used to sit
+          // at z = 0, exactly where the imagery sheet is, so the slab won
+          // the coplanar fight and the block lost its photograph.
+          data: [{ ring }],
+          getPolygon: (d: { ring: [number, number][] }) =>
+            d.ring.map(([lon, lat]) =>
+              [lon, lat, plinthTop - 34] as [number, number, number]),
+          extruded: true,
+          getElevation: 34,
+          filled: true,
+          stroked: false,
+          getFillColor: [206, 201, 192, 255],
+          material: { ambient: 0.6, diffuse: 0.5, shininess: 1,
+                      specularColor: [0, 0, 0] },
+        }) as unknown as Layer,
+      );
+    }
+
     // The solved study IS the terrain layer. It used to be an override on a
     // shipped Richmond raster, which is why every other place rendered as a
     // patch on a valley in New South Wales.
@@ -291,14 +425,21 @@ export function PlannerMap({
         elevationData: terr.elev,
         texture: terr.tex,
         bounds: terr.bb,
-        elevationDecoder: {
-          rScaler: ELEVATION_DECODER.rScaler * 5,
-          gScaler: ELEVATION_DECODER.gScaler * 5,
-          bScaler: ELEVATION_DECODER.bScaler * 5,
-          offset: ELEVATION_DECODER.offset * 5,
-        },
-        material: { ambient: 0.55, diffuse: 0.6, shininess: 6,
-                    specularColor: [30, 45, 60] },
+        elevationDecoder: dec,
+        /* In the street scene the ground is a matte model surface, not a
+           photograph. The texture there is the blank PNG -- the depth ramp
+           is drawn as a water SURFACE instead -- and a mesh with a
+           transparent texture does not show what is under it: deck.gl's
+           mesh shader has no alpha discard, so it paints the material's own
+           colour. Rather than fight that, name the colour: a warm stone the
+           houses and the water both read against, lit so the relief shows.
+           The satellite photograph stays as the context around the block. */
+        color: street ? [216, 211, 201, 255] : [255, 255, 255, 255],
+        material: street
+          ? { ambient: 0.62, diffuse: 0.55, shininess: 2,
+              specularColor: [0, 0, 0] }
+          : { ambient: 0.55, diffuse: 0.6, shininess: 6,
+              specularColor: [30, 45, 60] },
       }) as unknown as Layer,
     );
     if (roads) {
@@ -384,8 +525,17 @@ export function PlannerMap({
           angle: 45,
           extruded: true,
           pickable: false,
-          getPosition: (d: { position: [number, number] }) => d.position,
-          // Stand the column on the ground and give it the water's own height.
+          /* Stand the column ON THE GROUND. `waterColumns` has always
+             computed each cell's ground height and the layer threw it away:
+             a 2-element position puts every column at z = 0 while the
+             terrain mesh draws the ground at 5x its 138-246 m elevation, so
+             the whole body of water sat six hundred metres underneath the
+             landscape it belonged to and the "Water depth" chip looked like
+             a control that did nothing. The base is exaggerated by the same
+             5 the terrain uses; the height is not, because `elevationScale`
+             already applies it and the colour ramp reads the true depth. */
+          getPosition: (d: { position: [number, number]; base: number }) =>
+            [d.position[0], d.position[1], d.base * 5] as [number, number, number],
           getElevation: (d: { depth: number }) => d.depth,
           elevationScale: 5,          // matches the terrain's exaggeration
           // Shallow water reads lighter; deep water darker and more opaque, so
@@ -681,8 +831,18 @@ export function PlannerMap({
           pickable: true,
           extruded: true,
           wireframe: false,
-          getPolygon: (d: { ring: [number, number][] }) => d.ring,
-          getElevation: (d: { height_m: number | null }) => Math.max(d.height_m ?? 4, 2.5),
+          /* Stand each box on its own ground. deck.gl's polygon tesselator
+             reads a third ordinate when the ring carries one and the
+             extrusion shader adds `elevation` ON TOP of it, so a 3-element
+             ring is the supported way to give a building a base. Without it
+             every house stood at z = 0 while the terrain it belongs to was
+             drawn hundreds of metres above, which is why no building was
+             visible in this view at all. */
+          getPolygon: (d: { ring: [number, number][]; base_m: number }) =>
+            d.ring.map(([lon, lat]) =>
+              [lon, lat, up(d.base_m)] as [number, number, number]),
+          getElevation: (d: { height_m: number | null }) =>
+            Math.max(d.height_m ?? 4, 2.5) * exag,
           getFillColor: (d: { over: number; selected: boolean }) =>
             d.selected ? [24, 24, 27, 255]
               : d.over > 0 ? [232, 136, 122, 242]
@@ -700,7 +860,139 @@ export function PlannerMap({
           updateTriggers: {
             getFillColor: buildingKey,
             getElevation: buildingKey,
+            getPolygon: `${buildingKey}:${datum}`,
           },
+        }) as unknown as Layer,
+      );
+    }
+
+    /* ---- the water, as a surface ----------------------------------------
+       The street view used to show the flood the way every other view does:
+       a depth ramp painted on the ground. At sixteen metres over a block the
+       ramp saturates, so the answer to "whose floor did it get over" was one
+       flat sheet of dark blue with the houses invisible underneath it.
+
+       What the question actually needs is a LEVEL, and the thing a reader
+       is looking for -- which roofs stand clear of it -- is then geometry
+       rather than colour. It is a SURFACE and not one plane because this
+       block falls thirteen metres across 1.7 km and the water follows that
+       gradient; a single level would be wrong by metres at one end. (An
+       earlier revision drew a flat quad and the hill did not hide it. The
+       reason was never established -- the guess written here, that a mesh
+       carrying a transparent texture writes no depth, is false: deck.gl's
+       mesh shader has no alpha discard. The surface made the question moot,
+       so the quad's behaviour is unexplained rather than understood.) */
+    if (scene?.waterM != null && analysis) {
+      const wb = analysis.bounds;
+      out.push(
+        new TerrainLayer({
+          id: "street-water-surface",
+          // The same mesh machinery as the ground, carrying the water's own
+          // height instead: the sheet hangs at the solved surface rather
+          // than lying on the floor, so a house standing in it is cut at the
+          // waterline and one standing clear of it keeps its own colour.
+          elevationData: `data:image/png;base64,${scene.surfacePng}`,
+          // Transparent wherever the ground is dry, so the sheet has the
+          // flood's shape and stops at its edge.
+          texture: `data:image/png;base64,${scene.waterPng}`,
+          bounds: [wb.west, wb.south, wb.east, wb.north],
+          elevationDecoder: dec,
+          // Translucent enough to read the ground and the submerged half of
+          // a house through it, opaque enough to be a surface and not a
+          // tint. Flat-lit: water is not a hillside.
+          opacity: 0.62,
+          material: { ambient: 0.95, diffuse: 0.05, shininess: 1,
+                      specularColor: [0, 0, 0] },
+        }) as unknown as Layer,
+      );
+    }
+
+    /* The streets, named. The mock labels its river; nothing in this
+       pipeline ships a channel centreline -- `build_forcing` keeps an
+       inflow EDGE mask, not a line, and fetching waterways would put an
+       Overpass round trip on a solve that already runs past the browser's
+       five-minute wait. What the browser does already hold is the named
+       road network, so the block gets its street names instead, and the
+       water's own shape shows where the creek runs. */
+    if (scene && roads) {
+      const k = scene.blockBox;
+      const seen = new Set<string>();
+      const marks: { at: [number, number]; text: string }[] = [];
+      for (const f of roads.features) {
+        const nm = (f.properties as { name?: string } | null)?.name;
+        if (!nm || nm === "Unnamed road" || seen.has(nm)) continue;
+        const g = f.geometry;
+        if (g?.type !== "LineString") continue;
+        const cs = g.coordinates as [number, number][];
+        const inside = cs.filter(([lon, lat]) =>
+          lon >= k.west && lon <= k.east && lat >= k.south && lat <= k.north);
+        if (inside.length < 2) continue;
+        seen.add(nm);
+        marks.push({ at: inside[Math.floor(inside.length / 2)], text: nm });
+        if (marks.length >= 6) break;
+      }
+      if (marks.length) out.push(
+        new TextLayer({
+          id: "street-road-labels",
+          data: marks,
+          getPosition: (d: { at: [number, number] }) =>
+            [d.at[0], d.at[1], 0] as [number, number, number],
+          getText: (d: { text: string }) => d.text,
+          getSize: 11,
+          billboard: true,
+          getColor: [34, 40, 50, 230],
+          outlineWidth: 2.5,
+          outlineColor: [255, 255, 255, 215],
+          fontSettings: { sdf: true },
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+      );
+    }
+
+    /* The number, as a picture. The panel says "+4.36 m of water inside"
+       and until now nothing on the map said it: the house was salmon, and
+       salmon is a yes/no. This is a stick from the selected house's floor
+       up to the water on it, drawn over everything so it cannot be lost
+       inside its own building, with the figure beside it. */
+    const picked = scene && buildings?.find((x) => x.selected);
+    if (scene && picked) {
+      let sx = 0, sy = 0;
+      for (const [lon, lat] of picked.ring) { sx += lon; sy += lat; }
+      const at: [number, number] = [sx / picked.ring.length,
+                                    sy / picked.ring.length];
+      const floorM = picked.base_m + scene.floorM;
+      const topM = floorM + Math.max(picked.over, 0);
+      const wet = picked.over > 0;
+      out.push(
+        new PathLayer({
+          id: "street-probe",
+          data: [{ path: [[at[0], at[1], up(floorM)],
+                          [at[0], at[1], up(wet ? topM : floorM + 1.2)]] }],
+          getPath: (d: { path: [number, number, number][] }) => d.path,
+          getColor: wet ? [24, 24, 27, 240] : [70, 80, 95, 200],
+          widthUnits: "pixels",
+          getWidth: 2,
+          capRounded: true,
+          parameters: { depthCompare: "always" as const },
+        }) as unknown as Layer,
+        new TextLayer({
+          id: "street-probe-label",
+          data: [{ at, text: wet
+            ? `+${picked.over.toFixed(2)} m over the floor`
+            : "floor above the water" }],
+          getPosition: (d: { at: [number, number] }) =>
+            [d.at[0], d.at[1], up(wet ? topM : floorM + 1.2)] as
+              [number, number, number],
+          getText: (d: { text: string }) => d.text,
+          getSize: 12,
+          billboard: true,
+          getColor: [255, 255, 255, 255],
+          getPixelOffset: [0, -12],
+          outlineWidth: 2.5,
+          outlineColor: [10, 14, 20, 235],
+          fontSettings: { sdf: true },
+          characterSet: "+-.0123456789 mabcdefghijklnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+          parameters: { depthCompare: "always" as const },
         }) as unknown as Layer,
       );
     }
@@ -884,12 +1176,41 @@ export function PlannerMap({
         }) as unknown as Layer,
       );
     }
+    /* The mask, last of all. Drawn before the water it was painted over,
+       and the solved domain ran on past the block as a blue wall. It is a
+       polygon with a hole in it -- the outer ring is the world, the inner
+       ring is the block -- so it covers everything the reader should not be
+       looking at and nothing they should. */
+    if (scene) {
+      const k = scene.blockBox;
+      const g = 0.25;
+      out.push(
+        new PolygonLayer({
+          id: "street-surround",
+          data: [{ rings: [
+            [[k.west - g, k.south - g], [k.east + g, k.south - g],
+             [k.east + g, k.north + g], [k.west - g, k.north + g]],
+            [[k.west, k.south], [k.west, k.north],
+             [k.east, k.north], [k.east, k.south]],
+          ] }],
+          getPolygon: (d: { rings: [number, number][][] }) => d.rings,
+          filled: true,
+          stroked: false,
+          extruded: false,
+          getFillColor: [232, 229, 222, 255],
+          parameters: { depthCompare: "always" as const,
+                        depthWriteEnabled: false },
+        }) as unknown as Layer,
+      );
+    }
+
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [b, roads, pin, cutFraction, cutKey,
       observed, analysis, placed, place, solid, grids,
       heightKey, placedKey, routeKey, sectionKey, gaugeKey, radarKey,
-      buildingKey, onBuilding, siteKey, onSite, pins]);
+      buildingKey, onBuilding, siteKey, onSite, pins,
+      sceneKey, focusBounds]);
 
   if (!size) return <div ref={host} className="h-full w-full bg-bg-inset" />;
 
@@ -910,11 +1231,29 @@ export function PlannerMap({
             onPick(info.coordinate[0], info.coordinate[1]);
           }
         }}
-        getTooltip={({ object }) => {
-          const m = object as MeasureMarker | undefined;
-          if (!m) return null;
+        /* What the cursor is actually over. This cast to `MeasureMarker`
+           outlived the layer it was written for: the only pickable layers
+           now are the street buildings and the candidate bank alignments,
+           so hovering a house said "Measure undefined / Click to add". */
+        getTooltip={({ object, layer }) => {
+          if (!object) return null;
+          const id = layer?.id;
+          let html: string | null = null;
+          if (id === "street-buildings") {
+            const bld = object as { id?: string; over?: number };
+            const over = bld.over ?? 0;
+            html = `<b>${bld.id ?? "building"}</b><br/>${
+              over > 0 ? `${over.toFixed(2)} m of water over the floor`
+                : "floor above the water"}`;
+          } else if (id === "site-casing") {
+            const st = object as { name?: string | null; label?: string;
+                                   taken?: boolean };
+            html = `<b>${st.name || "unnamed bank"}</b><br/>${
+              st.label ?? ""}${st.taken ? "" : " · click to build here"}`;
+          }
+          if (!html) return null;
           return {
-            html: `<b>Measure ${m.id}</b><br/>${m.selected ? "In plan" : "Click to add"}`,
+            html,
             style: { background: "#11151c", color: "#e8edf4",
                      border: "1px solid #1d232d", borderRadius: "8px",
                      padding: "7px 9px", fontSize: "12px" },

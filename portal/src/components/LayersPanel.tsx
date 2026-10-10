@@ -98,7 +98,7 @@ function Row({
 }
 
 export function LayersPanel({
-  bounds, layers, onLayers, onGauges, modelRunNote,
+  bounds, layers, onLayers, onGauges, modelRunNote, reach,
 }: {
   bounds: { west: number; south: number; east: number; north: number } | null;
   layers: LayerState;
@@ -106,6 +106,11 @@ export function LayersPanel({
   onGauges: (f: GaugeFeed | null) => void;
   /** When the depth field on screen was solved. */
   modelRunNote?: string;
+  /** The watercourse this study is about. Sent with the gauge query so the
+   *  reach's own gauge is ranked first -- without it the feed comes back
+   *  biggest-discharge-first and the headline reports the Colorado River on
+   *  a study about Onion Creek. */
+  reach?: string;
 }) {
   // The answer is stored WITH the box it answers for, so "still loading" is a
   // comparison rather than a second piece of state set at the top of an
@@ -117,7 +122,22 @@ export function LayersPanel({
     : "";
   const [answer, setAnswer] = useState<{ key: string; feed: GaugeFeed | null } | null>(null);
   const feed = answer?.key === key ? answer.feed : null;
-  const busy = Boolean(bounds) && answer?.key !== key;
+  // Only the FIRST fetch for a box is "loading". A scheduled re-poll keeps
+  // the last reading on screen until the new one lands, so the panel does
+  // not blink empty every five minutes.
+  const busy = Boolean(bounds) && answer === null;
+
+  /* Poll, rather than claim to.
+     The header has said "LIVE · 27 gauges every 15 min" since this panel was
+     written, and nothing ever re-fetched: the badge, the reading and the
+     hydrograph were all frozen at page load and went stale in silence. USGS
+     publishes on a 15-minute cadence, so asking every five minutes is at
+     most one cycle behind and costs one cached request. */
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!bounds) return;
@@ -125,13 +145,13 @@ export function LayersPanel({
     fetch("/api/gauges", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bounds),
+      body: JSON.stringify({ ...bounds, reach: reach ?? "" }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((d: GaugeFeed) => { if (live) { setAnswer({ key, feed: d }); onGauges(d); } })
       .catch(() => { if (live) { setAnswer({ key, feed: null }); onGauges(null); } });
     return () => { live = false; };
-  }, [bounds, key, onGauges]);
+  }, [bounds, key, onGauges, reach, tick]);
 
   const set = useCallback(
     (k: LayerKey) => onLayers({ ...layers, [k]: !layers[k] }),
@@ -141,7 +161,7 @@ export function LayersPanel({
   const n = feed?.gauges.length ?? 0;
   const gaugeSub = busy ? "loading…"
     : feed?.supported === false ? "no open feed for this area"
-      : n ? `${n} station${n === 1 ? "" : "s"} · every ${feed?.cadence_min ?? 15} min · USGS`
+      : n ? `${n} station${n === 1 ? "" : "s"}`
         : "no gauged stream in this box";
 
   return (
@@ -149,7 +169,7 @@ export function LayersPanel({
       <h3 className="eyebrow mb-1">Layers</h3>
       <Row
         label="Water depth"
-        sub={modelRunNote ?? "solved model field"}
+        sub={modelRunNote ?? ""}
         on={layers.depth}
         onToggle={() => set("depth")}
       />
@@ -165,7 +185,7 @@ export function LayersPanel({
       />
       <Row
         label="Rain radar"
-        sub="NOAA base reflectivity · every 6 min"
+        sub=""
         on={layers.radar}
         onToggle={() => set("radar")}
         disabled={feed?.supported === false}
@@ -173,7 +193,7 @@ export function LayersPanel({
       />
       <Row
         label="Road status"
-        sub="by the depth the vehicle can drive through"
+        sub=""
         on={layers.roads}
         onToggle={() => set("roads")}
       />

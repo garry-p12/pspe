@@ -52,7 +52,7 @@ export function ForecastPanel({ lat, lon, place }: {
       <section className="px-5 py-4">
         <h2 className="eyebrow mb-1">Live forecast</h2>
         <p className="text-[13px] text-ink-faint">
-          Forecast feed unavailable. Design-event planning is unaffected.
+          Forecast feed down — Plan still works.
         </p>
       </section>
     );
@@ -87,15 +87,19 @@ export function ForecastPanel({ lat, lon, place }: {
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
           <p className="text-[14px] font-semibold text-ink">{f.band.headline}</p>
         </div>
-        <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">{f.band.detail}</p>
         <ForecastCheck spreadPct={spreadPct(f)} />
         {/* A calm week is the common case and leaves this panel nearly empty.
             Point somewhere useful rather than showing a blank. */}
+        {/* This used to promise "the real 2022 flood, the worst this valley
+            has had", which was true of the Richmond archive and is a
+            statement about New South Wales shown to someone looking at
+            Texas. Plan now judges against whatever the reach's own gauge
+            record offers, so the pointer says where to choose rather than
+            claiming what is loaded. */}
         {f.band.level === "quiet" && (
           <p className="mt-3 text-[12px] leading-snug text-ink-faint">
-            Nothing much coming this week. To see how the tool works, open{" "}
-            <span className="text-ink">Plan</span> — it is loaded with the real
-            2022 flood, the worst this valley has had.
+            Quiet week — open <span className="text-ink">Plan</span> to judge
+            against a past flood instead.
           </p>
         )}
       </div>
@@ -141,11 +145,11 @@ export function ForecastPanel({ lat, lon, place }: {
             {f.max_48h_mm.toFixed(0)}
             <span className="ml-1 text-[13px] font-normal text-ink-mute">mm</span>
           </dd>
-          <dd className="anno mt-1.5">
-            {f.fraction_of_reference != null
-              ? `${(f.fraction_of_reference * 100).toFixed(0)}% of the 2022 event`
-              : "no local benchmark event"}
-          </dd>
+          {f.fraction_of_reference != null && (
+            <dd className="anno mt-1.5">
+              {(f.fraction_of_reference * 100).toFixed(0)}% of the 2022 event
+            </dd>
+          )}
         </div>
         <div className="rounded-lg border border-line px-3.5 py-3">
           <dt className="text-[13px] text-ink-mute">Peak river flow</dt>

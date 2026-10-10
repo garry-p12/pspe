@@ -32,19 +32,32 @@ export const dynamic = "force-dynamic";
 interface Band { level: "quiet" | "watch" | "act"; headline: string; detail: string }
 
 function classify(max48: number, peakQ: number, ref: number | null): Band {
-  const frac = ref ? max48 / ref : max48 / 245;
-  if (frac >= 0.6 || peakQ > 400) {
+  // The 2022 yardstick is the DISTRICT's and nobody else's -- which the
+  // comment above already said, while the code said otherwise: `ref` is null
+  // everywhere but that catchment, and the fallback still divided by 245 and
+  // still printed "% of the February 2022 event". An Austin user on a wet
+  // week was told their rain was a percentage of a flood in New South Wales.
+  // Off the district the band is decided on the millimetres themselves and
+  // reported as millimetres.
+  const frac = ref ? max48 / ref : null;
+  const mm = Math.round(max48);
+  const against = (f: number) =>
+    `Forecast rainfall reaches ${Math.round(f * 100)}% of the February 2022 `
+    + "event over 48 hours.";
+  const plain = `Forecast rainfall reaches ${mm} mm over 48 hours. There is no `
+    + "local benchmark event here to compare it with.";
+  if ((frac !== null ? frac >= 0.6 : max48 >= 150) || peakQ > 400) {
     return {
       level: "act",
       headline: "Significant flooding possible",
-      detail: `Forecast rainfall reaches ${Math.round(frac * 100)}% of the February 2022 event over 48 hours.`,
+      detail: frac !== null ? against(frac) : plain,
     };
   }
-  if (frac >= 0.25 || peakQ > 120) {
+  if ((frac !== null ? frac >= 0.25 : max48 >= 60) || peakQ > 120) {
     return {
       level: "watch",
       headline: "Worth watching",
-      detail: `Forecast rainfall reaches ${Math.round(frac * 100)}% of the February 2022 event over 48 hours.`,
+      detail: frac !== null ? against(frac) : plain,
     };
   }
   return {

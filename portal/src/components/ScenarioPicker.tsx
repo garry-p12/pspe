@@ -1,5 +1,6 @@
 "use client";
 
+import { Explain } from "./Explain";
 import type { Scenario, PeaksGauge } from "@/lib/scenarios";
 
 /**
@@ -73,22 +74,35 @@ export function ScenarioPicker({
           ))}
         </optgroup>
       </select>
-      <p className="anno mt-1.5 leading-relaxed">{chosen.note}</p>
-      {chosen.kind === "recorded" && (
-        <p className="anno mt-1 leading-relaxed">
-          The DISCHARGE is the recorded one. What the map then draws is this
-          solver&apos;s response to it, not a reconstruction of that day: the
-          flow enters at the edge of the box rather than down eighty
-          kilometres of catchment, and the model recovers about half of
-          FEMA&apos;s mapped floodplain. Read it as &quot;a flood of this
-          size&quot;, not as &quot;the flood of that date&quot;.
-        </p>
-      )}
+      {/* One visible line, and it is the one that stops a reader quoting
+          this as a hindcast: a flood of this SIZE, not that day replayed.
+          The 344-character argument for why -- the single largest block in
+          the portal, paid for on every Plan and Cross-section screen -- is
+          behind the (i). */}
+      <p className="anno mt-1.5 flex items-center gap-1.5 leading-relaxed">
+        {chosen.kind === "recorded"
+          ? "A flood of this size, not that day replayed"
+          : chosen.kind === "fitted" ? "Fitted from the record, not observed"
+            : "The study's own design storm"}
+        <Explain title="What this scenario is">
+          <p>{chosen.note}</p>
+          {chosen.kind === "recorded" && (
+            <p>
+              The discharge is the recorded one; what the map draws is this
+              solver&apos;s response to it. The flow enters at the edge of
+              the box rather than down eighty kilometres of catchment, and
+              the model recovers about half of FEMA&apos;s mapped
+              floodplain.
+            </p>
+          )}
+        </Explain>
+      </p>
+      {/* Stays visible, and in the warning colour: it changes the choice
+          the reader is making in this very control. */}
       {chosen.driver === "rain" && (
         <p className="mt-1.5 text-[12px] leading-relaxed text-bad">
-          Measured on this reach: two 2 m levees under this storm made the
-          flooded area 0.05% worse, not better. Pick a flood that arrives
-          through the channel if you want to know what a wall buys.
+          Rain lands on both sides of a wall — pick a flood that arrives
+          down the channel to see what a levee buys.
         </p>
       )}
     </div>

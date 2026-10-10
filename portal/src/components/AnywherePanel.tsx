@@ -1,14 +1,11 @@
 "use client";
 
+import { Explain } from "./Explain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { describe, formatChange, MATERIAL_PCT, OptionList, type OptionRow } from "./OptionList";
+import type { OptionRow } from "./OptionList";
 import { ForecastPanel } from "./ForecastPanel";
-import { RoutePanel } from "./RoutePanel";
 import { ObservePanel } from "./ObservePanel";
-import { RoadQueryPanel } from "./RoadQueryPanel";
 import { decodeGrids as decode, type InspectGrids } from "@/lib/inspect";
-import { depthTexture, withDepth } from "@/lib/depthtex";
-import type { RoadQuery } from "@/lib/roadquery";
 
 /** What a shipped study says about itself: where, which storm, and how well
  *  it did against an independent map of the same flood. */
@@ -69,16 +66,11 @@ export interface AnalysisResult {
 
 interface Place { name: string; short: string; lat: number; lon: number; kind: string }
 
-/** Area, at a precision that does not round a flood away. */
-function km2(v: number): string {
-  return v >= 10 ? v.toFixed(0) : v.toFixed(1);
-}
-
 /** Storms a planner would actually test against, not abstract return periods. */
 const STORMS = [
-  { mm_h: 20, hours: 6, label: "Heavy rain", note: "120 mm — a wet day" },
-  { mm_h: 50, hours: 6, label: "Severe storm", note: "300 mm — major flooding" },
-  { mm_h: 80, hours: 6, label: "Extreme", note: "480 mm — near the 2022 event" },
+  { mm_h: 20, hours: 6, label: "Heavy rain", note: "120 mm" },
+  { mm_h: 50, hours: 6, label: "Severe storm", note: "300 mm" },
+  { mm_h: 80, hours: 6, label: "Extreme", note: "480 mm" },
 ] as const;
 
 export interface PlacedLevee { lat: number; lon: number; height_m: number; width_m: number }
@@ -133,27 +125,16 @@ export interface AnywherePlan {
 export function AnywherePanel({
   onResult,
   onPreview,
-  levees,
-  onLevees,
-  placing,
-  onPlacing,
   onPlace,
   onGrids,
   onHeights,
-  onRoutes,
   section,
-  onRoadQuery,
-  onRoads,
   initial,
 }: {
   /** Which of the three panel sections is open. Everything below the place
    *  chrome belongs to exactly one of them; before this, all three rendered
    *  the same thing and switching tabs changed nothing. */
   section: "forecast" | "roads" | "plan";
-  /** Road cuts here, so the map can colour the network. */
-  onRoadQuery: (q: RoadQuery | null) => void;
-  /** Hand the fetched network up so the map can draw it. */
-  onRoads?: (r: GeoJSON.FeatureCollection | null) => void;
   onResult: (r: AnalysisResult | null) => void;
   onPreview: (c: { lat: number; lon: number } | null) => void;
   levees: PlacedLevee[];
@@ -182,14 +163,7 @@ export function AnywherePanel({
   const [places, setPlaces] = useState<Place[]>([]);
   const [picked, setPicked] = useState<Place | null>(null);
   const [storm, setStorm] = useState(1);
-  const [plan, setPlan] = useState<AnywherePlan | null>(null);
-  const [planning, setPlanning] = useState(false);
-  const [planErr, setPlanErr] = useState<string | null>(null);
-  const [budgetM, setBudgetM] = useState(20);
   const [driver, setDriver] = useState<"rain" | "river" | "coastal">("river");
-  const [planChosen, setPlanChosen] = useState<string>("");
-  /** What the vehicle being routed can drive through, metres. */
-  const [vehicle, setVehicle] = useState(0.25);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [ownRes, setRes] = useState<AnalysisResult | null>(null);
@@ -219,8 +193,6 @@ export function AnywherePanel({
     return () => clearTimeout(id);
   }, [q]);
 
-  const [baseline, setBaseline] = useState<AnalysisResult | null>(null);
-
   /** The 12 km box this place is modelled in. */
   const boundsFor = (p: Place) => {
     const dLat = 0.055;
@@ -249,12 +221,7 @@ export function AnywherePanel({
 
   /** The same, for the planning grid, which is coarser than the single solve's
    *  and is the grid every option was solved on. */
-  const planGrids = useMemo<InspectGrids | null>(
-    () => (plan?.ok ? decode(plan.inspect) : null), [plan]);
 
-  const chosenOption = useMemo(
-    () => (plan?.ok ? plan.options.find((o) => o.id === planChosen) ?? null : null),
-    [plan, planChosen]);
 
   /** The option the user picked, as a field.
    *
@@ -262,100 +229,39 @@ export function AnywherePanel({
    *  made the ranking look decorative -- the whole point of a list of options
    *  is to see what each one does to the water. The solver had already run
    *  every one of them; only the field was being thrown away. */
-  const shown = useMemo<InspectGrids | null>(() => {
-    if (!planGrids || !chosenOption?.depth_u8) return null;
-    return withDepth(planGrids, chosenOption.depth_u8);
-  }, [planGrids, chosenOption]);
 
   /** One option's field, for scoring a route against the solved library. */
-  const planGridFor = useCallback((i: number) => {
-    const u8 = plan?.options?.[i]?.depth_u8;
-    return planGrids && u8 ? withDepth(planGrids, u8) : null;
-  }, [plan, planGrids]);
 
   /** Dry ground once this option is built, as paint for the terrain. */
-  const shownPng = useMemo(() => (shown ? depthTexture(shown) : null), [shown]);
+  useEffect(() => {
+    onGrids?.(grids);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grids]);
 
   useEffect(() => {
-    onGrids?.(shown ?? grids);
+    onHeights?.(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, grids]);
-
-  useEffect(() => {
-    onHeights?.(chosenOption ? chosenOption.heights : null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chosenOption]);
+  }, []);
 
   /** One owner for what the map draws. The solve sets `res`; a chosen option
    *  overrides the field on it, leaving its bounds and terrain alone, so the
    *  comparison is the same ground with different water. */
   useEffect(() => {
     if (!res) { onResult(null); return; }
-    onResult(shown && shownPng ? { ...res, depth_png: shownPng } : res);
+    onResult(res);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [res, shown, shownPng]);
+  }, [res]);
+  /* The road network used to be fetched here, lazily, when the roads or plan
+     view opened. Neither can open inside this panel -- it renders only under
+     `section === "forecast"` -- so the effect never ran and `onRoads` never
+     fired. The map's network comes from the shipped study bundle instead
+     (Planner.tsx loads `study.roads` alongside the depth grids). */
 
-  /** Roads are fetched when the roads view is opened, not with the solve:
-   *  Overpass is slow and unreliable, and it has no business delaying a flood
-   *  answer or failing one. */
-  const [roads, setRoads] = useState<GeoJSON.FeatureCollection | null>(null);
-  const [roadsNote, setRoadsNote] = useState<string | null>(null);
-  const [roadsBusy, setRoadsBusy] = useState(false);
-  const roadsFor = useRef<string>("");
-
-  useEffect(() => {
-    if ((section !== "roads" && section !== "plan") || !box) return;
-    const b = box;
-    const key = `${b.west.toFixed(4)},${b.south.toFixed(4)}`;
-    if (roadsFor.current === key) return;
-    roadsFor.current = key;
-    setRoads(null); setRoadsNote(null); setRoadsBusy(true);
-    fetch("/api/roads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(b),
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        setRoads(d.roads ?? null);
-        setRoadsNote(d.ok ? null : (d.reason ?? "road data unavailable"));
-        onRoads?.(d.roads ?? null);
-      })
-      .catch((e) => setRoadsNote(String(e.message ?? e)))
-      .finally(() => setRoadsBusy(false));
-  }, [section, box, onRoads]);
-
-  const planHere = useCallback(async (p: Place, lv: PlacedLevee[]) => {
-    setPlanning(true); setPlanErr(null); setPlan(null); setPlanChosen("");
-    try {
-      // Same box as the single solve, coarser: every candidate option is solved
-      // in one batch, so the grid buys the option count back.
-      const dLat = 0.055;
-      const dLon = 0.055 / Math.cos((p.lat * Math.PI) / 180);
-      const s = STORMS[storm];
-      const r = await fetch("/api/plan-anywhere", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          west: p.lon - dLon, east: p.lon + dLon,
-          south: p.lat - dLat, north: p.lat + dLat,
-          name: p.short, dx: 90,
-          rain_mm_h: s.mm_h, storm_hours: s.hours, run_hours: 10,
-          driver,
-          sites: lv.map((l) => ({ lat: l.lat, lon: l.lon, width_m: l.width_m })),
-          max_height_m: 3.0, budget_aud: budgetM * 1e6, delta: 0.1,
-          protect: { lat: p.lat, lon: p.lon, radius_m: 2500 },
-        }),
-      });
-      const out: AnywherePlan = await r.json();
-      if (!r.ok || !out.ok) throw new Error(out.reason ?? `service returned ${r.status}`);
-      setPlan(out);
-    } catch (e) {
-      setPlanErr(e instanceof Error ? e.message : "could not plan here");
-    } finally {
-      setPlanning(false);
-    }
-  }, [storm, budgetM, driver]);
+  /* `planHere` -- the ad-hoc plan solve -- was only ever called from the
+     unreachable `section === "plan"` branch, so `plan` was always null and
+     with it `planGrids`, `chosenOption` and `shown`. Planning now lives in
+     the Plan tab's levee kit, against a named flood from the gauge record,
+     which is a question this panel never asked. */
 
   const run = useCallback(async (p: Place, lv: PlacedLevee[] = []) => {
     setBusy(true); setErr(null); setElapsed(0);
@@ -374,6 +280,11 @@ export function AnywherePanel({
           south: p.lat - dLat, north: p.lat + dLat,
           name: p.short, dx: 60,
           rain_mm_h: s.mm_h, storm_hours: s.hours, run_hours: 12,
+          /* Ask for the frames too. Without this the response carries an
+             empty `frames` array, the scrubber keeps playing the SHIPPED
+             study's eighteen hours, and the timeline and the map end up
+             describing two different floods on the same screen. */
+          snapshots: 9,
           driver,
           levees: lv,
         }),
@@ -381,7 +292,6 @@ export function AnywherePanel({
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail ?? d.error ?? `HTTP ${r.status}`);
       setRes(d);
-      if (lv.length === 0) setBaseline(d);
     } catch (e) {
       setErr(String((e as Error).message));
       setRes(null);
@@ -442,12 +352,22 @@ export function AnywherePanel({
             </button>
           ))}
       </div>
-      <p className="anno mt-1.5 leading-relaxed">
-        {driver === "river"
-          ? "Discharge held as a stage where the channel enters, from the flood forecast for this reach. Falls back to rainfall if no channel crosses this area."
-          : driver === "coastal"
-            ? "A surge held against the open-water edge. Falls back to rainfall if this area has no coast."
-            : "Rain falling evenly over the whole area. A levee has little to block when the water lands on both sides of it."}
+      <p className="anno mt-1.5 flex items-center gap-1.5">
+        What drives the water
+        <Explain title="What drives the flood">
+          <p>
+            <b>River</b> holds the discharge as a stage where the channel
+            enters the box. <b>Coastal</b> holds a surge against the
+            open-water edge. <b>Rainfall</b> falls evenly over the whole
+            area — a levee has little to block when the water lands on both
+            sides of it.
+          </p>
+          <p>
+            River and coastal fall back to rainfall where there is no
+            channel or no coast. The line under the storm pills says which
+            one actually ran.
+          </p>
+        </Explain>
       </p>
 
       <div className="mt-3 grid grid-cols-3 gap-1">
@@ -463,10 +383,10 @@ export function AnywherePanel({
             title={s.note}
           >
             {s.label}
+            <span className="block text-[11px] opacity-70">{s.note}</span>
           </button>
         ))}
       </div>
-      <p className="anno mt-1.5">{STORMS[storm].note}</p>
       {/* What the service ACTUALLY did, which is not always what was asked: a
           river driver over terrain with no channel falls back to rainfall, and
           the user should be told rather than left to infer it. */}
@@ -479,7 +399,7 @@ export function AnywherePanel({
           onClick={() => run(chosen)}
           className="mt-3 w-full rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent/20"
         >
-          Re-run {chosen.short} with this storm
+          Re-run {chosen.short}
         </button>
       )}
 
@@ -487,8 +407,7 @@ export function AnywherePanel({
         <div className="mt-3 rounded-lg border border-line bg-bg-inset p-3">
           <p className="text-[13px] text-ink">Modelling {chosen?.short}…</p>
           <p className="mt-1 text-[12px] leading-relaxed text-ink-faint">
-            Fetching terrain, then solving the shallow-water equations over the
-            catchment. About a minute.
+            About a minute.
           </p>
           <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-bg">
             <div
@@ -516,35 +435,26 @@ export function AnywherePanel({
       )}
 
       {/* ---- ROADS: the real network, scored against the real depths ---- */}
-      {section === "roads" && chosen && res && !busy && roadsBusy && (
-        <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
-          <p className="text-[13px] text-ink">Fetching the road network…</p>
-          <p className="anno mt-1.5 leading-relaxed">
-            OpenStreetMap, over this box. Usually under a minute.
-          </p>
-        </div>
-      )}
+      {/* Everything the planner reached through this panel under
+          `section === "roads"` and `section === "plan"` used to live here:
+          candidate sites clicked onto the map, the option library, the
+          budget slider, the road-cut summary and the evacuation route.
+          None of it could render.
 
-      {section === "roads" && chosen && res && !busy && !roadsBusy && (
-        grids && roads?.features?.length ? (
-          <div className="-mx-5 mt-4 border-t border-line">
-            <RoadQueryPanel
-              roads={roads}
-              grids={grids}
-              bounds={box}
-              onQuery={onRoadQuery}
-            />
-          </div>
-        ) : (
-          <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
-            <h3 className="eyebrow">Roads unavailable here</h3>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
-              {roadsNote ??
-                "OpenStreetMap returned no roads for this box."}
-            </p>
-          </div>
-        )
-      )}
+          `AnywherePanel` is mounted only when `tab === "anywhere"`, and
+          `tab` is derived -- `anywhere` happens only when
+          `section === "forecast"`. A branch inside it asking for
+          `section === "plan"` is asking for two things that cannot both be
+          true, so 272 lines of it were dead from the day the navigation
+          became three tabs.
+
+          What was worth keeping has been moved rather than deleted: the
+          evacuation answer is now `RoutePanel` in the Roads tab, on the
+          shipped study's own network (Planner.tsx). The road-cut summary was
+          already duplicated by `RoadsOut` in this column, which also drives
+          the map's road colours. The option library and the click-to-place
+          site flow belong to the levee kit, which replaced them. */}
+
 
       {/* ---- what doing nothing costs here ---------------------------- */}
       {section === "forecast" && res?.study && !ownRes && !busy && (
@@ -602,268 +512,21 @@ export function AnywherePanel({
         </div>
       )}
 
-      {section === "plan" && res && !busy && chosen && (
-        <div className="mt-4 rounded-xl border border-line px-4 py-3.5">
-          <div className="flex items-baseline justify-between">
-            <span className="text-[13px] font-medium text-ink">{chosen.short}</span>
-            <span className="text-[13px] text-ink-mute">Do nothing</span>
-          </div>
-          <div className="mt-2.5 flex gap-7">
-            <div>
-              <p className="tnum text-[26px] font-semibold leading-none text-ink">
-                {km2(res.flooded_km2)} km²
-              </p>
-              <p className="anno mt-1.5">land flooded</p>
-            </div>
-            <div>
-              <p className="tnum text-[26px] font-semibold leading-none text-ink">
-                {res.peak_depth_m.toFixed(1)} m
-              </p>
-              <p className="anno mt-1.5">deepest</p>
-            </div>
-          </div>
-          <p className="anno mt-3">
-            {res.extent_km[0].toFixed(1)}x{res.extent_km[1].toFixed(1)} km at{" "}
-            {res.dx_m.toFixed(0)} m · {res.terrain_source === "3dep"
-              ? "USGS 3DEP bare earth"
-              : "Copernicus GLO-30, a surface model"} · solved in{" "}
-            {res.timing.seconds.toFixed(0)}s
-          </p>
-        </div>
-      )}
 
       {/* ---- candidate sites ------------------------------------------- */}
-      {section === "plan" && res && !busy && chosen && (
-        <div className="mt-5">
-          <div className="flex items-baseline justify-between">
-            <h3 className="eyebrow">Candidate sites</h3>
-            {levees.length > 0 && (
-              <button
-                onClick={() => { onLevees([]); setPlan(null); }}
-                className="text-[13px] text-ink-mute hover:text-ink"
-              >
-                clear
-              </button>
-            )}
-          </div>
-          <button
-            onClick={() => onPlacing(!placing)}
-            className={`mt-2 w-full rounded-lg border px-3 py-2.5 text-[13px] transition-colors ${
-              placing ? "border-ink bg-bg-inset text-ink" : "border-line text-ink-mute hover:text-ink"
-            }`}
-          >
-            {placing ? "Click the map to place a site" : "Add a candidate site"}
-          </button>
-          <p className="anno mt-2">
-            {levees.length} placed · 2.5 m high, 600 m long
-            {levees.length < 4 && " · four or more are needed before a 90% margin can be calibrated"}
-          </p>
-        </div>
-      )}
 
       {/* ---- budget ----------------------------------------------------- */}
-      {section === "plan" && res && !busy && chosen && levees.length >= 2 && (
-        <div className="mt-5">
-          <div className="flex items-baseline justify-between">
-            <label htmlFor="any-budget" className="eyebrow">Budget</label>
-            <span className="tnum text-[15px] font-semibold text-ink">US${budgetM}M</span>
-          </div>
-          <input
-            id="any-budget"
-            type="range" min={2} max={60} step={1} value={budgetM}
-            onChange={(e) => setBudgetM(Number(e.target.value))}
-            className="mt-2 w-full accent-[var(--ink)]"
-          />
-          {plan?.ok && (
-            <OptionList
-              options={plan.options}
-              budgetM={budgetM}
-              chosen={planChosen}
-              onChoose={setPlanChosen}
-            />
-          )}
-          {chosenOption && plan && (
-            <div className="mt-3 rounded-xl border border-ink/40 bg-bg-inset px-4 py-3.5">
-              <div className="flex items-baseline justify-between">
-                <h3 className="eyebrow">On the map now</h3>
-                <button
-                  onClick={() => setPlanChosen("")}
-                  className="text-[13px] text-ink-mute hover:text-ink"
-                >
-                  back to do nothing
-                </button>
-              </div>
-              <p className="mt-1.5 text-[13px] text-ink">
-                {describe(chosenOption).title} · {describe(chosenOption).detail}
-              </p>
-              <div className="mt-2.5 flex gap-7">
-                <div>
-                  <p className="tnum text-[22px] font-semibold leading-none text-ink">
-                    {km2(chosenOption.area_flooded_km2)} km²
-                  </p>
-                  <p className="anno mt-1.5">
-                    flooded · was {km2(plan.base_area_km2)}
-                  </p>
-                </div>
-                <div>
-                  <p className="tnum text-[22px] font-semibold leading-none text-ink">
-                    {chosenOption.peak_depth_m.toFixed(1)} m
-                  </p>
-                  <p className="anno mt-1.5">
-                    deepest · was {plan.base_peak_depth_m.toFixed(1)}
-                  </p>
-                </div>
-              </div>
-              {/* Two identical-looking columns are not a readout. An option
-                  that does nothing has to say so, or the numbers invite the
-                  reader to find a difference that is not there. */}
-              {Math.abs(chosenOption.core_reduction_pct ?? 0) < MATERIAL_PCT && (
-                <p className="anno mt-2.5 leading-relaxed">
-                  This option leaves the water where it is. The markers show
-                  where it would be built, and what it would cost.
-                </p>
-              )}
-              {!chosenOption.depth_u8 && (
-                <p className="anno mt-2.5 leading-relaxed">
-                  This option was solved before the map could show it. Solve
-                  again to see its water.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
-      {planErr && (
-        <p className="mt-3 text-[13px] leading-relaxed text-ink-mute">{planErr}</p>
-      )}
 
       {/* ---- the recommendation, and what it is worth ------------------- */}
       {/* A recommendation is only a recommendation if it beats doing nothing by
           more than the tool's own resolution. Below that, saying "0.1%, at
           least 90% of the time" dresses up a null result as a plan. */}
-      {section === "plan" && plan?.ok && plan.reduction_pct < MATERIAL_PCT && (
-        <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
-          <h3 className="eyebrow">No measure here is worth building</h3>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-mute">
-            The best allocation of US${budgetM}M changes flood depth by{" "}
-            {plan.reduction_pct.toFixed(2)}%, which this model cannot
-            distinguish from doing nothing.
-          </p>
-          <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">
-            That is often the right answer rather than a failure. The storm is
-            applied as rain falling across the whole area, and a levee can only
-            redirect water that arrives from somewhere — it has nothing to block
-            when the rain lands on both sides of it. Embankments earn their cost
-            where terrain funnels water along a path, not on flat ground that
-            floods everywhere at once.
-          </p>
-          <p className="anno mt-2.5 leading-relaxed">
-            {plan.scenarios_solved} options solved on this terrain in{" "}
-            {plan.timing.seconds.toFixed(0)}s.
-          </p>
-        </div>
-      )}
 
-      {section === "plan" && plan?.ok && plan.reduction_pct >= MATERIAL_PCT && (
-        <div className="mt-5 rounded-xl border border-line px-4 py-3.5">
-          <h3 className="eyebrow">Best plan for this budget</h3>
-          <ul className="mt-2 space-y-0.5">
-            {plan.attribution.map((a) => (
-              <li key={a.site} className="flex justify-between text-[13px]">
-                <span className="text-ink">Site {a.site} at {a.height_m.toFixed(1)} m</span>
-                <span className="tnum text-ink-mute">{formatChange(a.marginal_pct)}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-3 border-t border-line-soft pt-3">
-            <div className="flex items-baseline justify-between">
-              <span className="text-[13px] text-ink-mute">
-                {plan.chosen_solved ? "Measured for this exact plan" : "Estimated"}
-              </span>
-              <span className="tnum text-[18px] font-semibold text-ink">
-                {(plan.chosen_solved && plan.chosen_reduction_pct != null
-                  ? plan.chosen_reduction_pct : plan.reduction_pct).toFixed(1)}%
-              </span>
-            </div>
-            <div className="mt-1 flex items-baseline justify-between">
-              <span className="text-[13px] text-ink-mute">
-                At least, {plan.confidence_pct}% of the time
-              </span>
-              <span className="tnum text-[18px] font-semibold text-ink">
-                {plan.guaranteed_pct.toFixed(1)}%
-              </span>
-            </div>
-          </div>
-          {plan.harmful.length > 0 && (
-            <p className="anno mt-3 leading-relaxed">
-              Rejected:{" "}
-              {plan.harmful.map((h) => `site ${h.site} (${formatChange(h.alone_pct)})`).join(", ")}
-              {" "}— measured as deepening flooding here.
-            </p>
-          )}
-          {plan.chosen_solved && plan.surrogate_overclaim_pct != null &&
-           Math.abs(plan.surrogate_overclaim_pct) >= 0.5 && (
-            <p className="anno mt-2.5 leading-relaxed">
-              The fast estimate put this at {plan.reduction_pct.toFixed(1)}%
-              {plan.surrogate_overclaim_pct > 0 ? ", which is " : ", which is "}
-              {Math.abs(plan.surrogate_overclaim_pct).toFixed(1)} points{" "}
-              {plan.surrogate_overclaim_pct > 0 ? "more" : "less"} than this plan
-              actually achieves. The figure above is a full run of this exact
-              plan, not the estimate the search used to find it.
-            </p>
-          )}
-          <p className="anno mt-2 leading-relaxed">
-            {plan.scenarios_solved} options solved on this terrain in{" "}
-            {plan.timing.seconds.toFixed(0)}s. {plan.band_note}
-          </p>
-        </div>
-      )}
 
       {/* ---- can people get out ---------------------------------------- */}
-      {section === "plan" && res && !busy && chosen && (
-        <RoutePanel
-          roads={roads}
-          grids={shown ?? grids}
-          bounds={box}
-          from={{ lat: chosen.lat, lon: chosen.lon, name: chosen.short }}
-          to={null}
-          vehicle={vehicle}
-          onVehicle={setVehicle}
-          plan={plan?.ok ? {
-            heights: plan.heights,
-            max_height_m: plan.max_height_m,
-            saturation_S: plan.saturation_S,
-            confidence_pct: plan.confidence_pct,
-            options: plan.options,
-            chosen_solved: plan.chosen_solved,
-          } : null}
-          planGridFor={planGridFor}
-          chosenGrid={
-            plan?.ok && plan.chosen_solved && plan.chosen_depth_u8 && planGrids
-              ? withDepth(planGrids, plan.chosen_depth_u8) : null
-          }
-          onRoutes={onRoutes}
-        />
-      )}
 
       {/* ---- the action ------------------------------------------------- */}
-      {section === "plan" && res && !busy && chosen && (
-        <div className="sticky bottom-0 -mx-5 mt-5 border-t border-line bg-bg px-5 py-3.5">
-          <button
-            onClick={() => planHere(chosen, levees)}
-            disabled={planning || levees.length < 2}
-            className="w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium
-                       text-bg transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
-            {planning
-              ? "Solving every option…"
-              : levees.length < 2
-                ? "Place at least two candidate sites"
-                : `Find the best plan for US$${budgetM}M`}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

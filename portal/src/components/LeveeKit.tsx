@@ -1,5 +1,6 @@
 "use client";
 
+import { Explain } from "./Explain";
 import { useCallback, useMemo } from "react";
 import { money } from "@/lib/section";
 import { EARTH_FILL, T_WALL, GATED_OUTFALL, PUMP_STATION, ALL_IN,
@@ -236,20 +237,12 @@ export function LeveeKit({
           a choice anyone makes: they come out of the terrain. */}
       {!feed && (
         <>
-          <p className="mb-3 text-[13px] leading-relaxed text-ink-mute">
-            A levee pays where the bank is almost high enough. Nothing is
-            clicked here — the places worth raising come out of the terrain and
-            the solved flood.
-          </p>
           {busy ? (
             <div className="rounded-lg border border-line bg-bg-inset p-3">
               <p className="text-[13px] font-medium text-ink">
                 Looking for banks that almost hold
               </p>
-              <p className="anno mt-1 leading-relaxed">
-                Solving the baseline at 40 m to get the water surface, then
-                tracing the dry ground against it · {elapsed}s
-              </p>
+              <p className="anno mt-1 leading-relaxed">{elapsed}s</p>
               <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-line-soft">
                 <span className="block h-full w-1/3 animate-pulse rounded-full bg-ink" />
               </div>
@@ -269,12 +262,7 @@ export function LeveeKit({
                 {canFind ? "Reading this creek's flood record"
                   : "Waiting for a solved place"}
               </p>
-              <p className="anno mt-1 leading-relaxed">
-                {canFind
-                  ? "A levee answers a question about a named flood, so the "
-                    + "gauge record comes first and the search follows it."
-                  : "Nothing to plan against until a place is solved."}
-              </p>
+
             </div>
           )}
         </>
@@ -364,16 +352,25 @@ export function LeveeKit({
                 </button>
               ))}
             </div>
-            <p className="anno mt-1.5 leading-relaxed">
-              An embankment is priced from its own section — crest{" "}
-              {CREST_WIDTH_M.toFixed(2)} m, batters 1V:{SIDE_SLOPE}H — so a 2 m
-              levee is 2.97 times a 1 m one, not twice. A wall is linear in
-              height. A gate and a pump are priced per structure.
-            </p>
-            <p className="anno mt-1 leading-relaxed">
-              USACE construction rates, escalated to 2025 and × 0.88 for Texas.
-              Construction only: design, land and contingency roughly double
-              the bill ({ALL_IN.toFixed(1)}×).
+            {/* Two facts a reader spends money on: doubling the height
+                nearly triples the bill, and these prices are construction
+                only. Where the rates come from is behind the (i). */}
+            <p className="anno mt-1.5 flex items-center gap-1.5 leading-relaxed">
+              A 2 m levee costs 2.97× a 1 m one · construction only
+              <Explain title="What these cost, and where the rates come from"
+                       align="left">
+                <p>
+                  An embankment is priced from its own section — crest{" "}
+                  {CREST_WIDTH_M.toFixed(2)} m, batters 1V:{SIDE_SLOPE}H — so
+                  volume grows faster than height. A wall is linear in
+                  height; a gate and a pump are priced per structure.
+                </p>
+                <p>
+                  USACE construction rates, escalated to 2025 and × 0.88 for
+                  Texas. Design, land and contingency roughly double the
+                  bill ({ALL_IN.toFixed(1)}×) and are not included.
+                </p>
+              </Explain>
             </p>
           </div>
 
@@ -401,15 +398,38 @@ export function LeveeKit({
                         {s.name ?? "unnamed bank"}
                       </span>
                       <span className="tnum">{(s.length_m / 1000).toFixed(2)} km</span>
-                      <span className={`tnum ${on ? "opacity-75" : "text-ink-faint"}`}>
-                        {piece ? money(costOf(on!, sites)) : `needs ${s.needs_m.toFixed(2)} m`}
+                      {/* A piece shorter than the bank needs is the one
+                          mistake this list can let a reader make silently:
+                          the row swapped "needs 1.83 m" for a cost and said
+                          nothing about whether the thing just placed clears
+                          it. Short pieces now say so, in the warning
+                          colour, with the shortfall. */}
+                      <span className={`tnum ${
+                        piece && piece.intensity < s.needs_m
+                          ? (on ? "font-medium text-[#ffb4a8]" : "font-medium text-bad")
+                          : on ? "opacity-75" : "text-ink-faint"}`}>
+                        {piece
+                          ? (piece.intensity < s.needs_m
+                            ? `${(s.needs_m - piece.intensity).toFixed(2)} m short`
+                            : money(costOf(on!, sites)))
+                          : `needs ${s.needs_m.toFixed(2)} m`}
                       </span>
                     </button>
                   </li>
                 );
               })}
             </ul>
-            <p className="anno mt-1.5 leading-relaxed">{feed.note}</p>
+            <p className="anno mt-1.5 flex items-center gap-1.5 leading-relaxed">
+              Height is what the lowest point needs
+              <Explain title="How these places were found">
+                <p>{feed.note}</p>
+                <p>
+                  They are not chosen: a baseline solve finds every run of
+                  dry ground that touches the flood and is nearly
+                  overtopped.
+                </p>
+              </Explain>
+            </p>
           </div>
 
           {/* ---- what it buys ----------------------------------------- */}

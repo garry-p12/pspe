@@ -65,6 +65,10 @@ class ObserveRequest(BaseModel):
     name: str = "Selected area"
     days_back: int = Field(45, ge=12, le=365)
     size: int = Field(512, ge=128, le=1024)
+    # Look at the last pass before a given date rather than the most recent
+    # one, so a dated flood can be scored against the scene that flew over
+    # it. ISO date; the search window ends here.
+    before: str = ""
 
 
 class PlanRequest(BaseModel):
@@ -99,6 +103,13 @@ class PlanRequest(BaseModel):
     # recorded flood peak or a fitted quantile -- rather than a base figure
     # for the storm presets to multiply. See `build_forcing`.
     river_q_is_design: bool = False
+    # Drive the inflow from the reach's own gauge instead of a chosen number.
+    # Refuses rather than falling back: see `observed_discharge`.
+    river_q_observed: bool = False
+    # Filled in by `build_forcing` when the above is set. Not a user input.
+    observed: Optional[dict] = None
+    # A gauge record to replay, [{at, q_m3s}, ...]. Filled in by /replay.
+    hydrograph: Optional[list] = None
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
 
 
@@ -121,6 +132,13 @@ class AnalyseRequest(BaseModel):
     # recorded flood peak or a fitted quantile -- rather than a base figure
     # for the storm presets to multiply. See `build_forcing`.
     river_q_is_design: bool = False
+    # Drive the inflow from the reach's own gauge instead of a chosen number.
+    # Refuses rather than falling back: see `observed_discharge`.
+    river_q_observed: bool = False
+    # Filled in by `build_forcing` when the above is set. Not a user input.
+    observed: Optional[dict] = None
+    # A gauge record to replay, [{at, q_m3s}, ...]. Filled in by /replay.
+    hydrograph: Optional[list] = None
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
     # Instantaneous depth fields through the run, for the scrubber under the
     # map. Zero means peak only, which is what the study bundle was built
@@ -196,8 +214,30 @@ def solve(dom, rain_mm_h: float, storm_h: float, run_h: float,
     peak = h.clone()
     fx = build_forcing(dom, req) if req is not None else {
         "source": rain_mm_h / 3.6e6, "sea_mask": None, "sea_level": None,
-        "driver": "rain", "note": "", "q_m3s": None, "stage_m": None}
+        "driver": "rain", "note": "", "q_m3s": None, "stage_m": None,
+        "sea_series": None}
     src, sea_mask, sea_level = fx["source"], fx["sea_mask"], fx["sea_level"]
+    # A boundary that MOVES.
+    #
+    # Every run until now held one stage for `storm_hours` and then let go,
+    # which is a design storm's shape and nobody's actual flood. A replay of
+    # a dated event has a hydrograph -- it rises, peaks and falls -- and
+    # holding its peak flat for six hours would flood far more than the day
+    # did, while holding its mean would flood far less. When `sea_series` is
+    # present it IS the boundary, for as long as it runs, and `storm_hours`
+    # stops governing the inflow.
+    sea_series = fx.get("sea_series")
+    def level_at(tt: float) -> float:
+        xs = sea_series                                   # [(t_s, level_m)]
+        if tt <= xs[0][0]:
+            return xs[0][1]
+        for i in range(1, len(xs)):
+            if tt <= xs[i][0]:
+                (ta, la), (tb, lb) = xs[i - 1], xs[i]
+                f = (tt - ta) / max(tb - ta, 1e-6)
+                return la + f * (lb - la)
+        return xs[-1][1]
+
     # Instantaneous depth at a few times, not the running peak. The peak field
     # answers "was this ever wet", which is the wrong question for anyone
     # watching the water arrive. The run already computes every one of these
@@ -215,8 +255,9 @@ def solve(dom, rain_mm_h: float, storm_h: float, run_h: float,
         on = t < storm_h * 3600.0
         r = (src if on else 0.0) if src is not None else 0.0
         h, qx, qy = solver.step(h, qx, qy, dt, rain=r, z=z[None])
-        if sea_mask is not None and on:
-            want = torch.clamp(sea_level - z, min=0.0)
+        if sea_mask is not None and (sea_series or on):
+            lvl = level_at(t) if sea_series else sea_level
+            want = torch.clamp(lvl - z, min=0.0)
             h = torch.where(sea_mask[None].expand_as(h), torch.maximum(h, want), h)
         peak = torch.maximum(peak, h)
         t += dt; steps += 1
@@ -240,6 +281,13 @@ def health() -> dict:
     return {"ok": True, "cached": len(CACHE)}
 
 
+# The two classes a change detector reports, as one definition. `/validate`
+# recovers the flooded mask from this picture by exact match, so these must
+# stay the single source for both.
+PERMANENT_RGBA = (90, 130, 170, 90)
+FLOODED_RGBA = (37, 99, 168, 205)
+
+
 def observed_png(flooded: np.ndarray, permanent: np.ndarray) -> str:
     """Observed flood as a base64 PNG: new water solid, permanent water faint.
 
@@ -252,8 +300,8 @@ def observed_png(flooded: np.ndarray, permanent: np.ndarray) -> str:
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
     # Permanent water recedes into the base; new water is bright. The two must
     # stay distinguishable without hue, because conflating them is defect 21.
-    rgba[permanent] = (90, 130, 170, 90)
-    rgba[flooded] = (37, 99, 168, 205)
+    rgba[permanent] = PERMANENT_RGBA
+    rgba[flooded] = FLOODED_RGBA
     buf = io.BytesIO()
     Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", optimize=True)
     return base64.b64encode(buf.getvalue()).decode()
@@ -280,7 +328,11 @@ def observe(req: ObserveRequest) -> dict:
 
     t0 = time.time()
     bbox = [req.west, req.south, req.east, req.north]
-    end = datetime.now(timezone.utc).date()
+    # The most recent pass, or the last one before a date the caller named.
+    # Scoring a dated flood means looking at the scene that flew over it,
+    # not at the scene that flew over last week.
+    end = (date.fromisoformat(req.before[:10]) if req.before
+           else datetime.now(timezone.utc).date())
     start = end - timedelta(days=req.days_back)
     try:
         scenes = sar.search(bbox, start.isoformat(), end.isoformat())
@@ -319,6 +371,7 @@ def observe(req: ObserveRequest) -> dict:
         "permanent_km2": round(float(fm.permanent.sum())
                                * abs(fm.transform[0] * fm.transform[4]) / 1e6, 2),
         "threshold_db": round(fm.threshold_db, 2),
+        "separability": round(fm.separability, 3),
         "observed_png": observed_png(fm.flooded, fm.permanent),
         "bounds": bbox,
         "seconds": round(time.time() - t0, 1),
@@ -569,6 +622,10 @@ class RoadsRequest(BaseModel):
     south: float
     east: float
     north: float
+    # The watercourse this study is about, e.g. "Onion Creek, Austin, Texas".
+    # Only /gauges uses it, to rank the reach's own gauge first -- see the
+    # note there. Optional, so every other caller is unaffected.
+    reach: str = ""
 
 
 # How far a habitable floor sits above the ground outside it, in metres.
@@ -1103,18 +1160,7 @@ def peaks(req: PeaksRequest) -> dict:
     # is not "austin", so the place name survived the filter and then matched
     # every gauge in Austin -- which put the Colorado River back on top of a
     # study about Onion Creek.
-    STOP = {"creek", "river", "bayou", "brook", "near", "at", "the"}
-    want = set()
-    for w in req.reach.replace(",", " ").split():
-        t = w.lower().strip(".")
-        if len(t) > 3 and t not in STOP:
-            want.add(t)
-    # A place name is not a watercourse. Everything after the first comma of
-    # "Onion Creek, Austin, Texas" names the city and the state, and both
-    # appear in every station name here.
-    for part in req.reach.split(",")[1:]:
-        for w in part.split():
-            want.discard(w.lower().strip("."))
+    want = _reach_words(req.reach)
     def rank(r: dict) -> tuple:
         nm = r.get("name", "").lower()
         return (0 if want and any(w in nm for w in want) else 1, -r["years"])
@@ -1125,6 +1171,27 @@ def peaks(req: PeaksRequest) -> dict:
         CACHE.pop(next(iter(CACHE)))
     CACHE[key] = res
     return {**res, "cached": False}
+
+
+def _reach_words(reach: str) -> set[str]:
+    """The words in a study name that actually name a watercourse.
+
+    "Onion Creek, Austin, Texas" has to match "Onion Ck at US Hwy 183" and
+    must NOT match "Colorado Rv at Austin". Strip punctuation BEFORE the stop
+    list -- "Austin," is not "austin" -- and discard everything after the
+    first comma, which is the city and the state and appears in every station
+    name in the box.
+    """
+    STOP = {"creek", "river", "bayou", "brook", "near", "at", "the"}
+    want: set[str] = set()
+    for w in reach.replace(",", " ").split():
+        t = w.lower().strip(".")
+        if len(t) > 3 and t not in STOP:
+            want.add(t)
+    for part in reach.split(",")[1:]:
+        for w in part.split():
+            want.discard(w.lower().strip("."))
+    return want
 
 
 @app.post("/gauges")
@@ -1301,7 +1368,18 @@ def gauges(req: RoadsRequest) -> dict:
         g["forecast_series"] = _nwps_forecast_series(lid)
 
     gauges = [g for g in out.values() if g["stage_m"] is not None or g["q_m3s"] is not None]
-    gauges.sort(key=lambda g: -(g["q_m3s"] or 0))
+    # Biggest discharge first put the Colorado River at the top of a study
+    # about Onion Creek -- a river two orders of magnitude larger that
+    # happens to share a city. The headline then reported the wrong
+    # watercourse while the Plan tab, which name-matches through /peaks,
+    # reported the right one. Rank this reach's own gauges first, by the
+    # same rule /peaks uses, and fall back to discharge within each group.
+    want = _reach_words(req.reach)
+    def rank(g: dict) -> tuple:
+        nm = (g.get("name") or "").lower()
+        return (0 if want and any(w in nm for w in want) else 1,
+                -(g["q_m3s"] or 0))
+    gauges.sort(key=rank)
     payload = {"supported": True, "gauges": gauges, "cadence_min": 15,
                "source": "USGS NWIS instantaneous values; "
                          "flood levels from NOAA NWPS",
@@ -1310,6 +1388,311 @@ def gauges(req: RoadsRequest) -> dict:
     if len(_GAUGE_CACHE) > 16:
         _GAUGE_CACHE.pop(next(iter(_GAUGE_CACHE)))
     return {**payload, "cached": False}
+
+
+def _frange_svc(a: float, b: float, step: float):
+    v = a
+    while v <= b + 1e-9:
+        yield v
+        v += step
+
+
+def _as_box(b) -> dict:
+    """One box shape. `/observe` returns a bbox list and `/analyse` a dict."""
+    if isinstance(b, dict):
+        return b
+    w, so, e, n = b
+    return {"west": float(w), "south": float(so),
+            "east": float(e), "north": float(n)}
+
+
+def _observed_mask(obs: dict) -> "np.ndarray | None":
+    """The satellite's NEW-water mask, back out of the PNG it was drawn into.
+
+    `/observe` returns the detection as a picture because that is what the
+    map wanted. Scoring needs the booleans, and re-running the detector to
+    get them would double a two-minute job for data already in hand: the
+    flooded class is drawn in a single known colour, so recovering it is a
+    colour test rather than a second download.
+    """
+    png = obs.get("observed_png")
+    if not png:
+        return None
+    buf = io.BytesIO(base64.b64decode(png))
+    a = np.array(Image.open(buf).convert("RGBA"))
+    # Exact, not approximate: `observed_png` paints the flooded class in one
+    # known RGBA and permanent water in another, so the mask comes back by
+    # equality rather than by a colour heuristic that could drift if either
+    # palette changes. Permanent water is deliberately NOT scored -- the
+    # model is not trying to predict the river that was already there.
+    want = np.array(FLOODED_RGBA, dtype=np.uint8)
+    return np.all(a == want, axis=-1)
+
+
+def _depth_grid_from(sol: dict) -> "np.ndarray | None":
+    """The solved depth field, in metres, from an /analyse response."""
+    ins = sol.get("inspect")
+    if not ins:
+        return None
+    h, w = ins["meta"]["grid"]
+    u8 = np.frombuffer(base64.b64decode(ins["depth_u8"]), dtype=np.uint8)
+    if u8.size != h * w:
+        return None
+    return (u8.reshape(h, w).astype(np.float32) / 255.0
+            * float(ins["meta"]["depth_vmax_m"]))
+
+
+def _resample_to(grid: "np.ndarray", src: dict, dst: dict,
+                 shape: tuple) -> "np.ndarray":
+    """Nearest-neighbour the model onto the observation's footprint."""
+    H, W = shape
+    rows = np.linspace(dst["north"], dst["south"], H)
+    cols = np.linspace(dst["west"], dst["east"], W)
+    gh, gw = grid.shape
+    ri = np.clip(((src["north"] - rows) / (src["north"] - src["south"])
+                  * (gh - 1)).round().astype(int), 0, gh - 1)
+    ci = np.clip(((cols - src["west"]) / (src["east"] - src["west"])
+                  * (gw - 1)).round().astype(int), 0, gw - 1)
+    return grid[ri[:, None], ci[None, :]]
+
+
+def _cell_km2(b: dict, shape: tuple) -> float:
+    H, W = shape
+    mid = (b["north"] + b["south"]) / 2
+    wkm = (b["east"] - b["west"]) * 111.32 * math.cos(math.radians(mid)) / W
+    hkm = (b["north"] - b["south"]) * 110.54 / H
+    return wkm * hkm
+
+
+class ValidateRequest(AnalyseRequest):
+    """Score the model against what the satellite actually saw."""
+    days_back: int = Field(45, ge=12, le=365)
+    size: int = Field(512, ge=128, le=1024)
+    # Score against the last pass before this date, rather than the latest.
+    before: str = ""
+    # The depth at which the model calls a cell wet, for the comparison.
+    # Swept rather than fixed when None, the way the FEMA skill score is.
+    wet_m: Optional[float] = None
+
+
+@app.post("/validate")
+def validate(req: ValidateRequest) -> dict:
+    """Solve this box, then score the result against Sentinel-1.
+
+    This is the one endpoint where reality grades the model rather than the
+    other way round. Everything else here answers "what would happen if";
+    this answers "when the satellite last looked, were we right".
+
+    The comparison is honest about what SAR can and cannot see. Sentinel-1
+    detects open water by backscatter, so it misses water under canopy and
+    among buildings and it cannot see at all through the hours between
+    passes. A low score is therefore evidence about the PAIR -- model and
+    sensor -- and the response says which cells each of them called wet so a
+    reader can see where they disagree rather than taking a single number.
+
+    Scored on the same three statistics the FEMA comparison uses, so the two
+    are readable side by side:
+      CSI = hits / (hits + misses + false alarms)
+      POD = hits / (hits + misses)          -- how much of the observed flood we find
+      FAR = false alarms / (hits + false alarms)
+    """
+    t0 = time.time()
+    obs = observe(ObserveRequest(
+        west=req.west, south=req.south, east=req.east, north=req.north,
+        name=req.name, days_back=req.days_back, size=req.size,
+        before=req.before))
+    if not obs.get("ok"):
+        return {"ok": False, "stage": "observe", "reason": obs.get("reason")}
+
+    # Drive the solve with the discharge AT THE PASS, not the latest.
+    #
+    # Without this the model answers about today and is marked against a
+    # scene that may be days old -- which is how the first run of this
+    # endpoint scored CSI 0.0 against 2.58 km2 of observed water while the
+    # creek sat at 0.01 m3/s. The score has to be of the model under the
+    # conditions it is being judged for.
+    at_pass = None
+    if req.river_q_observed and req.driver == "river":
+        here = observed_discharge(req.west, req.south, req.east, req.north,
+                                  req.name or "")
+        if here:
+            at_pass = discharge_at(here["site"], obs["acquired"])
+        if at_pass is None:
+            return {"ok": False, "stage": "forcing",
+                    "reason": ("no gauge reading within six hours of the "
+                               f"{obs['acquired'][:16]} pass, so there is "
+                               "nothing to drive the model with for the "
+                               "moment it would be scored at"),
+                    "acquired": obs["acquired"]}
+        req = req.model_copy(update={
+            "river_q_observed": False,
+            "river_q_m3s": at_pass["q_m3s"],
+            "river_q_is_design": True,
+        })
+
+    sol = analyse(req)
+    if not sol.get("ok", True):
+        return {"ok": False, "stage": "solve", "reason": sol.get("reason")}
+
+    # Both grids onto the SAR footprint, which is the thing that was
+    # measured. Resampling the observation to the model's grid would let the
+    # model's own resolution decide how much of the evidence it has to
+    # explain.
+    import base64 as _b64
+    obs_mask = _observed_mask(obs)
+    if obs_mask is None:
+        return {"ok": False, "stage": "observe",
+                "reason": "the observed scene carried no mask to score against"}
+    dep = _depth_grid_from(sol)
+    if dep is None:
+        return {"ok": False, "stage": "solve",
+                "reason": "the solve carried no depth grid to score"}
+    obox, sbox = _as_box(obs["bounds"]), _as_box(sol["bounds"])
+    model = _resample_to(dep, sbox, obox, obs_mask.shape)
+
+    cell_km2 = _cell_km2(obox, obs_mask.shape)
+    sweep = ([req.wet_m] if req.wet_m is not None
+             else [round(v, 2) for v in _frange_svc(0.02, 1.0, 0.02)])
+    best = None
+    for t in sweep:
+        wet = model > t
+        hit = int((wet & obs_mask).sum())
+        miss = int((~wet & obs_mask).sum())
+        fa = int((wet & ~obs_mask).sum())
+        csi = hit / max(hit + miss + fa, 1)
+        row = {"threshold_m": t, "csi": round(csi, 3),
+               "pod": round(hit / max(hit + miss, 1), 3),
+               "far": round(fa / max(hit + fa, 1), 3),
+               "ours_km2": round(float(wet.sum()) * cell_km2, 2),
+               "hit_km2": round(hit * cell_km2, 2),
+               "miss_km2": round(miss * cell_km2, 2),
+               "false_km2": round(fa * cell_km2, 2)}
+        if best is None or row["csi"] > best["csi"]:
+            best = row
+    return {
+        "ok": True,
+        "name": req.name,
+        **best,
+        "swept": req.wet_m is None,
+        "observed_km2": round(float(obs_mask.sum()) * cell_km2, 2),
+        "acquired": obs["acquired"],
+        "days_old": obs["days_old"],
+        "relative_orbit": obs["relative_orbit"],
+        "baselines": obs["baselines"],
+        "driver": sol.get("driver"),
+        "driver_note": sol.get("driver_note"),
+        # The reading the model was actually driven by, and how far it sat
+        # from the pass. Both belong on screen: a score is only as good as
+        # the simultaneity behind it.
+        "forced_with": at_pass,
+        "river_q_m3s": sol.get("river_q_m3s"),
+        "bounds": obox,
+        "observed_png": obs.get("observed_png"),
+        "depth_png": sol.get("depth_png"),
+        "seconds": round(time.time() - t0, 1),
+        "note": ("Sentinel-1 sees open water only: it misses flooding under "
+                 "canopy and among buildings, so a miss is not always the "
+                 "model's. The pass is a single instant and the model's peak "
+                 "is an envelope over the run, which favours the model."),
+    }
+
+
+class ReplayRequest(AnalyseRequest):
+    """Re-run a dated flood from the gauge record that produced it."""
+    start: str                      # ISO, e.g. "2013-10-30T00:00"
+    end: str                        # ISO
+    site: str = ""                  # USGS site; resolved from the reach if blank
+
+
+@app.post("/replay")
+def replay(req: ReplayRequest) -> dict:
+    """Run a flood that actually happened, forced by what the river did.
+
+    This is the measurement that turns the street view's 2.5x multiplier
+    from a knob into a number. That multiplier exists because a design
+    discharge held flat for six hours does not reproduce what Halloween 2013
+    did to this neighbourhood, and the honest question is how much of the
+    gap is the forcing's shape and how much is missing physics. Replaying
+    the gauge record answers the first half: same solver, same terrain, the
+    discharge the river actually carried, minute by minute.
+
+    Whatever comes out is the model's own account of a day with a known
+    outcome, and it is comparable with the record rather than with a
+    scenario someone chose.
+    """
+    t0 = time.time()
+    site = req.site
+    if not site:
+        here = observed_discharge(req.west, req.south, req.east, req.north,
+                                  req.name or "")
+        if not here:
+            return {"ok": False, "reason":
+                    "no gauge on this reach to replay from"}
+        site = here["site"]
+    series = discharge_series(site, req.start, req.end)
+    if len(series) < 4:
+        return {"ok": False, "reason":
+                f"only {len(series)} readings at site {site} between "
+                f"{req.start} and {req.end}; nothing to replay"}
+
+    # A hole in the record is not a quiet period.
+    #
+    # Gauges fail in the floods worth replaying. Onion Creek's own gauge at
+    # US Hwy 183 stopped for twenty-four hours across the peak of 31 October
+    # 2013 -- the event this portal is largely about -- and the 3,823 m3/s
+    # everyone quotes for that day comes from USGS's annual-peak dataset,
+    # measured indirectly from high-water marks afterwards, precisely
+    # because the instrument did not record it.
+    #
+    # Interpolating across a gap like that produces a smooth rise through
+    # the exact hours the flood happened and a model that calmly reports
+    # nothing much occurred. Refuse, and say where the hole is.
+    gaps = []
+    for a, b in zip(series, series[1:]):
+        ta = datetime.fromisoformat(a["at"])
+        tb = datetime.fromisoformat(b["at"])
+        hrs = (tb - ta).total_seconds() / 3600.0
+        if hrs > 2.0:
+            gaps.append({"from": a["at"], "to": b["at"], "hours": round(hrs, 1)})
+    if gaps:
+        worst = max(gaps, key=lambda g: g["hours"])
+        return {"ok": False, "stage": "record", "gaps": gaps, "site": site,
+                "peak_in_record_m3s": round(max(r["q_m3s"] for r in series), 1),
+                "reason": (
+                    f"the record at site {site} has a {worst['hours']:.0f}-hour "
+                    f"hole from {worst['from'][:16]} to {worst['to'][:16]}. "
+                    f"Gauges fail in the floods worth replaying, and "
+                    f"interpolating across the gap would invent the event. "
+                    f"Use the annual-peak value for this day, or replay a "
+                    f"window the instrument survived.")}
+
+    span_h = ((datetime.fromisoformat(series[-1]["at"])
+               - datetime.fromisoformat(series[0]["at"])).total_seconds()
+              / 3600.0)
+    sub = req.model_copy(update={
+        "driver": "river",
+        "hydrograph": series,
+        # The run has to cover the hydrograph, or the flood is cut off
+        # part-way up its own rising limb.
+        "run_hours": max(req.run_hours, math.ceil(span_h) + 2),
+    })
+    sol = analyse(sub)
+    peak_q = max(r["q_m3s"] for r in series)
+    at_peak = max(series, key=lambda r: r["q_m3s"])["at"]
+    return {
+        "ok": True,
+        **{k: v for k, v in sol.items() if k != "inspect"},
+        "replay": {
+            "site": site,
+            "from": series[0]["at"],
+            "to": series[-1]["at"],
+            "readings": len(series),
+            "span_hours": round(span_h, 1),
+            "peak_q_m3s": round(peak_q, 1),
+            "peak_at": at_peak,
+        },
+        "seconds": round(time.time() - t0, 1),
+    }
 
 
 @app.post("/roads")
@@ -1350,6 +1733,139 @@ def river_discharge(lat: float, lon: float) -> float | None:
         return None
 
 
+def observed_discharge(west: float, south: float, east: float, north: float,
+                       reach: str) -> "dict | None":
+    """What the river is doing RIGHT NOW, from the instrument.
+
+    This is the difference between a scenario simulator and a shadow. Every
+    other path into `build_forcing` carries a number a person chose -- a
+    storm preset, a recorded peak, a fitted quantile, or an estimate from the
+    DEM's own channel geometry. This one carries the discharge USGS measured
+    at the reach's own gauge in the last fifteen minutes, so the boundary the
+    solver holds is the boundary the world currently has.
+
+    Returns the gauge, its discharge in m3/s and the time it was read, or
+    None when the reach has no gauge reporting discharge -- which is most
+    small streams, and is a refusal rather than a fallback, because silently
+    substituting a design storm for an observation is exactly the move that
+    makes a "digital twin" claim untrue.
+    """
+    # Pad the box the way the portal's own gauge query does. The gauge that
+    # governs a reach is upstream of the area you are modelling, and is
+    # routinely outside it: asking inside the study box alone found
+    # Williamson Creek's gauge and missed Onion Creek's own.
+    pad = 0.12
+    feed = gauges(RoadsRequest(west=west - pad, south=south - pad,
+                               east=east + pad, north=north + pad,
+                               reach=reach))
+    if not feed.get("supported"):
+        return None
+    want = _reach_words(reach)
+    def pick(only_reach: bool):
+        cands = []
+        for g in feed.get("gauges", []):
+            if g.get("q_m3s") is None:
+                continue
+            nm = (g.get("name") or "").lower()
+            on = bool(want and any(w in nm for w in want))
+            if only_reach and not on:
+                continue
+            cands.append((g, on))
+        if not cands:
+            return None
+        # The reach's MAIN gauge, not merely its first. A creek has several:
+        # Onion Creek has a small one at Twin Creeks Road and the one at
+        # US Hwy 183 that carries the flood categories and the 59-year peak
+        # record the Plan tab judges against. Driving the boundary from one
+        # gauge while naming scenarios from another is the same split that
+        # put the Colorado River in the headline. Prefer a gauge the weather
+        # service has set flood levels for, then the larger discharge.
+        cands.sort(key=lambda c: (0 if c[0].get("flood_levels_m") else 1,
+                                  -(c[0].get("q_m3s") or 0.0)))
+        g, on = cands[0]
+        return {"site": g["site"], "name": g["name"],
+                "q_m3s": float(g["q_m3s"]), "at": g.get("at"),
+                "stage_m": g.get("stage_m"), "on_reach": on}
+    # This reach's own gauge, or none. Driving Onion Creek from Williamson
+    # Creek's instrument would be an observation of the wrong river, which is
+    # worse than admitting there is nothing to observe.
+    return pick(True) or (pick(False) if not want else None)
+
+
+def discharge_at(site: str, when: str) -> "dict | None":
+    """What a gauge read at a GIVEN moment, not now.
+
+    The first validation run drove the solver with this minute's discharge
+    and scored it against a satellite pass five days old. The model was
+    asked about Saturday and marked against Monday, and it scored zero --
+    correctly, for a comparison that meant nothing. A model is only
+    answerable for the forcing it was given at the time it is being judged
+    for.
+
+    USGS serves instantaneous values by explicit window, so the reading that
+    matters is the one nearest the pass. Returns None rather than the latest
+    value when the window is empty: a gap in the record is not a licence to
+    substitute a different day.
+    """
+    try:
+        t = datetime.fromisoformat(when.replace("Z", "+00:00"))
+    except Exception:                                      # noqa: BLE001
+        return None
+    lo = (t - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M%z") or ""
+    hi = (t + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M%z") or ""
+    url = ("https://waterservices.usgs.gov/nwis/iv/?format=json"
+           f"&sites={site}&parameterCd=00060"
+           f"&startDT={urllib.parse.quote(lo)}&endDT={urllib.parse.quote(hi)}")
+    try:
+        d = json.loads(_get(url, timeout=60.0))
+    except Exception:                                      # noqa: BLE001
+        return None
+    best = None
+    for ts in d.get("value", {}).get("timeSeries", []):
+        for v in ts.get("values", [{}])[0].get("value", []):
+            try:
+                vt = datetime.fromisoformat(v["dateTime"])
+                val = float(v["value"])
+            except Exception:                              # noqa: BLE001
+                continue
+            if val < 0:                                    # -999999 = no record
+                continue
+            gap = abs((vt - t).total_seconds())
+            if best is None or gap < best[0]:
+                best = (gap, {"q_m3s": round(val * CFS_M3S, 3),
+                              "at": v["dateTime"], "gap_min": round(gap / 60)})
+    return best[1] if best else None
+
+
+def discharge_series(site: str, start: str, end: str) -> list[dict]:
+    """A gauge's whole record over a window, as it happened.
+
+    `discharge_at` answers "what was it at this moment"; a replay needs the
+    shape. USGS keeps instantaneous values back to the mid-2000s for most
+    sites, which covers both Onion Creek events the city still talks about:
+    Halloween 2013 and Memorial Day 2015.
+    """
+    url = ("https://waterservices.usgs.gov/nwis/iv/?format=json"
+           f"&sites={site}&parameterCd=00060"
+           f"&startDT={urllib.parse.quote(start)}&endDT={urllib.parse.quote(end)}")
+    try:
+        d = json.loads(_get(url, timeout=120.0))
+    except Exception:                                      # noqa: BLE001
+        return []
+    out: list[dict] = []
+    for ts in d.get("value", {}).get("timeSeries", []):
+        for v in ts.get("values", [{}])[0].get("value", []):
+            try:
+                val = float(v["value"])
+            except Exception:                              # noqa: BLE001
+                continue
+            if val < 0:                                    # -999999 = no record
+                continue
+            out.append({"at": v["dateTime"], "q_m3s": round(val * CFS_M3S, 3)})
+    out.sort(key=lambda r: r["at"])
+    return out
+
+
 def build_forcing(dom, req) -> dict:
     """Turn the chosen driver into things the timestep loop can apply.
 
@@ -1361,9 +1877,21 @@ def build_forcing(dom, req) -> dict:
     z = np.asarray(dom.z, dtype=np.float32)
     rain_ms = req.rain_mm_h / 3.6e6
     out = {"source": None, "sea_mask": None, "sea_level": None,
-           "driver": req.driver, "note": "", "q_m3s": None, "stage_m": None}
+           "driver": req.driver, "note": "", "q_m3s": None, "stage_m": None,
+           # The instrument reading this run was driven by, when it was.
+           "observed": None,
+           # A hydrograph, when the caller is replaying a dated event:
+           # [(seconds from start, water level in metres)].
+           "sea_series": None}
 
     if req.driver == "river":
+        # Ask the instrument first, when the caller wants to be driven by it.
+        # Done here rather than in every endpoint so `/analyse`, `/route`,
+        # `/section`, `/sites`, `/plan` and `/buildings` all gain it at once.
+        if getattr(req, "river_q_observed", False):
+            req.observed = observed_discharge(          # type: ignore[attr-defined]
+                req.west, req.south, req.east, req.north,
+                getattr(req, "name", "") or "")
         # dx matters: the channel cap is a physical width, and calling this
         # without a resolution reinstates the cell-count behaviour that made
         # the same river a channel at 200 m and flat ground at 130 m.
@@ -1392,12 +1920,20 @@ def build_forcing(dom, req) -> dict:
             out["note"] = ("No through-channel crosses this box, so the storm "
                            "is applied as rainfall instead.")
             return out
+        obs = getattr(req, "observed", None)
         q = req.river_q_m3s
-        if q is None:
+        if obs:
+            # The instrument's reading is the baseline as well as the design
+            # value. Without this the guard below sees `None`, falls through
+            # to the forecast product, and can abandon the river driver
+            # entirely -- so a run the caller asked to be driven by a gauge
+            # would quietly become a rainstorm.
+            q = float(obs["q_m3s"])
+        elif q is None:
             lat = (dom.bounds["south"] + dom.bounds["north"]) / 2
             lon = (dom.bounds["west"] + dom.bounds["east"]) / 2
             q = river_discharge(lat, lon)
-        if not q or q <= 0:
+        if obs is None and (not q or q <= 0):
             out["driver"] = "rain"
             out["note"] = ("No river discharge is published for this reach, so "
                            "the storm is applied as rainfall instead.")
@@ -1449,8 +1985,13 @@ def build_forcing(dom, req) -> dict:
         # Otherwise: heavy rain ~ bankfull, severe ~ 2x, extreme ~ 4x.
         # Multiples of bankfull are the standard way a design flood is stated,
         # and the storm presets are what select the multiple.
+        # An OBSERVATION outranks every chosen number: no storm multiple,
+        # no bankfull estimate, no preset. `obs` was resolved above.
         named = bool(getattr(req, "river_q_is_design", False)) and bool(req.river_q_m3s)
-        if named:
+        if obs:
+            scale = 1.0
+            q_design = float(obs["q_m3s"])
+        elif named:
             scale = 1.0
             q_design = float(req.river_q_m3s)
         else:
@@ -1477,18 +2018,49 @@ def build_forcing(dom, req) -> dict:
 
         out["sea_mask"] = torch.as_tensor(inflow.mask)
         out["sea_level"] = inflow.bed_m + stage
+        # Replaying a dated event: the same Manning conversion, applied to
+        # every reading in the window rather than to one design number, so
+        # the boundary rises and falls the way the river did.
+        series = getattr(req, "hydrograph", None)
+        if series:
+            t0s = datetime.fromisoformat(series[0]["at"])
+            pts = []
+            for r in series:
+                qq = max(float(r["q_m3s"]), 0.0)
+                st = (qq * 0.035 / (width_m * math.sqrt(slope))) ** 0.6
+                st = float(min(st, 15.0))
+                dt_s = (datetime.fromisoformat(r["at"]) - t0s).total_seconds()
+                pts.append((dt_s, inflow.bed_m + st))
+            out["sea_series"] = pts
+            peak_q = max(float(r["q_m3s"]) for r in series)
+            out["q_m3s"] = round(peak_q, 1)
+            out["stage_m"] = round(max(l for _, l in pts) - inflow.bed_m, 2)
+            out["note"] = (
+                f"Replayed from the gauge: {len(series)} readings over "
+                f"{pts[-1][0] / 3600:.1f} h, peaking at {peak_q:,.0f} m3/s "
+                f"({out['stage_m']:.1f} m stage) on the {inflow.edge} edge. "
+                f"No rain on the box -- the hydrograph already contains "
+                f"whatever rain fell upstream.")
+            return out
         out["q_m3s"] = round(q_design, 1)
         out["stage_m"] = round(stage, 2)
+        out["observed"] = obs
         out["note"] = (
             # `:g`, not `:.0f`: the storm presets give scales of 1, 2.5 and 4,
             # and `.0f` printed 2.5 as "2" -- so the note read "2x the forecast
             # peak of 3,000 m3/s" directly beside a value of 7,500. A stated
             # multiple a reader can check in their head has to be the multiple
-            # that was applied.
-            f"{q_design:,.0f} m3/s on the {inflow.edge} edge "
+            # that was applied. And a creek running at 0.01 m3/s should not
+            # print as "0 m3/s" -- on a dry day the observed-driven run is
+            # exactly the one a reader needs to be able to read.
+            (f"{q_design:,.2f} m3/s" if q_design < 10
+             else f"{q_design:,.0f} m3/s")
+            + f" on the {inflow.edge} edge "
             f"(channel from the {out['channel_from']}), "
-            + ("as given. " if named else f"{scale:g}x ")
-            + ("" if named
+            + (f"measured at {obs['name'].split(',')[0]} at "
+               f"{(obs.get('at') or '')[11:16]}. " if obs
+               else "as given. " if named else f"{scale:g}x ")
+            + ("" if (named or obs)
                else f"the forecast peak of {q:,.0f} m3/s. "
                if q * scale >= q_bankfull * scale else
                f"bankfull for this channel (~{q_bankfull:,.0f} m3/s, estimated "
@@ -1994,6 +2566,16 @@ def _solve_plan(req: PlanRequest, key: str) -> dict:
         for i, pl in enumerate(plans)
     ]
 
+    # The option the portal's impact table reports as "with plan" -- the
+    # largest solved reduction over the protected ground. The client picks it
+    # the same way; the field has to be picked here because only the solver
+    # holds the bed, and a map that paints a different plan from the one the
+    # table names is the mistake this repo has made twice (5.14p, 5.14q).
+    best_i = max(range(len(options)),
+                 key=lambda i: options[i]["core_reduction_pct"])
+    best_png = (depth_png(peak[best_i].numpy(), DEPTH_VMAX)
+                if best_i != 0 else None)
+
     f = surrogate.fit(alpha, plans, reduction, req.max_height_m, req.delta)
     S = f["saturation_S"]
 
@@ -2111,6 +2693,12 @@ def _solve_plan(req: PlanRequest, key: str) -> dict:
         "river_stage_m": fx.get("stage_m"),
         "terrain": forcing.describe(np.asarray(dom.z, dtype=np.float32), dom.dx),
         "options": options,
+        # Which option the "with plan" column describes, and its solved field,
+        # so Before / With plan on the map is the same pair as the table --
+        # both from THIS grid, not one from the 40 m bank search.
+        "best_option_index": best_i,
+        "best_option_id": options[best_i]["id"],
+        "best_option_depth_png": best_png,
         "base_depth_m": base,
         "base_area_km2": options[0]["area_flooded_km2"],
         "base_peak_depth_m": options[0]["peak_depth_m"],
@@ -2154,6 +2742,13 @@ class RouteRequest(BaseModel):
     # recorded flood peak or a fitted quantile -- rather than a base figure
     # for the storm presets to multiply. See `build_forcing`.
     river_q_is_design: bool = False
+    # Drive the inflow from the reach's own gauge instead of a chosen number.
+    # Refuses rather than falling back: see `observed_discharge`.
+    river_q_observed: bool = False
+    # Filled in by `build_forcing` when the above is set. Not a user input.
+    observed: Optional[dict] = None
+    # A gauge record to replay, [{at, q_m3s}, ...]. Filled in by /replay.
+    hydrograph: Optional[list] = None
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
     # How many times the schedule is sampled. The flood is resolved to this,
     # and the deadline can only ever be as sharp as the sampling.
@@ -2213,6 +2808,13 @@ class SectionRequest(BaseModel):
     # recorded flood peak or a fitted quantile -- rather than a base figure
     # for the storm presets to multiply. See `build_forcing`.
     river_q_is_design: bool = False
+    # Drive the inflow from the reach's own gauge instead of a chosen number.
+    # Refuses rather than falling back: see `observed_discharge`.
+    river_q_observed: bool = False
+    # Filled in by `build_forcing` when the above is set. Not a user input.
+    observed: Optional[dict] = None
+    # A gauge record to replay, [{at, q_m3s}, ...]. Filled in by /replay.
+    hydrograph: Optional[list] = None
     dx: Optional[float] = None
 
 
@@ -2249,6 +2851,13 @@ class BuildingsRequest(BaseModel):
     # recorded flood peak or a fitted quantile -- rather than a base figure
     # for the storm presets to multiply. See `build_forcing`.
     river_q_is_design: bool = False
+    # Drive the inflow from the reach's own gauge instead of a chosen number.
+    # Refuses rather than falling back: see `observed_discharge`.
+    river_q_observed: bool = False
+    # Filled in by `build_forcing` when the above is set. Not a user input.
+    observed: Optional[dict] = None
+    # A gauge record to replay, [{at, q_m3s}, ...]. Filled in by /replay.
+    hydrograph: Optional[list] = None
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
     snapshots: int = Field(13, ge=2, le=25)
     max_buildings: int = Field(500, ge=1, le=2000)
@@ -2273,6 +2882,13 @@ class SitesRequest(BaseModel):
     # recorded flood peak or a fitted quantile -- rather than a base figure
     # for the storm presets to multiply. See `build_forcing`.
     river_q_is_design: bool = False
+    # Drive the inflow from the reach's own gauge instead of a chosen number.
+    # Refuses rather than falling back: see `observed_discharge`.
+    river_q_observed: bool = False
+    # Filled in by `build_forcing` when the above is set. Not a user input.
+    observed: Optional[dict] = None
+    # A gauge record to replay, [{at, q_m3s}, ...]. Filled in by /replay.
+    hydrograph: Optional[list] = None
     surge_m: float = Field(2.5, ge=0.0, le=10.0)
     max_sites: int = Field(6, ge=1, le=12)
     shortfall_m: float = Field(2.0, ge=0.2, le=8.0)
@@ -2610,7 +3226,22 @@ def buildings(req: BuildingsRequest) -> dict:
     key = "bld:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
     if key in CACHE:
         return {**CACHE[key], "cached": True}
+    # The longest solve in the service: a parent catchment at 40 m, then the
+    # block at 10 m, with thirteen snapshots across eighteen hours. Cold it
+    # runs past the five minutes a browser's fetch will wait for response
+    # headers, and until this was shared every retry started a SECOND solve
+    # of the same block -- so the reader saw "could not open this street" and
+    # made it slower by asking again.
+    res = run_shared(key, lambda: _solve_buildings(req, key))
+    if res is None:
+        return {"ok": False, "pending": True,
+                "elapsed_s": round(pending_for(key) or 0.0),
+                "reason": "Still solving this block. Nothing is lost — ask "
+                          "again and you will join the same run."}
+    return res
 
+
+def _solve_buildings(req: BuildingsRequest, key: str) -> dict:
     span_km = _km_between({"lat": req.south, "lon": req.west},
                           {"lat": req.north, "lon": req.east})
     if span_km > 12.0:
@@ -2742,8 +3373,33 @@ def buildings(req: BuildingsRequest) -> dict:
             "over_floor_series": timeline,
         })
 
+    def _surf(d: np.ndarray) -> str:
+        """The water surface as terrain-RGB, sunk where the ground is dry.
+
+        Encoding the dry part AS the ground makes the two meshes coplanar
+        over most of the block, and a depth compare of less-or-equal lets
+        coincident fragments through: the sheet and the ground then fight
+        for every pixel and the whole dry area shimmers as the camera moves.
+        Three quarters of a metre of sink is below anything the reader can
+        see at this scale and far above the depth buffer's resolution here.
+        """
+        return terrain_png(np.where(d > WET_M, z + d, z - 0.75))
+
     n_over = sum(1 for x in out if x["over_floor_m"] is not None)
-    road = float(np.nanmax(d_peak)) if d_peak.size else 0.0
+    # The deepest water ON THE STREETS, not in the creek.
+    #
+    # This was `nanmax` over the whole fine grid, and a 1.7 km block that
+    # touches Onion Creek contains its channel -- so the tile read "16.27 m
+    # deepest on the ground, anywhere in the block" while no house in it had
+    # more than 4.5 m outside the door. The number was true of the creek bed
+    # and false of everywhere a person stands.
+    #
+    # Taken at the buildings instead: the deepest water outside any footprint
+    # in the block, which is the quantity the panel is actually about. The
+    # channel maximum is still reported, separately and named.
+    street_depths = [b["depth_on_ground_m"] for b in out] if out else []
+    road = max(street_depths) if street_depths else 0.0
+    channel = float(np.nanmax(d_peak)) if d_peak.size else 0.0
     res = {
         "ok": True,
         "name": req.name,
@@ -2755,15 +3411,32 @@ def buildings(req: BuildingsRequest) -> dict:
         "count": len(out),
         "over_floor": n_over,
         "deepest_on_ground_m": round(road, 2),
+        "deepest_anywhere_m": round(channel, 2),
         "snapshot_hours": [round(h, 2) for h in snap_at] if series is not None else [],
         # The block's own water, so the map draws the street's flood rather
         # than the parent study's. Without it the only thing carrying water on
         # screen is the colour of the buildings.
         "depth_png": depth_png(d_peak, _street_vmax(d_peak)),
         "terrain_png": terrain_png(z),
+        # The water SURFACE, encoded the same way the ground is.
+        #
+        # A street view answers "did it get over this floor", and that is a
+        # question about a level, not about a colour. Painting depth on the
+        # ground cannot answer it: at sixteen metres the ramp saturates and
+        # the block is one flat sheet of blue with the houses invisible
+        # underneath. What the client needs is the height of the water, so it
+        # can stand the houses up and cut them at the waterline.
+        #
+        # It is a surface and not a plane because this block falls thirteen
+        # metres across 1.7 km and the water follows that gradient -- a
+        # single level would be flat wrong by metres at one end. Where the
+        # ground is dry the surface is the ground, so the sheet lies down on
+        # it; the depth texture is transparent there and nothing is drawn.
+        "surface_png": _surf(d_peak),
         "depth_vmax_m": round(_street_vmax(d_peak), 2),
         "frames": ([{"t_h": round(snap_at[i], 2),
-                     "depth_png": depth_png(series[i], _street_vmax(d_peak))}
+                     "depth_png": depth_png(series[i], _street_vmax(d_peak)),
+                     "surface_png": _surf(series[i])}
                     for i in range(series.shape[0])] if series is not None else []),
         "floor_above_ground_m": FLOOR_ABOVE_GROUND_M,
         "floor_source": (

@@ -173,7 +173,14 @@ def to_db(gamma0: np.ndarray) -> np.ndarray:
         return 10.0 * np.log10(np.where(gamma0 > 0, gamma0, np.nan))
 
 
-def otsu(values: np.ndarray, bins: int = 256) -> float:
+# How bimodal a histogram has to be before its split is believed, and how
+# dark the "water" class has to be. Both exist because Otsu cannot refuse:
+# see the note in `otsu` and in `detect`.
+MIN_SEPARABILITY = 0.55
+MAX_WATER_DB = -12.0
+
+
+def otsu(values: np.ndarray, bins: int = 256) -> tuple[float, float]:
     """Otsu's threshold, for splitting a bimodal backscatter histogram.
 
     Flooded scenes are bimodal by nature — dark water against brighter land —
@@ -182,14 +189,14 @@ def otsu(values: np.ndarray, bins: int = 256) -> float:
     """
     v = values[np.isfinite(values)]
     if v.size < 100:
-        return float("nan")
+        return float("nan"), 0.0
     lo, hi = np.percentile(v, [1, 99])
     hist, edges = np.histogram(v, bins=bins, range=(lo, hi))
     hist = hist.astype(np.float64)
     w = np.cumsum(hist)
     total = w[-1]
     if total <= 0:
-        return float("nan")
+        return float("nan"), 0.0
     centres = (edges[:-1] + edges[1:]) / 2
     cw = np.cumsum(hist * centres)
     mean_total = cw[-1] / total
@@ -200,7 +207,20 @@ def otsu(values: np.ndarray, bins: int = 256) -> float:
         m1 = (cw[-1] - cw) / (total - w)
     var = w0 * w1 * (m0 - m1) ** 2
     var[~np.isfinite(var)] = -1
-    return float(centres[int(np.argmax(var))])
+    k = int(np.argmax(var))
+    # Otsu always returns a threshold. On a UNIMODAL histogram -- a dry scene
+    # with no open water in it -- it returns one anyway, somewhere down the
+    # middle of the land distribution, and half the scene is then classified
+    # as water. Measured on Onion Creek on a day the creek sat at 0.14 m3/s,
+    # that put 71 km2 of a 138 km2 box under "permanent water".
+    #
+    # `eta` is Otsu's own separability: between-class variance over total
+    # variance. A genuine water/land split is strongly bimodal and scores
+    # high; a split invented inside one mode scores low. Returned alongside
+    # the threshold so the caller can refuse rather than report a number the
+    # histogram does not support.
+    eta = float(var[k] / np.var(v)) if np.var(v) > 0 else 0.0
+    return float(centres[k]), eta
 
 
 @dataclass
@@ -209,6 +229,8 @@ class FloodMap:
     permanent: np.ndarray       # bool: water present before as well
     flooded: np.ndarray         # bool: water now that was not there before
     threshold_db: float
+    #: Otsu's between-class variance ratio for the split that was used.
+    separability: float
     flood_db: np.ndarray
     baseline_db: np.ndarray
     transform: Any
@@ -245,7 +267,25 @@ def detect(flood: Scene, baselines: list[Scene], bbox: list[float],
 
     f_db = to_db(f_lin)
     b_db = to_db(base_lin)
-    thr = threshold_db if threshold_db is not None else otsu(f_db)
+    if threshold_db is not None:
+        thr, sep = float(threshold_db), 1.0
+    else:
+        thr, sep = otsu(f_db)
+        # A threshold the histogram does not support is not a measurement.
+        #
+        # Two tests, both cheap. The split has to be strongly bimodal, and it
+        # has to land somewhere open water actually sits: smooth water in
+        # VV gamma0 is well below -12 dB, and a "water" class found at -8 dB
+        # over central Texas is dry ground, not a lake. Failing either, the
+        # scene is reported as carrying no usable water signal rather than
+        # as half-flooded.
+        if not np.isfinite(thr) or sep < MIN_SEPARABILITY or thr > MAX_WATER_DB:
+            raise ValueError(
+                f"no water/land split in this scene: Otsu put the threshold "
+                f"at {thr:.1f} dB with separability {sep:.2f} "
+                f"(need < {MAX_WATER_DB:.0f} dB and > {MIN_SEPARABILITY:.2f}). "
+                f"A unimodal backscatter histogram means no open water large "
+                f"enough to see, not a flood covering half the scene.")
 
     water_now = np.isfinite(f_db) & (f_db < thr)
     water_before = np.isfinite(b_db) & (b_db < thr)
@@ -256,7 +296,7 @@ def detect(flood: Scene, baselines: list[Scene], bbox: list[float],
 
     return FloodMap(
         water_now=water_now, permanent=permanent, flooded=flooded,
-        threshold_db=thr, flood_db=f_db, baseline_db=b_db,
+        threshold_db=thr, separability=sep, flood_db=f_db, baseline_db=b_db,
         transform=tf, crs=crs,
         meta={
             "flood_scene": flood.id, "flood_datetime": flood.datetime,

@@ -1,5 +1,6 @@
 "use client";
 
+import { Explain } from "./Explain";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEPTH_PRESETS } from "@/lib/roadquery";
 import { STORM_PRESETS } from "@/lib/storms";
@@ -203,8 +204,14 @@ export function TripPanel({
           vehicle_depth_m: vehicle,
           rain_mm_h: s.mm_h, storm_hours: s.hours, run_hours: 12,
           driver, snapshots: 13, depart_step_min: 30,
+          /* The number typed here is the number that runs.
+             Without `river_q_is_design` the service treats the figure as a
+             bankfull estimate and multiplies it by the storm preset, so a
+             reader planning against Onion Creek's recorded 3,823 m3/s at
+             "Severe storm" silently got 9,557. The Plan tab has always sent
+             the flag; this card did not. */
           ...(driver === "river" && Number(qText) > 0
-            ? { river_q_m3s: Number(qText) } : {}),
+            ? { river_q_m3s: Number(qText), river_q_is_design: true } : {}),
         }),
       });
       const d = await r.json();
@@ -294,12 +301,24 @@ export function TripPanel({
               </button>
             )}
           </div>
-          <p className="anno mt-1.5 leading-relaxed">
-            Leave this empty and the model estimates bankfull from the terrain,
-            then applies the storm above as a multiple of it. That estimate comes
-            from a 30 m elevation model, not a gauged rating, and on some reaches
-            it is far smaller than a flood of record — so if you are planning
-            against a known event, type its peak here.
+          {/* The instruction stays -- it tells the reader what to type and
+              why the default may be far too small. The derivation does
+              not. The multiplier warning is load-bearing: this control
+              sends the number WITHOUT the design flag, so the service
+              multiplies what you type by the storm preset. */}
+          <p className="anno mt-1.5 flex items-center gap-1.5 leading-relaxed">
+            Planning against a known flood? Type its peak.
+            <Explain title="Where the river flow comes from" align="left">
+              <p>
+                Left empty, bankfull is estimated from a 30 m elevation
+                model rather than a gauged rating, and on some reaches that
+                is far smaller than a flood of record.
+              </p>
+              <p>
+                A figure typed here runs as given. Left empty, the estimate
+                is multiplied by the storm above — 1×, 2.5× or 4×.
+              </p>
+            </Explain>
           </p>
         </div>
       )}
@@ -634,28 +653,33 @@ export function TripPanel({
           )}
 
           <div className="mt-4 border-t border-line-soft pt-3">
-            <p className="anno leading-relaxed">
-              {/* Not "impassable now": the run starts dry, so the t=0 figure is
-                  always about zero and says nothing about the flood. */}
-              Up to {res.cut_km_peak.toFixed(0)} km of the{" "}
-              {res.network_km.toFixed(0)} km network goes impassable at the worst
-              of this flood. {res.edges} road segments over a{" "}
-              {res.span_km.toFixed(0)} km trip at {res.dx_m.toFixed(0)} m cells
-              {res.timing.solve_reused
-                ? `, re-routed in ${res.timing.seconds.toFixed(0)}s on the flood already solved for this storm`
-                : `, solved in ${res.timing.seconds.toFixed(0)}s`}.
-            </p>
-            <p className="anno mt-1.5 leading-relaxed">{res.driver_note}</p>
-            {(res.snap_km.origin > 0.5 || res.snap_km.destination > 0.5) && (
-              <p className="anno mt-1.5 leading-relaxed">
-                Nearest mapped road is {res.snap_km.origin.toFixed(1)} km from
-                the start and {res.snap_km.destination.toFixed(1)} km from the
-                destination; the trip is routed between those points.
-              </p>
-            )}
-            <p className="anno mt-1.5 leading-relaxed">
-              A design storm, not a forecast of today. Speeds are free-flow by
-              road class, with no traffic model.
+            {/* One visible line, and it is the one that stops a reader
+                treating this as today's forecast. Everything else here was
+                provenance: cell sizes, segment counts, solve seconds, the
+                machine-written driver sentence. */}
+            <p className="anno flex items-center gap-1.5 leading-relaxed">
+              A design storm, not a forecast of today
+              <Explain title="How this run was made" align="left">
+                <p>
+                  Up to {res.cut_km_peak.toFixed(0)} km of the{" "}
+                  {res.network_km.toFixed(0)} km network goes impassable at
+                  the worst of this flood. {res.edges} road segments over a{" "}
+                  {res.span_km.toFixed(0)} km trip at {res.dx_m.toFixed(0)} m
+                  cells{res.timing.solve_reused
+                    ? `, re-routed in ${res.timing.seconds.toFixed(0)}s on the flood already solved for this storm`
+                    : `, solved in ${res.timing.seconds.toFixed(0)}s`}.
+                </p>
+                <p>{res.driver_note}</p>
+                {(res.snap_km.origin > 0.5 || res.snap_km.destination > 0.5) && (
+                  <p>
+                    Nearest mapped road is {res.snap_km.origin.toFixed(1)} km
+                    from the start and {res.snap_km.destination.toFixed(1)} km
+                    from the destination; the trip is routed between those
+                    points.
+                  </p>
+                )}
+                <p>Speeds are free-flow by road class, with no traffic model.</p>
+              </Explain>
             </p>
           </div>
         </>

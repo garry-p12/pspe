@@ -1,5 +1,6 @@
 "use client";
 
+import { Explain } from "./Explain";
 /**
  * Can we give a guarantee here at all?
  *
@@ -23,37 +24,35 @@ export function ForecastCheck({ spreadPct }: { spreadPct: number | null }) {
 
   return (
     <div className="mt-3 rounded border border-line-soft bg-bg-raised p-3">
-      <div className="flex items-baseline justify-between">
-        <span className="text-[12px] text-ink-faint">
-          How well we know the river right now
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[12px] text-ink-faint">
+          River forecast spread
+          <Explain title="What this spread means">
+            <p>
+              It is the day-to-day spread of the seven daily discharge
+              maxima in this week&apos;s forecast, as a percentage of the
+              peak. It is not a validated forecast error: there is no
+              ensemble and no hindcast behind it.
+            </p>
+            <p>
+              It is used as a gate. A conformal safety allowance has to fit
+              inside the gain a wall buys; below about 8% it does, past
+              about 12% it does not, and in between it depends on the site.
+            </p>
+          </Explain>
         </span>
         <span className={`tnum text-[13px] font-semibold ${tone}`}>
           ±{spreadPct.toFixed(0)}%
         </span>
       </div>
-      <p className="mt-1.5 text-[12px] leading-snug text-ink-faint">
-        {good && (
-          <>
-            Good enough to put a guarantee on a plan. The river forecast is
-            accurate to about {spreadPct.toFixed(0)}%, and the safety allowance
-            still leaves room to build within.
-          </>
-        )}
-        {marginal && (
-          <>
-            Borderline. At about {spreadPct.toFixed(0)}% forecast error the
-            safety allowance starts to eat the benefit, so treat any guarantee
-            here as indicative and verify before committing money.
-          </>
-        )}
-        {!good && !marginal && (
-          <>
-            Too uncertain to guarantee. At about {spreadPct.toFixed(0)}% the
-            safety allowance is larger than what a wall would buy, so we can
-            still show you an estimate but not a floor. A river forecast good to
-            roughly 10% would change that.
-          </>
-        )}
+      {/* One line, and it is the one that changes what the reader does:
+          whether a guarantee is on the table at all. The three paragraphs
+          of Plan-tab vocabulary that used to argue the case are behind the
+          (i) above. */}
+      <p className="mt-1 text-[12px] leading-snug text-ink-faint">
+        {good ? "Tight enough to guarantee a plan against."
+          : marginal ? "Borderline — treat any guarantee as indicative."
+            : "Too wide to guarantee a plan; estimates only."}
       </p>
     </div>
   );

@@ -4,8 +4,9 @@ import { useEffect, useMemo } from "react";
 import type { Box } from "@/lib/types";
 import type { InspectGrids } from "@/lib/inspect";
 import {
-  buildGraph, cutKm, edgeDepths, fastest, nearestNode, type Route,
+  buildGraph, cutKm, edgeDepths, fastest, nearestNode, networkKm, type Route,
 } from "@/lib/routes";
+import { Explain } from "./Explain";
 import { DEPTH_PRESETS } from "@/lib/roadquery";
 import {
   calibrateRoute, firstCut, routeVerdict, type RouteVerdict,
@@ -97,23 +98,42 @@ export function RoutePanel({
     // a shorter drive through a flood is a safer one, and a destination 200 m
     // away is not an evacuation.
     const MIN_TRIP_KM = 2.0;
-    let dst: number | null = null;
+    // Candidates, nearest first -- not one nearest node.
+    //
+    // This used to take the single Euclidean-closest dry junction and, if the
+    // router could not reach THAT one, report "No way out by road". One
+    // unreachable node is not a town with no way out: on Onion Creek, with
+    // 30 km of a 900 km network cut, it produced exactly that headline. A
+    // place is cut off when no dry ground is reachable, so the candidates are
+    // tried in order until one routes.
+    const MAX_TRIES = 10;
+    const candidates: number[] = [];
     if (to) {
-      dst = nearestNode(g, to.lon, to.lat);
+      const n = nearestNode(g, to.lon, to.lat);
+      if (n != null) candidates.push(n);
     } else {
-      let best = Infinity;
+      const dry: [number, number][] = [];
       for (const [n] of g.adj) {
         const deep = Math.max(...(g.adj.get(n) ?? []).map(([ei]) => depths[ei]), 0);
         if (deep > 0.05) continue;
         const [x, y] = g.nodes[n];
         const km = Math.hypot((x - from.lon) * 97, (y - from.lat) * 111);
         if (km < MIN_TRIP_KM) continue;
-        if (km < best) { best = km; dst = n; }
+        dry.push([km, n]);
       }
+      dry.sort((a, b) => a[0] - b[0]);
+      for (const [, n] of dry.slice(0, MAX_TRIES)) candidates.push(n);
     }
-    if (dst == null || dst === src) return null;
 
-    const quickest = fastest(g, src, dst, depths, vehicle);
+    let dst: number | null = null;
+    let quickest: Route | null = null;
+    for (const n of candidates) {
+      if (n === src) continue;
+      const r = fastest(g, src, n, depths, vehicle);
+      dst = n; quickest = r;
+      if (r.ok) break;                 // the nearest one that can be reached
+    }
+    if (dst == null || quickest == null) return null;
     // What the drive looks like with no water at all, as the thing to compare
     // the flooded trip against: "12 min becomes 31" is the cost of the flood.
     const dry = fastest(g, src, dst, depths.map(() => 0), vehicle);
@@ -170,6 +190,7 @@ export function RoutePanel({
       atOrigin,
       dest: { lat: g.nodes[dst][1], lon: g.nodes[dst][0] },
       cutNetworkKm: cutKm(g, depths, vehicle),
+      networkKm: networkKm(g),
     };
   }, [g, depths, bounds, from, to, vehicle, plan, planGridFor, chosenGrid]);
 
@@ -273,9 +294,26 @@ export function RoutePanel({
                 )}
               </>
             )}
-            <p className="anno mt-1.5">
-              {answer.cutNetworkKm.toFixed(0)} km of the local network is under
-              more water than this vehicle can cross
+            {/* With its denominator, and with the counting rule stated:
+                this figure and the Forecast tab's differ by about four
+                times on the same flood because they answer different
+                questions, and neither said which. */}
+            <p className="anno mt-1.5 flex items-center gap-1.5">
+              {answer.cutNetworkKm.toFixed(0)} of {answer.networkKm.toFixed(0)} km
+              unusable
+              <Explain title="Two ways to count a cut road">
+                <p>
+                  A route can only refuse a whole road segment, so if any
+                  point on one is too deep the whole thing counts as
+                  unusable — {answer.cutNetworkKm.toFixed(0)} km here.
+                </p>
+                <p>
+                  The Forecast tab asks how much tarmac is under water and
+                  counts only the wet parts, which on the same flood gives
+                  about a quarter of this. Both are right for their own
+                  question.
+                </p>
+              </Explain>
               {answer.atOrigin <= 0.05 && answer.cutNetworkKm < 0.1 &&
                 " — none of it near here"}
             </p>
@@ -374,9 +412,7 @@ export function RoutePanel({
           )}
 
           <p className="anno mt-2.5 leading-relaxed">
-            Speeds are free-flow by road class, not a traffic model. A road is
-            judged by its deepest point, which is where a vehicle stops.
-          </p>
+            Free-flow speeds, no traffic model.</p>
         </>
       )}
     </div>

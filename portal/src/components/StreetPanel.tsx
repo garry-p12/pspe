@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { Explain } from "./Explain";
 
 /**
  * One street, and which floors the water got over.
@@ -56,6 +57,10 @@ export interface StreetResult {
   count: number;
   over_floor: number;
   deepest_on_ground_m: number;
+  /** The deepest water anywhere in the solved box, creek channel included.
+   *  Separate from the street figure, and named, because a block that
+   *  touches a creek contains fifteen metres of it. */
+  deepest_anywhere_m?: number;
   snapshot_hours: number[];
   floor_above_ground_m: number;
   floor_source: string;
@@ -63,8 +68,12 @@ export interface StreetResult {
   driver_note: string;
   depth_png: string;
   terrain_png: string;
+  /** The water surface as a terrain-RGB grid: the ground where it is dry,
+   *  ground plus depth where it is wet. The map hangs the flood on this
+   *  rather than painting it on the floor. */
+  surface_png: string;
   depth_vmax_m: number;
-  frames: { t_h: number; depth_png: string }[];
+  frames: { t_h: number; depth_png: string; surface_png: string }[];
 }
 
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -172,8 +181,7 @@ export function StreetPanel({
         </p>
       )}
       <p className="mb-3 mt-2 text-[13px] leading-relaxed text-ink-mute">
-        Every building in the block, and whether the water got over its floor —
-        not over the ground outside it.
+        Water over the floor, not over the ground outside.
       </p>
 
       {!result && !busy && (
@@ -188,11 +196,7 @@ export function StreetPanel({
                 </button>
               ))}
             </div>
-            <p className="anno mt-1.5 leading-relaxed">
-              {driver === "river"
-                ? "A street floods from upstream. The catchment this view solves is a few kilometres across and the creek above it drains hundreds, so the water arrives as discharge rather than as rain landing here."
-                : "Rain on the solved box only. Honest for a cloudburst on a flat suburb, and it under-floods a creek: measured, 2 of 245 houses over their floors against 361 of 574 forced down the channel."}
-            </p>
+
           </div>
 
           {driver === "river" && (
@@ -220,20 +224,27 @@ export function StreetPanel({
                 />
                 <span className="text-[13px] text-ink-mute">m³/s</span>
               </div>
+              {/* What is left is the part that changes what the reader
+                  does: the number to type, and the fact that the
+                  multiplier is a calibration knob rather than a severity
+                  dial. Why it needs calibrating is behind the (i). */}
               <p className="anno mt-1.5 leading-relaxed">
-                Onion Creek peaked near 3,400 m³/s in October 2013, when this
-                neighbourhood went under. Left empty, bankfull is estimated from
-                the channel geometry, which on bare earth reads high.
-              </p>
-              <p className="anno mt-1.5 leading-relaxed">
-                Worth knowing before reading a count off this: at 3,400 m³/s
-                with no multiplier, this model puts <em>no</em> house in the
-                block over its floor, and it takes about 2.5× that to reproduce
-                the inundation 2013 actually caused. The gap is the model&apos;s,
-                not the creek&apos;s — a 14 km box truncates a catchment that
-                drains hundreds of square kilometres, and nothing here knows
-                about the bridges and culverts that backed the water up. Treat
-                the multiplier as the calibration knob it is.
+                Onion Creek peaked near 3,400 m³/s in 2013. Reproducing that
+                flood here takes about 2.5× it.{" "}
+                <Explain title="Why the multiplier">
+                  <p>
+                    At 3,400 m³/s with no multiplier this model puts no house
+                    in the block over its floor, and 2013 flooded this
+                    neighbourhood. The gap is the model&apos;s, not the
+                    creek&apos;s: a 14 km box truncates a catchment draining
+                    hundreds of square kilometres, and nothing here knows
+                    about the bridges and culverts that backed the water up.
+                  </p>
+                  <p>
+                    Left empty, the discharge is estimated from the channel
+                    geometry, which on bare earth reads high.
+                  </p>
+                </Explain>
               </p>
             </div>
           )}
@@ -255,13 +266,7 @@ export function StreetPanel({
               : "Solve a place first"}
         </button>
       )}
-      {busy && (
-        <p className="anno mt-1.5 leading-relaxed">
-          The catchment is solved first and the street downscaled from it. A
-          street-sized box has no upstream in it, so rain falling on one drains
-          out of the sides and floods nothing.
-        </p>
-      )}
+
       {err && (
         <div className="mt-3 rounded-lg border border-line bg-bg-inset p-3">
           <p className="text-[13px] font-medium text-ink">Could not open this street</p>
@@ -271,18 +276,13 @@ export function StreetPanel({
 
       {result?.ok && (
         <>
-          <p className="anno mb-2">
-            {result.count} buildings · ground{" "}
-            {Math.min(...result.buildings.map((b) => b.ground_m)).toFixed(1)}–
-            {Math.max(...result.buildings.map((b) => b.ground_m)).toFixed(1)} m ·
-            solved at {result.dx_m.toFixed(0)} m
-          </p>
-
           <div className="grid grid-cols-2 gap-2">
             <Tile
-              label="Deepest on the ground"
+              label="Deepest at a house"
               value={`${result.deepest_on_ground_m.toFixed(2)} m`}
-              sub="anywhere in the block"
+              sub={result.deepest_anywhere_m
+                ? `${result.deepest_anywhere_m.toFixed(1)} m in the channel`
+                : "outside a front door"}
             />
             <Tile
               label="Over floor level"
@@ -315,9 +315,8 @@ export function StreetPanel({
                 className="mt-1 w-full accent-ink"
               />
               <p className="anno">
-                {frame === null
-                  ? "the worst it ever gets, which is what a flood map shows"
-                  : `${result.snapshot_hours[frame].toFixed(1)} hours into the storm`}
+                {frame === null ? "the worst it ever gets"
+                  : `${result.snapshot_hours[frame].toFixed(1)} h into the storm`}
               </p>
             </div>
           )}
@@ -333,8 +332,7 @@ export function StreetPanel({
                         className="text-[12px] text-ink-faint hover:text-ink">clear</button>
               </div>
               <p className="anno mt-0.5">
-                slab on ground, assumed · ground {sel.ground_m.toFixed(2)} m from the{" "}
-                {sel.ground_source}
+                slab on ground, assumed · ground {sel.ground_m.toFixed(2)} m
               </p>
               <div className="mt-2">
                 {at(sel) > 0 ? (
@@ -400,17 +398,21 @@ export function StreetPanel({
             </ul>
           </div>
 
-          <details className="fold mt-3 border-t border-line-soft">
-            <summary>What the floor number rests on</summary>
-            <p className="anno pb-2 leading-relaxed">{result.floor_source}</p>
-            <p className="anno pb-2 leading-relaxed">
-              The water surface comes from a catchment solve and is laid over
-              bare-earth terrain at {result.dx_m.toFixed(0)} m. The terrain is
-              {result.terrain_source === "3dep" ? " USGS 3DEP bare earth" : " Copernicus GLO-30"}.
-              A street-sized box cannot be rain-forced: it has no upstream in it.
-            </p>
-            <p className="anno pb-2 leading-relaxed">{result.driver_note}</p>
-          </details>
+          <p className="anno mt-3 flex items-center gap-1.5 border-t
+                        border-line-soft pt-2">
+            Solved at {result.dx_m.toFixed(0)} m
+            <Explain title="What this rests on" align="left">
+              <p>{result.floor_source}</p>
+              <p>
+                The water surface comes from a catchment solve and is laid
+                over bare-earth terrain at {result.dx_m.toFixed(0)} m
+                ({result.terrain_source === "3dep"
+                  ? "USGS 3DEP" : "Copernicus GLO-30"}). A street-sized box
+                cannot be rain-forced: it has no upstream in it.
+              </p>
+              <p>{result.driver_note}</p>
+            </Explain>
+          </p>
         </>
       )}
     </div>

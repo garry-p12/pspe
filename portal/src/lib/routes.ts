@@ -316,8 +316,25 @@ export function fastest(
 }
 
 /** Network length under more water than the vehicle can drive through. */
+/**
+ * Kilometres of network a vehicle cannot cross, counting WHOLE edges.
+ *
+ * An edge is the unit a router can refuse, so if any sample on it is over
+ * the limit the whole edge is unusable and its whole length is cut. The
+ * Forecast tab's road list answers a different question -- how much of the
+ * tarmac is under water -- and counts only the sub-segments that are, which
+ * is why the two figures differ by about four times on the same flood. Both
+ * are right for their own question; neither should be read as the other.
+ */
 export function cutKm(g: RouteGraph, depths: number[], limitM: number): number {
   let km = 0;
   g.edges.forEach((e, i) => { if (depths[i] > limitM) km += e.lengthM / 1000; });
+  return km;
+}
+
+/** Total length of the routing graph, for the denominator. */
+export function networkKm(g: RouteGraph): number {
+  let km = 0;
+  g.edges.forEach((e) => { km += e.lengthM / 1000; });
   return km;
 }

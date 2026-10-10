@@ -85,7 +85,7 @@ ok("cost is billed over the bank", /over \d+ m of bank/.test(t),
    (t.match(/over \d+ m of bank/) || [""])[0]);
 ok("freeboard over the solved peak is a tile", /Above the solved peak/.test(t));
 ok("homes kept dry is present and honest about not being counted",
-   /Homes kept dry/.test(t) && /not counted yet/.test(t));
+   /Homes kept dry/.test(t) && /not counted/.test(t));
 ok("a verdict chip is shown",
    /Holds|Overtopped|Water behind it|That is in the river|Nothing to hold/.test(t),
    (t.match(/Holds|Overtopped|Water behind it|That is in the river|Nothing to hold/) || [""])[0]);

@@ -83,7 +83,13 @@ ok("the tray offers all five parts",
      .every((x) => t.includes(x)));
 ok("the two point structures are there as parts, not pictures",
    /drains one way/.test(t) && /lifts\s+water from inside/.test(t));
-ok("the rates say where they came from", /USACE construction rates/.test(t));
+// The sourcing moved behind the costing (i) in the declutter -- it is
+// provenance, not a decision. What has to stay on the face of the panel is
+// the thing that changes what you buy: height is not linear in cost.
+ok("the panel says cost is not linear in height",
+   /2\.97× a 1 m one/.test(t) || /2\.97 times a 1 m one/.test(t));
+ok("the rate provenance is one click away",
+   await p.getByRole("button", { name: /What these cost/ }).count() > 0);
 await p.screenshot({ path: `${OUT}/87_kit.png` });
 
 // Arm a piece and place it on two sites.

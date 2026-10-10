@@ -1,5 +1,6 @@
 "use client";
 
+import { Explain } from "./Explain";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STORM_PRESETS } from "@/lib/storms";
 import { money, type SectionResult, type WallVerdict } from "@/lib/section";
@@ -62,7 +63,7 @@ function Tile({ label, value, sub, tone }: {
 
 export function SectionPanel({
   ends, picking, onPicking, onClearEnds, onOverlay,
-  sites, sitesBusy, onFindSites, canFind, chosenSite, onChooseSite,
+  sites, sitesBusy, sitesErr, onFindSites, canFind, chosenSite, onChooseSite,
   result, busy, elapsed, err, onSolve,
   stationIdx, crestM, wall, onCrest, onSnap, homesKeptDry,
 }: {
@@ -73,6 +74,8 @@ export function SectionPanel({
   onOverlay: (o: SectionOverlay | null) => void;
   sites: SitesFeed | null;
   sitesBusy: boolean;
+  /** Why the bank search failed, where it did. */
+  sitesErr: string | null;
   onFindSites: () => void;
   canFind: boolean;
   chosenSite: number | null;
@@ -124,10 +127,6 @@ export function SectionPanel({
       <h2 className="eyebrow">1 · Choose a line to protect</h2>
       {!sites && (
         <>
-          <p className="mt-1 mb-2 text-[13px] leading-relaxed text-ink-mute">
-            The banks worth defending come out of the terrain and the solved
-            flood, with a section drawn across each.
-          </p>
           {/* The lines are found when the tab opens. Same search the kit
               runs, same answer, one solve -- so this is progress, not a
               button someone has to press before the tab does anything. */}
@@ -140,6 +139,21 @@ export function SectionPanel({
                 <span className="block h-full w-1/3 animate-pulse rounded-full bg-ink" />
               </div>
             </div>
+          ) : sitesErr ? (
+            // A failed search used to be a dead end here. "Build a plan"
+            // showed the reason and a retry; this panel showed "Reading this
+            // creek's flood record" for ever, because it was handed the
+            // error-free half of the same state.
+            <div className="rounded-lg border border-line bg-bg-inset p-3">
+              <p className="text-[13px] font-medium text-ink">No lines here</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">{sitesErr}</p>
+              <button onClick={onFindSites} disabled={sitesBusy || !canFind}
+                      className="mt-2 rounded-md border border-line px-3 py-1.5
+                                 text-[13px] text-ink hover:bg-bg-inset
+                                 disabled:opacity-40">
+                Look again
+              </button>
+            </div>
           ) : (
             // No button before the flood is settled: see LeveeKit. A manual
             // search in that window answers the default scenario and the
@@ -149,12 +163,7 @@ export function SectionPanel({
                 {canFind ? "Reading this creek's flood record"
                   : "Waiting for a solved place"}
               </p>
-              <p className="anno mt-1 leading-relaxed">
-                {canFind
-                  ? "The banks worth defending depend on which flood you are "
-                    + "defending against, so the gauge record comes first."
-                  : "Nothing to plan against until a place is solved."}
-              </p>
+
             </div>
           )}
         </>
@@ -275,7 +284,7 @@ export function SectionPanel({
                   tone={freeboard === null ? undefined : freeboard >= 0 ? "good" : "bad"} />
             <Tile label="Homes kept dry"
                   value={homesKeptDry === null ? "—" : String(homesKeptDry)}
-                  sub={homesKeptDry === null ? "not counted yet" : "on the landward side"} />
+                  sub={homesKeptDry === null ? "not counted" : "on the landward side"} />
           </div>
 
           <div className="mt-3 rounded-lg border border-line bg-bg-raised p-3">
@@ -299,19 +308,23 @@ export function SectionPanel({
                   or take the crest that holds.</>
               )}
               {wall.verdict === "wet-behind" && (
-                <>The crest clears the water it faces, and there is already water{" "}
+                <>The crest holds, but there is already{" "}
                   <span className="tnum text-ink">
                     {((wall.behindStageM ?? 0) - wall.groundM).toFixed(2)} m
                   </span>{" "}
-                  deep behind it. A wall does not drain what is already inside, and on
-                  this line the flood reaches the landward side by another route.</>
+                  of water behind it — the flood reaches the landward side
+                  another way, and a wall does not drain what is inside.</>
               )}
               {wall.verdict === "in-channel" && (
-                <>This station sits in the channel. The section cannot tell a bank
-                  from a riverbed by elevation — the bed is simply the lowest ground
-                  on the line, which is also where a crest looks cheapest — so it is
-                  found from the depth instead. A wall here is a weir. Drag it onto
-                  the bank.</>
+                <>A wall here is a weir — drag it onto the bank.{" "}
+                  <Explain title="How the channel is found">
+                    <p>
+                      The section cannot tell a bank from a riverbed by
+                      elevation: the bed is simply the lowest ground on the
+                      line, which is also where a crest looks cheapest. It
+                      is found from the solved depth instead.
+                    </p>
+                  </Explain></>
               )}
               {wall.verdict === "dry" && (
                 <>There is no water on the river side of this station, so there is
