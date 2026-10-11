@@ -74,6 +74,14 @@ def main() -> int:
     ap.add_argument("--learned", type=str, default="",
                     help="JSON [[name, return, episode_cost], ...] to place "
                          "against the curve")
+    ap.add_argument("--lo", type=float, default=0.30)
+    # Past 0.95 by default. The first sweep stopped at 0.95, whose cost is
+    # 7.27, and then the learned arms came in at 5.5-8.5 -- so the cheapest
+    # measured trigger was more expensive than the thing it was supposed to
+    # be a baseline for, and "the best trigger you could afford" had no
+    # answer at the bottom of the range.
+    ap.add_argument("--hi", type=float, default=0.999)
+    ap.add_argument("--step", type=float, default=0.025)
     ap.add_argument("--out", type=str, default="")
     args = ap.parse_args()
 
@@ -84,7 +92,7 @@ def main() -> int:
 
     print(f"{'thresh':>8} {'return':>10} {'cost':>8} {'sd':>8}")
     curve = []
-    for th in np.arange(0.30, 0.96, 0.025):
+    for th in np.arange(args.lo, args.hi, args.step):
         r, c, sd = score_fixed(env, float(th), episodes=args.episodes)
         curve.append((float(th), r, c))
         print(f"{th:>8.3f} {r:>10.1f} {c:>8.2f} {sd:>8.1f}")

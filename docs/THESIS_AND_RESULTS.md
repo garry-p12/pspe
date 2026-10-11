@@ -8392,18 +8392,19 @@ is domination, and the write-up called it a loss, because it was being
 compared against a trigger spending 2.3× as much. Whether it survives the
 correct cost statistic is the open question, not a conclusion.
 
-**The trigger family's frontier, measured** (2026-10-11, 27 thresholds from
-0.30 to 0.95 at 0.025 spacing, 4 seeds and 64 episodes each). It is a step
-function with **three Pareto points**:
+**The trigger family's frontier, measured** (2026-10-11, 70 thresholds from
+0.30 to 0.99 at 0.01 spacing, 4 seeds and 64 episodes each). It is a step
+function with **three Pareto points**, and raising the resolution from 0.025
+to 0.01 and extending the range to 0.99 adds none:
 
 | threshold | return | cost | what it dominates |
 |---|---|---|---|
 | 0.550 | −1426.7 | 29.45 | every threshold from 0.300 down-cost, all scoring −1426.7 at 30.1–46.2 |
 | 0.675 | −2579.7 | 15.19 | 0.575–0.650, all −2579.7 at 21.3–28.3 |
-| 0.950 | −3511.4 | 7.27 | 0.700–0.925, all −3511.4 at 7.7–15.1 |
+| 0.990 | −3511.4 | 6.51 | **every threshold from 0.70 to 0.99**, all −3511.4, at costs from 15.06 down to 6.51 |
 
-Eleven consecutive thresholds return *the same number to one decimal* while
-their cost varies by a factor of 1.6. That is not noise, it is the family's
+Thirty consecutive thresholds return *the same number to one decimal* while
+their cost varies by a factor of 2.3. That is not noise, it is the family's
 resolution: one threshold on one global signal selects which SLOT the order
 fires at, and there are only a handful of distinct slots in a 48-step episode
 where the decision changes anything. A one-degree-of-freedom controller on an
@@ -8412,6 +8413,11 @@ eight-zone problem can express three behaviours.
 This is the structural reason the comparison matters. The learned arms do not
 have to be *better* than the trigger to be worth something — they have to be
 able to sit between its steps, and the steps are 1,100 return apart.
+
+Put precisely: **between cost 6.51 and cost 15.19 the trigger family offers
+exactly one return, −3511.4.** Anything a controller achieves in that price
+band other than −3511.4 is outside the family's reachable set, at any
+threshold.
 
 Reading the learned arms against that curve at their own cost — provisionally,
 because their cost column is the retracted statistic:
