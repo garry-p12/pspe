@@ -144,8 +144,18 @@ def main() -> int:
             print(f"{algo:<30} FAILED: {str(exc)[:60]}")
             rows.append({"group": "baseline", "name": algo, "error": str(exc)[:200]})
             continue
+        # `episode_cost`, not `eval/cost_mean_over_run`. The latter is the
+        # mean over EVERY periodic evaluation during training, so pairing it
+        # with `return` -- which is the final policy's -- scores one policy's
+        # benefit against another policy's price. It matters whenever cost
+        # drifts during training, which is exactly what a dual does. The
+        # hybrid row below already read `episode_cost`, so until now the
+        # opponents and the method were judged by different statistics in
+        # the same table.
         r = {"return": out.get("return", float("nan")),
-             "cost": out.get("eval/cost_mean_over_run", float("nan")),
+             "cost": out.get("episode_cost", float("nan")),
+             "cost_mean_over_run": out.get("eval/cost_mean_over_run",
+                                           float("nan")),
              "violation_rate": out.get("violation_rate", float("nan")),
              "seconds": round(time.time() - t0, 1),
              "samples": out.get("samples", 0)}
@@ -167,8 +177,9 @@ def main() -> int:
     try:
         out = trainer.train()
         r = {"return": out.get("return", float("nan")),
-             "cost": out.get("episode_cost", out.get("eval/cost_mean_over_run",
-                                                     float("nan"))),
+             "cost": out.get("episode_cost", float("nan")),
+             "cost_mean_over_run": out.get("eval/cost_mean_over_run",
+                                           float("nan")),
              # `final_alpha`, not `alpha`: the trainer reports the latter
              # only inside its per-iteration record, so reading "alpha" here
              # printed NaN and looked like an estimator fault for two runs.

@@ -8332,12 +8332,13 @@ than the baseline, and I reported it as "the first time anything learned has
 beaten a heuristic here". It was a lucky seed. That is the third time this
 session Rule 100 has caught the same mistake.
 
-Two things do survive the seeds. The constraint is **slack** — every arm lands
-well inside the budget of 32 — and the dual keeps tightening anyway: cost falls
-23.9 → 12.9 as training proceeds while return degrades 1411 → 2630. A PID dual
-on a non-binding constraint should stop, and this one buys budget nobody asked
-for and pays in people. And **more training is reliably worse**, which is the
-same symptom from the other side.
+One thing does survive the seeds: **more training is reliably worse**, 1411 →
+1870 → 2630 across 10, 30 and 60 iterations. That is a return column and the
+return column is sound.
+
+The claim that used to sit here — that the constraint is slack and the dual
+keeps tightening anyway, cost falling 23.9 → 12.9 — is built on the cost
+column, and the cost column is the wrong statistic. See the retraction below.
 
 **CPO, same four seeds, same 60 iterations** (2026-10-11), to check whether
 that tightening is a property of the problem or of the Lagrangian:
@@ -8354,24 +8355,73 @@ It beats the baseline on 2 of 4 seeds and loses by 445.5 on the mean against a
 standard deviation of 1119.9 — the same coin flip, not a win, and Rule 100
 applies to seed 0's −433.4 exactly as it applied to the −189.5 above.
 
-But the **cost column is the finding**: 19.8, 20.6, 20.1, 20.2. CPO parks at
-20.2 ± 0.3 across seeds and across training, where PPO-Lagrangian walks from
-23.9 down to 12.9 and pays 1,219 return for the trip. Both leave a budget of
-32 unspent, so neither is constrained by the constraint; the difference is
-what each does about that. A trust region on the cost *advantage* has nothing
-to push against once the constraint is inactive, so CPO stops. A PID dual
-integrates a negative error and keeps pushing, so it does not. That is a
-statement about the mechanism rather than about this environment, and it is
-the one thing in this table that would transfer.
+**The cost column in both tables above is the wrong statistic, and it is
+retracted** (2026-10-11, same day). `make_agent(...).train()` returns two
+cost keys. `episode_cost` is the final policy's, measured in the same
+evaluation that produces `return`. `eval/cost_mean_over_run` is the mean over
+*every periodic evaluation during training*. The runner read the second. So
+every row above pairs the final policy's benefit with the average-over-training
+price — two different policies — and the error is largest exactly when a dual
+is moving the cost during training, which is the entire phenomenon the column
+was being used to describe. "CPO parks at 20.2 ± 0.3 while PPO-Lagrangian
+walks 23.9 → 12.9" is a statement about two averages taken over different
+training lengths, not about where either policy ended up. The mechanism story
+it suggested — a trust region stops pushing on an inactive constraint, an
+integrating dual does not — may well be true, but nothing here measures it.
+
+`baselines/run_operate_comparison.py` had the same bug with a sharper edge:
+the four safe-RL baselines were scored on `eval/cost_mean_over_run` and the
+hybrid planner on `episode_cost`, in the same table. Opponents and method,
+different statistics. Both now report `episode_cost` and carry the
+mean-over-run beside it so drift stays checkable instead of inferred.
+
+**And the comparison itself was mis-framed.** Every learned arm was scored
+against "the best feasible baseline, −1426.7 at cost 29.4" — the best trigger
+at a budget of 32, which the trigger clears with room to spare, while the
+learned arms spent 13–20. Returns at different costs are not comparable on a
+constrained problem. Reading the three trigger points that were run:
+
+| arm | return | cost |
+|---|---|---|
+| trigger 0.55 | −1426.7 | 29.4 |
+| trigger 0.70 | −3511.4 | 15.1 |
+| PPO-Lagrangian | −2629.8 | 12.9 (wrong statistic) |
+
+PPO-Lagrangian returns 882 more than trigger 0.70 while spending less. That
+is domination, and the write-up called it a loss, because it was being
+compared against a trigger spending 2.3× as much. Whether it survives the
+correct cost statistic is the open question, not a conclusion.
+
+So the negative result on this environment is **suspended, not reversed**.
+Two experiments are running to settle it: the trigger family's full frontier
+at 0.025 spacing, and the learned arms at budgets of 12, 20 and 32 reporting
+`episode_cost`, each compared against the best trigger costing no more than
+that arm itself did. The hypothesis, recorded before the numbers: a trigger
+has one degree of freedom, a single threshold applied to every zone at once,
+so when disruption is scarce the question stops being *when* to order and
+becomes *whom* — which that family cannot express. If a learned policy ever
+beats it, a binding budget is where.
 
 Sauté and primal-dual NPG were not in this run — the runner lists two
 algorithms, so the two missing rows are missing, not failed.
 
-So both environments in this project now carry the same negative result: on the
-polder a level deadband beat every learned method on 4 of 4 seeds, and on the
-evacuation problem a one-number trigger is indistinguishable from the better of
-PPO-Lagrangian and CPO at their best, and better than both on the mean. Two independent problems, two
-well-matched heuristics, nothing learned ahead of either.
+**Rule 104: a metric key that exists is not the metric you wanted.** Rule 99
+caught reading keys that were absent and getting NaN, which is loud. This is
+the quiet version: the key is present, the value is plausible, the units are
+right, and it answers a different question. `return` and `cost` came from the
+same dictionary and described different policies for three runs.
+
+What this leaves. On the **polder**, a level deadband beat every learned
+method on 4 of 4 seeds, and that comparison is sound: the controllers there
+are scored by the same `score()` on the same seed and the same budget, so
+nothing about the cost-key bug touches it. On the **evacuation** problem the
+negative result is suspended pending the two runs above — the learned arms may
+or may not sit above the trigger frontier at their own price, and the earlier
+"a one-number trigger wins" was a comparison against a trigger spending
+2.3× as much.
+
+So the honest cross-environment statement today is one well-matched heuristic
+that nothing has beaten, not two.
 
 **Rule 103: a reliability figure is a ratio, and the denominator is an
 argument.** Every misleading number this session came from counting the wrong
