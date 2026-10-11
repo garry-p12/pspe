@@ -40,3 +40,13 @@ data/dem_cache/
 # them is a deterministic function of the two, cached because it costs
 # eight minutes of real routing.
 data/evac/
+
+# Markdown is not tracked, with one exception: README.md at any level.
+#
+# The docs stay on disk and remain in git history -- this stops them being
+# carried forward in the repository, it does not delete them. Note that this
+# also covers portal/CLAUDE.md and portal/AGENTS.md, which are agent
+# instructions rather than prose; AGENTS.md is rewritten by `next dev` on
+# every run, so ignoring it also ends a standing uncommitted-change.
+*.md
+!README.md
