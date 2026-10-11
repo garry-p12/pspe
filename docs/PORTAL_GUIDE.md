@@ -374,6 +374,68 @@ both right for their own question, and each now states its rule in its own
 `Getting out` scores roads against the **peak** field, so a road that is dry for
 the first three hours is Closed all day. The card below it does not.
 
+### Warning time
+
+![The warning card](images/portal-guide/27-warning-panel.png)
+
+`Getting out` says which roads close. It does not say whether anyone would
+know in time, and that is a different question with a different answer and a
+different source. This card is the only panel in the portal that reports no
+model output at all: every figure on it is read out of the USGS record by
+`/warning`, which fetches the annual peaks at the outlet gauge and, for each
+one, the instantaneous series at the gauge upstream, and times the lag between
+the two peaks.
+
+```
+Warning time              from Onion Ck at Twin Creeks Rd nr Manchaca
+4 h 45 min
+median on the 4 floods it recorded, of 6 since 2004
+
+No warning on the 2 largest floods
+The upstream gauge left no usable trace on 2013-10-31 or 2015-10-30 —
+the biggest events since it was built. Gauges fail in the floods worth
+warning for.
+
+And it is not always this much: 2007-01-13 gave 20 min.
+```
+
+The median is the smallest true thing on the card. The two facts under it are
+the reason it is a panel rather than a number:
+
+- **The gauge slept through both of the floods anyone would build a warning
+system for.** 2013-10-31 and 2015-10-30 are the two largest events on this
+reach since the upstream gauge was installed, at 3,823 and 3,455 m³/s, and
+neither left a usable trace on it. A median computed over the days the
+instrument worked describes the warning available during the floods nobody
+needed warning for.
+- **The spread is most of the story.** Four measured lags: 285, 275, 335 and
+20 minutes. The last one is not a tail, it is a quarter of the sample, and
+20 minutes is below the 120-minute lead at which the evacuation study stops
+finding a route out for everyone — measured on this same road network in
+`pspe/envs/evacuate.py` and written up in `docs/THESIS_AND_RESULTS.md`, not
+on this tab.
+
+Three choices in that card are worth stating because each of them could have
+been made the flattering way:
+
+- **Floods that predate the upstream gauge are excluded, not counted as
+failures.** The outlet's record reaches back to 1921; the upstream gauge
+starts 2004-10-26. Ranking the peaks by size and taking the top ten put
+1921, 1929 and 1941 in the denominator and scored them as gauge failures —
+which read as a much worse warning system than the one that exists. "Not yet
+instrumented" and "instrumented and silent" are different facts and only the
+second says anything about a warning system.
+- **The failures are listed individually, with dates and discharges**, rather
+than folded into a success rate. `4 of 6` is a number you can look at without
+learning which two.
+- **A negative or near-zero lag is reported, not clipped.** A storm centred
+below the upstream gauge peaks downstream first; that is a real hydrological
+case and not an error to be hidden at zero.
+
+What it does *not* claim: this is the lag between two instruments, not the
+notice a resident would get. Detection, decision and dissemination all come
+out of it, and none of the three is measured here.
+
 ### Plan a trip
 
 **From** and **To** are place searches (three characters, 350 ms debounce,
@@ -713,6 +775,12 @@ bank — the same placement the levee kit uses, and the gate and the pump are
 already in the kit because `/plan` has priced and solved them since the
 pluvial case made it necessary (§3).
 
+![A gate and a pump placed](images/portal-guide/24-operate-placed-panel.png)
+
+Then come back to **Operate**.
+
+![Ready to run](images/portal-guide/25-operate-ready-panel.png)
+
 ### The one control
 
 **Fuel for the pumps**, in pump-hours at the rated capacity of what you
@@ -736,14 +804,6 @@ operating decision and nothing else.
 Under each result is the **schedule strip**: one column per control interval,
 gate opening on top and pump on the bottom, darker meaning more. That strip is
 the answer — the single number beside it is just how the answer scored.
-
-### The honest result on this reach
-
-![A gate and a pump placed](images/portal-guide/24-operate-placed-panel.png)
-
-Then come back to **Operate**.
-
-![Ready to run](images/portal-guide/25-operate-ready-panel.png)
 
 ### The honest result on this reach
 
@@ -1613,6 +1673,8 @@ node scripts/verify-section-math.mjs   # the trapezoidal volume and its cost
 node scripts/verify-street.mjs         # the street view and the floor frame
 node scripts/verify-before-after.mjs   # Before / With plan paint two different floods
 node scripts/verify-street-1x.mjs      # the street multiplier's stated reason is true
+node scripts/verify-operate.mjs        # the Operate panel, including its refusal
+node scripts/verify-warning.mjs        # the warning card reports its failures, not just its median
 node scripts/panel-weight.mjs          # how much text each panel puts on screen
 ```
 

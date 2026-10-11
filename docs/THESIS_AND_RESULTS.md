@@ -8339,10 +8339,38 @@ on a non-binding constraint should stop, and this one buys budget nobody asked
 for and pays in people. And **more training is reliably worse**, which is the
 same symptom from the other side.
 
+**CPO, same four seeds, same 60 iterations** (2026-10-11), to check whether
+that tightening is a property of the problem or of the Lagrangian:
+
+| seed | return | cost |
+|---|---|---|
+| 0 | −433.4 | 19.8 |
+| 1 | −2128.3 | 20.6 |
+| 2 | −1419.3 | 20.1 |
+| 3 | −3507.9 | 20.2 |
+| **mean** | **−1872.2** (sd 1119.9) | **20.2** |
+
+It beats the baseline on 2 of 4 seeds and loses by 445.5 on the mean against a
+standard deviation of 1119.9 — the same coin flip, not a win, and Rule 100
+applies to seed 0's −433.4 exactly as it applied to the −189.5 above.
+
+But the **cost column is the finding**: 19.8, 20.6, 20.1, 20.2. CPO parks at
+20.2 ± 0.3 across seeds and across training, where PPO-Lagrangian walks from
+23.9 down to 12.9 and pays 1,219 return for the trip. Both leave a budget of
+32 unspent, so neither is constrained by the constraint; the difference is
+what each does about that. A trust region on the cost *advantage* has nothing
+to push against once the constraint is inactive, so CPO stops. A PID dual
+integrates a negative error and keeps pushing, so it does not. That is a
+statement about the mechanism rather than about this environment, and it is
+the one thing in this table that would transfer.
+
+Sauté and primal-dual NPG were not in this run — the runner lists two
+algorithms, so the two missing rows are missing, not failed.
+
 So both environments in this project now carry the same negative result: on the
 polder a level deadband beat every learned method on 4 of 4 seeds, and on the
-evacuation problem a one-number trigger is indistinguishable from PPO-Lagrangian
-at its best and better than it everywhere else. Two independent problems, two
+evacuation problem a one-number trigger is indistinguishable from the better of
+PPO-Lagrangian and CPO at their best, and better than both on the mean. Two independent problems, two
 well-matched heuristics, nothing learned ahead of either.
 
 **Rule 103: a reliability figure is a ratio, and the denominator is an
@@ -8354,9 +8382,8 @@ displayed value, arms compared on single runs.
 environment are synthetic — a coherent corridor widening with member size, not
 solved hydraulics — so the frontier's shape is trustworthy and its numbers are
 not. The ensemble carries six members, so `trigger 0.20`'s ±0.00 means
-"nothing in this ensemble broke it", not robustness. And nothing has been
-trained in this environment yet: every arm above is hand-built, which makes
-them baselines awaiting an opponent rather than a result.
+"nothing in this ensemble broke it", not robustness. And the ensemble's six members bound what
+"robust" can mean here more tightly than any training run does.
 
 ## Part 6 — The climate digital-twin framework: where we actually stand
 

@@ -15,6 +15,7 @@ import { RoutePanel } from "./RoutePanel";
 import { SectionPanel, type SectionEnds, type SectionOverlay } from "./SectionPanel";
 import { SectionStrip } from "./SectionStrip";
 import { OperatePanel, type OperateReply } from "./OperatePanel";
+import { WarningTime } from "./WarningTime";
 import { wallAt, crestToHold, bestStation, reaches, channelBelts,
          type SectionResult } from "@/lib/section";
 import { ScenarioPicker } from "./ScenarioPicker";
@@ -1392,6 +1393,14 @@ export function Planner() {
             in Forecast replaces `adHocGrids` but not `adHocRoads`, so the
             panel would score this place's roads against another place's
             flood and cheerfully report that nothing is cut off. */}
+        {/* "Getting out" says whether a road out exists and until when.
+            This says whether anyone would be told in time, which a closure
+            map cannot answer: it depends on how far upstream the nearest
+            gauge is and whether it was recording when it mattered. */}
+        {tab === "trip" && (
+          <WarningTime box={kitBox} name={scenarioName} />
+        )}
+
         {tab === "trip" && !tripRoutesOwned && showingShippedStudy
           && adHocRoads && adHocGrids && mapBounds && (
           <div className="border-t border-line">

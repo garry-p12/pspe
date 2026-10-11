@@ -4370,12 +4370,22 @@ def warning(req: WarningRequest) -> dict:
     want = _reach_words(req.name or "")
     on_reach = [g for g in feed.get("gauges", [])
                 if want and any(w in (g.get("name") or "").lower() for w in want)]
+    if not want:
+        # "Austin, Texas" names a city, not a watercourse, and `_reach_words`
+        # correctly strips it to nothing -- which then matches no gauge and
+        # reports "0 gauge on this reach", blaming the river for the caller's
+        # argument. Say which it is.
+        return {"ok": False, "reason": (
+            f"{req.name or 'This area'} names a place rather than a reach, so "
+            f"there is no watercourse to match a gauge against. Pass the "
+            f"stream's name — the study's own is 'Onion Creek, Austin, "
+            f"Texas' — and the upstream and downstream gauges can be paired.")}
     if len(on_reach) < 2:
         return {"ok": False, "reason": (
-            f"{len(on_reach)} gauge on this reach. A warning time is the lag "
-            f"between two of them, so it needs an upstream instrument and a "
-            f"downstream one; with a single gauge there is nothing to measure "
-            f"against.")}
+            f"{len(on_reach)} gauge on this reach carries its name. A warning "
+            f"time is the lag between two of them, so it needs an upstream "
+            f"instrument and a downstream one; with one there is nothing to "
+            f"measure against.")}
 
     box = (req.west, req.south, req.east, req.north)
     # Upstream and downstream by position along the flow axis, west to east
