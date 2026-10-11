@@ -8057,8 +8057,42 @@ gradient that knows only "pump less" and nothing about flooding. An
 environment that declares itself non-differentiable has to mean it for every
 quantity the objective is built from.
 
-**The comparison, at 40 iterations, and it is a negative result.** 16 eval
-episodes, budget 2.0 pump-hours, grid 32 / dx 120:
+**Seeded, and the headline survives while one of my explanations does not.**
+Four seeds, 60 iterations, PPO-Lagrangian against the incumbent evaluated on
+the same seeds:
+
+| arm | mean | sd |
+|---|---|---|
+| level deadband (incumbent) | **−36.42** | 6.62 |
+| PPO-Lagrangian, `reward_scale` 100 | −52.93 | 6.04 |
+| PPO-Lagrangian, `reward_scale` 14 | −52.90 | 6.79 |
+
+Paired by seed, the incumbent wins **4 of 4** by +16.5 on average
+(+16.9, +0.7, +23.8, +24.6). That is the first number from this environment
+worth defending.
+
+**And reward scaling does nothing: +0.03 against a within-arm sd of ~6.** An
+earlier version of this entry reported it as +11.95, "closing half the gap to
+the incumbent". That was one run of each arm against one run of a baseline.
+Two 60-iteration runs of the IDENTICAL configuration later came out 11.12
+points apart — the same size as the effect being claimed — so the comparison
+was never decidable. The dual-gain hypothesis is **withdrawn**: it may still
+be true for other algorithms, but nothing here measured it.
+
+**Rule 100: an effect the size of your run-to-run spread is not an effect.**
+The incumbent alone spans 16.85 points across four seeds. Every single-run
+figure in the first version of this section, mine and the baselines', sat
+inside that spread.
+
+**What the seeds do not overturn.** The observation is not the problem: a
+linear probe reads "the gate is sealed" off the raw 4×32×32 observation at
+**0.977** against a 0.565 majority baseline, so the one bit `pump while
+sealed` exploits is available to every learned policy. And the learned arms
+barely spend their budget — 0.14 to 1.28 pump-hours of an allowed 2.0 — so
+they are not losing by overspending, they are declining to act.
+
+**The earlier single-run comparison, kept for the record.** 16 eval
+episodes, budget 2.0 pump-hours, grid 32 / dx 120, one seed each:
 
 | controller | return | pump-h | within budget |
 |---|---|---|---|
@@ -8092,13 +8126,177 @@ top one.
 **Rule 98: in a constrained problem, a ranking without a feasibility column is
 a ranking of who cheated most.**
 
-**Not yet established:** `train/return` goes NaN inside `train()` on this env
-while the evaluation return stays finite and a hand-rolled six-iteration loop
-stays stable, so the planner is not yet certified on this environment. And
-with `differentiable=False` α is pinned rather than exercised — the adaptive
-experiment this env is uniquely suited for needs a flood surrogate, or a
-float64 variance estimate for the gate's 10²² gradients, before it means
-anything.
+**A reported defect that was never real, and the reason it looked real.** This
+entry previously said `train/return` goes NaN inside `train()`, and that the
+planner was therefore not certified on this environment. It does not. Traced
+per iteration, the training return is finite throughout (−1.2 to −1.9 over six
+iterations, entropy and saturation finite, multiplier 0.0), and the returned
+dict contains **no NaN at all**. `train/return` is simply not one of the keys
+`train()` returns — it is a per-iteration diagnostic, not a summary — so
+`out.get("train/return", float("nan"))` manufactured the NaN it then reported.
+
+That is the second time in this session a `.get(key, nan)` on a key that does
+not exist was read as a numerical fault: `alpha` for two whole runs, where the
+trainer reports `final_alpha`.
+
+**Rule 99: a missing key and a broken number are indistinguishable once a NaN
+default stands in for both.** Read the summary dict before defaulting, or
+default to `KeyError`.
+
+**Still not established:** with `differentiable=False` α is pinned rather than
+exercised, and the surrogate arm that does exercise it carries only
+skill 0.239. The adaptive experiment this env is uniquely suited for needs a
+better surrogate before it means anything.
+
+### 5.14x The evacuation environment, and the warning that is not there when it matters (2026-10-10)
+
+`FloodOperateEnv` is a polder and there is no polder at Onion Creek. The
+operational decision that genuinely exists at that site, on infrastructure
+that genuinely exists, is **when to tell which neighbourhoods to leave** —
+and the portal already computes the hard half of it. `routes.latest_departure`
+answers *"the last moment someone can leave and still get through"*, which its
+own docstring defends better than this entry could: *"you have until 14:45" is
+a decision, "this road floods at some point" is not.*
+
+`pspe/envs/evacuate.py` is the sequential multi-zone version of that decision.
+`eval/run_evac_policy.py` already evaluated it for ONE traveller under
+ensemble uncertainty with five hand-built arms and, in its own words, "no
+training"; what was missing was an environment. `build_egress_table`
+precomputes, with real time-dependent routing on the real 3,659-segment Onion
+Creek network, whether zone *k* can still get out leaving at slot *t* under
+member *m* — so the step is a lookup and an episode costs microseconds while
+the routing stays real.
+
+**Four calibration failures to get there, every one a modelling error rather
+than a numerical one.** Each produced a confident ranking of nothing:
+
+| what was wrong | what it looked like |
+|---|---|
+| random depth per edge | every zone escapes always; all five arms score exactly 0.00 |
+| `fastest_at` allows waiting | a route always exists if you sit in the flood until it drains |
+| ordered-onto-a-cut-road counted as a casualty | doing nothing is optimal; a mistimed trigger strands 100% |
+| signal taken from local water | egress closes at slot 1 of 12, before any signal moves |
+
+The first is the one worth keeping: **random per-edge depths cannot
+disconnect a graph.** Routing goes around. Real floods cut networks because
+they are spatially coherent — a river corridor severs everything crossing it,
+which is why "the road out" is a handful of bridges and not a thousand edges.
+
+**The frontier, four seeds, budget 8.0 people-intervals of disruption:**
+
+| arm | return | cost | |
+|---|---|---|---|
+| never order | −218.55 ± 21.15 | 0.00 | 76% of the town sits in water |
+| order at t=0 | 0.00 | 12.00 | **infeasible** |
+| **trigger 0.20** | **0.00** | **7.61** | **unique feasible optimum** |
+| trigger 0.30 | −27.65 ± 7.79 | 7.28 | |
+| trigger 0.50 | −55.73 ± 14.34 | 5.31 | |
+
+Blanket evacuation is not affordable at this budget; a threshold of 0.20
+reaches the same zero harm for a third less disruption.
+
+**Rule 101: a warning system needs lead, and lead is a property of the site,
+not of the algorithm.** On a synthetic corridor the best trigger was useless
+below sixty minutes of upstream warning and fine above it. That number did
+not survive solved hydraulics — see the correction below — but the shape did.
+
+**And then the measurement, which is the point of having a twin.** The model
+says Onion Creek needs ≥60 minutes of upstream lead. The site has a specific
+upstream gauge — `08158827`, Twin Creeks Rd, 0.11 km above the box's inflow
+edge, the one §5.14v corrected the service to actually use. The lag between
+its peak and `08159000`'s is recorded, not modelled. Nine events since 2003:
+
+| event | lag | |
+|---|---|---|
+| 2018-03-28 | +50 min | below what the model needs |
+| 2024-01-22 | +105 min | |
+| 2019-05-04 | +285 min | |
+| 2021-10-14 | +310 min | |
+| 2015-05-24 | +335 min | |
+| 2017-08-27, 2021-06-03 | ±5–7 min | small events, no routing |
+| **2013-10-31** | — | **Twin Creeks: 0 readings** |
+| **2015-10-30** | — | **Twin Creeks: hole across the peak** |
+| 2019-10-24 | — | Twin Creeks peaked at 0.0 m³/s |
+
+Where the wave routes and both instruments work, the median lead is **285
+minutes** — nearly five times what the decision requires. The warning time at
+Onion Creek is ample.
+
+**It is ample on every event except the two that matter.** 31 October 2013
+(3,823 m³/s) and 30 October 2015 (3,455 m³/s) are the two largest floods in
+the instrumented record, and they are exactly the two where the upstream gauge
+has no usable trace. This is the third time this session that finding has
+arrived from a different direction: §5.14u found the same hole stopped the
+2013 replay, and §5.14v found the gauge selection had been reading the wrong
+end of the reach entirely.
+
+**Rule 102: an instrument's duty cycle is part of the hazard model.** A gauge
+with 285 minutes of lead and a habit of failing in the largest floods does not
+provide 285 minutes of lead; it provides them conditionally, and the
+condition is anticorrelated with need. A warning system designed on the
+median would be designed on the cases nobody needs warning for.
+
+**Redone on solved hydraulics, and validated against the portal's own
+numbers.** Everything above used a drawn corridor. Replacing it with a
+six-member ensemble solved by `FloodSolver` took four more corrections, three
+of them the same species — a constant that is right somewhere else:
+
+| wrong | right | effect |
+|---|---|---|
+| `bed_slope=1e-4`, copied from the Lismore evaluator | derived from the terrain, as the service does | small |
+| `build_domain`'s default `source="copernicus"` | `"auto"` → USGS 3DEP **bare earth** | 28.84 km² → 18.71 |
+| hourly snapshots | 15-minute, the trip timescale | every arm identical at −434.44 |
+| budget 8.0 carried over from 12 slots | 32.0, scaled to 48 | every arm infeasible |
+
+The DEM was the big one. Copernicus GLO-30 is a SURFACE model: it reads
+metres high over trees and buildings, which pond water bare earth drains. It
+also explains why refining the grid made the error *worse* — 223 km of road
+cut at 60 m, 281 km at 40 m — because more resolution means more spurious
+canopy. On bare earth at the study's own 40 m this pipeline reproduces the
+shipped pair exactly: **18.71 km² flooded** against 18.71, and **118 of
+895 km of road cut** against 117 of 891.
+
+The snapshot one is subtler and is the solver's own documented behaviour.
+`Schedule.at` takes the maximum of the two bracketing samples, which never
+calls a road passable during an interval it did not inspect. With hourly
+snapshots and twelve-minute trips, every journey is scored against the next
+HOUR's flood — and this network goes from 0 to between 105 and 604 cut edges
+inside that first hour. The storm's timescale is not the one that needed
+resolving; the trip's is.
+
+**The corrected result, four seeds, budget 32 people-intervals:** the best
+FEASIBLE policy at each upstream lead.
+
+| lead | threshold | return | cost | |
+|---|---|---|---|---|
+| 0 min | 0.70 | −3511.4 | 13.1 | no better than doing nothing |
+| 30 min | 0.70 | −3511.4 | 13.7 | no better than doing nothing |
+| 60 min | 0.70 | −3511.4 | 14.4 | no better than doing nothing |
+| **120 min** | **0.55** | **−1426.7** | **29.4** | **full benefit, affordably** |
+
+**The lead threshold is 120 minutes, not 60, and the effect is a cliff rather
+than a trade.** I predicted the opposite in advance — that warning would
+convert smoothly into budget savings, with the chosen threshold rising and
+cost falling while return held. It does not. Return is flat and useless to
+sixty minutes and then jumps to the full −1426.7. Below the cliff the only
+policy that helps is blanket evacuation at cost 48, which the budget cannot
+buy; above it, a threshold of 0.55 buys the same outcome for 29.4.
+
+**Which closes the loop with the gauge.** The measurement above gives Twin
+Creeks a median lead of **285 minutes** over US 183 — comfortably past the
+120 the decision needs. So Onion Creek *is* evacuable by upstream warning,
+on the five events where the wave routed and both instruments recorded. It is
+not on 31 October 2013 (0 readings) or 30 October 2015 (a hole across the
+peak), which are the two largest floods in the record. Rule 102 stands and
+sharpens: the warning is sufficient exactly when it is not needed.
+
+**Caveats, stated rather than buried.** The flood schedules driving the
+environment are synthetic — a coherent corridor widening with member size, not
+solved hydraulics — so the frontier's shape is trustworthy and its numbers are
+not. The ensemble carries six members, so `trigger 0.20`'s ±0.00 means
+"nothing in this ensemble broke it", not robustness. And nothing has been
+trained in this environment yet: every arm above is hand-built, which makes
+them baselines awaiting an opponent rather than a result.
 
 ## Part 6 — The climate digital-twin framework: where we actually stand
 
