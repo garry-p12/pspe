@@ -107,6 +107,27 @@ class HybridGradientEstimator:
         g_pw = torch.stack([_flat_grad(c.mean(), self.params) for c in chunks_pw])
         g_lr = torch.stack([_flat_grad(c.mean(), self.params) for c in chunks_lr])
 
+        # A zero estimator has zero variance, and the rule below cannot see
+        # the difference between that and a perfect one.
+        #
+        # `a* = (V_lr - Cov) / (B^2 + V_pw + V_lr - 2 Cov)` assumes both arms
+        # are estimators of the same gradient, differing in variance and (via
+        # B^2) in bias. Where the pathwise branch is UNAVAILABLE rather than
+        # merely noisy -- dynamics that do not carry a graph, a detached
+        # reward, an env whose `differentiable` flag is off -- every fold
+        # returns exactly zero, so V_pw = 0, Cov = 0, and the rule evaluates
+        # to a* = V_lr / V_lr = 1. The mixture then weights the zero gradient
+        # exclusively and the planner silently stops learning. Measured on
+        # `FloodOperateEnv` with `differentiable=False`: var_pathwise 0.0,
+        # var_likelihood 8.10, and the EMA walking alpha up from 0.5 toward 1.
+        #
+        # B^2 is no defence: it is populated by `measure_pathwise_bias`, which
+        # compares a surrogate against the truth, and is 0 when there is no
+        # surrogate to compare. So the degenerate case has to be named.
+        if float(g_pw.abs().sum()) == 0.0:
+            return 0.0, 0.0, float((g_lr - g_lr.mean(0, keepdim=True)).pow(2).sum()
+                                   / max(folds - 1, 1)), 0.0
+
         dev_pw = g_pw - g_pw.mean(0, keepdim=True)
         dev_lr = g_lr - g_lr.mean(0, keepdim=True)
         denom = max(folds - 1, 1)
@@ -122,6 +143,12 @@ class HybridGradientEstimator:
             alpha = self.alpha
         else:
             alpha = (var_lr - cov) / spread
+        # `min`/`max` do not sanitise NaN -- every comparison against it is
+        # False, so `min(max(nan, 0.0), 1.0)` is nan -- and a NaN alpha poisons
+        # the mixed gradient and every parameter after it. Fall back to the
+        # last good value, which is what `spread <= 1e-12` already does.
+        if alpha != alpha:
+            alpha = self.alpha
         alpha = float(min(max(alpha, 0.0), 1.0))
         return alpha, var_pw, var_lr, cov
 

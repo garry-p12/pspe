@@ -176,8 +176,32 @@ def to_db(gamma0: np.ndarray) -> np.ndarray:
 # How bimodal a histogram has to be before its split is believed, and how
 # dark the "water" class has to be. Both exist because Otsu cannot refuse:
 # see the note in `otsu` and in `detect`.
-MIN_SEPARABILITY = 0.55
+#
+# `MIN_TROUGH` replaced a floor on Otsu's own separability, which was the
+# wrong statistic and was wrong in both directions. Otsu's eta is driven by
+# class BALANCE, not by bimodality:
+#
+#     scene                         eta     trough
+#     unimodal gaussian           0.577      0.013
+#     unimodal, left-skewed       0.559     -0.007
+#     bimodal, water 50% of box   0.906      0.998
+#     bimodal, water  3% of box   0.355      0.842
+#
+# A perfectly unimodal Gaussian scores 0.58 -- above the 0.55 floor that was
+# supposed to reject it -- because a split at the mean of any symmetric
+# distribution captures 2/pi ~ 0.637 of the variance. And a REAL flood
+# covering 3% of the box scores 0.355 and was refused. Onion Creek in flood
+# is about 2.5% of this study box, so the old floor was set to reject exactly
+# the case it exists to measure. It passed its two field tests by accident:
+# both scenes also failed the threshold-location test below.
+#
+# `trough_depth` asks the question that was meant: is there a VALLEY at the
+# threshold, or does it sit on the slope of a single hump.
+MIN_TROUGH = 0.35
 MAX_WATER_DB = -12.0
+
+#: Deprecated. Kept so existing callers import cleanly; nothing gates on it.
+MIN_SEPARABILITY = 0.55
 
 
 def otsu(values: np.ndarray, bins: int = 256) -> tuple[float, float]:
@@ -223,6 +247,43 @@ def otsu(values: np.ndarray, bins: int = 256) -> tuple[float, float]:
     return float(centres[k]), eta
 
 
+def trough_depth(values: np.ndarray, thr: float, bins: int = 256) -> float:
+    """How deep the valley at `thr` is, against the smaller mode beside it.
+
+    Otsu hands back a threshold whatever the histogram looks like, so the
+    caller needs an independent answer to "was there anything to split". The
+    useful question is not how much variance the split explains -- that is a
+    statement about class balance -- but whether the density actually DIPS
+    where the threshold was put.
+
+    Returns roughly 0 when the threshold lies on the flank of a single hump,
+    and approaches 1 when the two classes are separated by a gap. Measured on
+    synthetic scenes: unimodal gives -0.01 to 0.01, a flood covering 3% of
+    the box gives 0.84, an even split gives 1.00.
+
+    Negative values are possible and mean the "valley" is denser than the
+    mode beside it, which is a unimodal histogram seen from the wrong side.
+    """
+    v = values[np.isfinite(values)]
+    if v.size < 100 or not np.isfinite(thr):
+        return 0.0
+    lo, hi = np.percentile(v, [1, 99])
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return 0.0
+    hist, edges = np.histogram(v, bins=bins, range=(lo, hi))
+    # Smooth before looking for a valley, or speckle supplies one anywhere.
+    hist = np.convolve(hist.astype(np.float64), np.ones(5) / 5.0, mode="same")
+    centres = (edges[:-1] + edges[1:]) / 2
+    i = int(np.clip(np.searchsorted(centres, thr), 1, bins - 2))
+    below, above = hist[:i], hist[i:]
+    if below.size < 2 or above.size < 2:
+        return 0.0
+    floor = min(below.max(), above.max())
+    if floor <= 0:
+        return 0.0
+    return float(1.0 - hist[i] / floor)
+
+
 @dataclass
 class FloodMap:
     water_now: np.ndarray       # bool: open water in the flood scene
@@ -230,7 +291,10 @@ class FloodMap:
     flooded: np.ndarray         # bool: water now that was not there before
     threshold_db: float
     #: Otsu's between-class variance ratio for the split that was used.
+    #: Reported, not gated on -- see the note on MIN_TROUGH.
     separability: float
+    #: How deep the valley at the threshold was. This is what was gated on.
+    trough: float
     flood_db: np.ndarray
     baseline_db: np.ndarray
     transform: Any
@@ -269,21 +333,25 @@ def detect(flood: Scene, baselines: list[Scene], bbox: list[float],
     b_db = to_db(base_lin)
     if threshold_db is not None:
         thr, sep = float(threshold_db), 1.0
+        dip = 1.0
     else:
         thr, sep = otsu(f_db)
+        dip = trough_depth(f_db, thr)
         # A threshold the histogram does not support is not a measurement.
         #
-        # Two tests, both cheap. The split has to be strongly bimodal, and it
-        # has to land somewhere open water actually sits: smooth water in
-        # VV gamma0 is well below -12 dB, and a "water" class found at -8 dB
-        # over central Texas is dry ground, not a lake. Failing either, the
-        # scene is reported as carrying no usable water signal rather than
-        # as half-flooded.
-        if not np.isfinite(thr) or sep < MIN_SEPARABILITY or thr > MAX_WATER_DB:
+        # Two tests, both cheap. There has to be a real VALLEY where the
+        # threshold was put -- see `trough_depth`, and the note on
+        # MIN_TROUGH for why Otsu's own separability was the wrong test --
+        # and the threshold has to land somewhere open water actually sits:
+        # smooth water in VV gamma0 is well below -12 dB, and a "water"
+        # class found at -8 dB over central Texas is dry ground, not a lake.
+        # Failing either, the scene is reported as carrying no usable water
+        # signal rather than as half-flooded.
+        if not np.isfinite(thr) or dip < MIN_TROUGH or thr > MAX_WATER_DB:
             raise ValueError(
                 f"no water/land split in this scene: Otsu put the threshold "
-                f"at {thr:.1f} dB with separability {sep:.2f} "
-                f"(need < {MAX_WATER_DB:.0f} dB and > {MIN_SEPARABILITY:.2f}). "
+                f"at {thr:.1f} dB with a trough depth of {dip:.2f} "
+                f"(need < {MAX_WATER_DB:.0f} dB and > {MIN_TROUGH:.2f}). "
                 f"A unimodal backscatter histogram means no open water large "
                 f"enough to see, not a flood covering half the scene.")
 
@@ -296,7 +364,8 @@ def detect(flood: Scene, baselines: list[Scene], bbox: list[float],
 
     return FloodMap(
         water_now=water_now, permanent=permanent, flooded=flooded,
-        threshold_db=thr, separability=sep, flood_db=f_db, baseline_db=b_db,
+        threshold_db=thr, separability=sep, trough=dip,
+        flood_db=f_db, baseline_db=b_db,
         transform=tf, crs=crs,
         meta={
             "flood_scene": flood.id, "flood_datetime": flood.datetime,

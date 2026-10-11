@@ -229,16 +229,32 @@ export function StreetPanel({
                   multiplier is a calibration knob rather than a severity
                   dial. Why it needs calibrating is behind the (i). */}
               <p className="anno mt-1.5 leading-relaxed">
-                Onion Creek peaked near 3,400 m³/s in 2013. Reproducing that
+                Onion Creek peaked at 3,823 m³/s in 2013. Reproducing that
                 flood here takes about 2.5× it.{" "}
                 <Explain title="Why the multiplier">
                   <p>
-                    At 3,400 m³/s with no multiplier this model puts no house
-                    in the block over its floor, and 2013 flooded this
-                    neighbourhood. The gap is the model&apos;s, not the
-                    creek&apos;s: a 14 km box truncates a catchment draining
-                    hundreds of square kilometres, and nothing here knows
-                    about the bridges and culverts that backed the water up.
+                    At 3,823 m³/s with no multiplier this model puts 31 of
+                    this block&apos;s 78 houses over their floors, with
+                    2.90 m against the worst-hit one. At 2.5× it puts 60 of
+                    78 over, with 4.85 m. 2013 flooded this neighbourhood
+                    severely enough to buy most of it out, so the multiplier
+                    is calibration against the recorded outcome — not a
+                    model that says nothing happens without it.
+                  </p>
+                  <p>
+                    What the multiplier stands in for is missing physics: a
+                    14 km box truncates a catchment draining hundreds of
+                    square kilometres, and nothing here knows about the
+                    bridges and culverts that backed the water up. It is not
+                    the shape of the forcing — replaying the gauge&apos;s own
+                    hydrograph against the same peak held flat moves the
+                    flooded area by about 6%.
+                  </p>
+                  <p>
+                    3,823 m³/s is USGS&apos;s annual peak for 31 October 2013
+                    at Onion Ck at US Hwy 183 — 135,000 cfs, measured
+                    indirectly from high-water marks after the event, because
+                    the gauge stopped recording across the peak.
                   </p>
                   <p>
                     Left empty, the discharge is estimated from the channel

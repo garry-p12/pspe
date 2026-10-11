@@ -14,6 +14,7 @@ import { TripPanel, type TripResult } from "./TripPanel";
 import { RoutePanel } from "./RoutePanel";
 import { SectionPanel, type SectionEnds, type SectionOverlay } from "./SectionPanel";
 import { SectionStrip } from "./SectionStrip";
+import { OperatePanel, type OperateReply } from "./OperatePanel";
 import { wallAt, crestToHold, bestStation, reaches, channelBelts,
          type SectionResult } from "@/lib/section";
 import { ScenarioPicker } from "./ScenarioPicker";
@@ -84,7 +85,7 @@ export function Planner() {
   // differently on purpose: Richmond is a VALIDATED MODEL, Austin a
   // PROJECTION that recovers about half of FEMA's mapped 1% floodplain.
   /** Which planning tool the Plan tab is showing. */
-  const [planMode, setPlanMode] = useState<"kit" | "section">("kit");
+  const [planMode, setPlanMode] = useState<"kit" | "section" | "operate">("kit");
   /** The street zoom. A map control, not a panel -- which is where the design
    *  puts it and where anyone reading a map expects a zoom to be. */
   const [streetOn, setStreetOn] = useState(false);
@@ -135,6 +136,14 @@ export function Planner() {
 
   /** The levee kit: where a wall would pay, what is placed, what it buys. */
   const [kit, setKit] = useState<SitesFeed | null>(null);
+  /* Operating what was placed. `/plan` decides the design; this runs it.
+     Kept beside the kit's state because it reads the same placed pieces --
+     a schedule for structures that are not on the map is not a question. */
+  const [op, setOp] = useState<OperateReply | null>(null);
+  const [opBusy, setOpBusy] = useState(false);
+  const [opSec, setOpSec] = useState(0);
+  const [opPolicy, setOpPolicy] = useState<string | null>(null);
+  const [opFrame, setOpFrame] = useState<number | null>(null);
   const [kitBusy, setKitBusy] = useState(false);
   const [kitSec, setKitSec] = useState(0);
   const [kitErr, setKitErr] = useState<string | null>(null);
@@ -179,12 +188,13 @@ export function Planner() {
   // One place decides which view is live: the three tabs the design has, plus
   // the two controls that are not tabs. Everything downstream still reads
   // `tab`, so the panels and the map did not change when the nav did.
-  const tab: "anywhere" | "trip" | "section" | "street" | "kit" =
+  const tab: "anywhere" | "trip" | "section" | "street" | "kit" | "operate" =
     streetOn ? "street"
       : section === "roads" ? "trip"
         : section === "plan" ? planMode
           : "anywhere";
-  const setTab = (t: "anywhere" | "trip" | "section" | "street" | "kit") => {
+  const setTab = (t: "anywhere" | "trip" | "section" | "street" | "kit"
+                   | "operate") => {
     // A depth reading belongs to the view it was taken in. Carrying it across
     // is how a number sampled from the study's peak field ends up floating
     // over a street solve or a different scenario's flood.
@@ -886,6 +896,64 @@ export function Planner() {
     return "done" as const;
   }, [kitBox, kit, placedPieces, kitBudget, analysis, forcing]);
 
+  /* Run the event under each controller.
+     The structures are whatever is on the map, so this sends the SAME site
+     payload `/plan` sends. A schedule only exists where a gate or a pump was
+     placed: a levee has no setting, and the service refuses rather than
+     inventing a basin to operate. */
+  const runOperate = useCallback(async (budget: number) => {
+    if (!kitBox || !kit?.ok || !placedPieces.length) return;
+    setOpBusy(true); setOp(null); setOpSec(0); setOpFrame(null);
+    const tick = setInterval(() => setOpSec((n) => n + 1), 1000);
+    try {
+      const chosen = placedPieces.map((p) => ({
+        site: kit.sites[p.site], piece: pieceOf(p.piece)! }));
+      const payload = {
+          ...kitBox, name: analysis?.name ?? "Area", dx: 60,
+          ...forcing, run_hours: 12,
+          budget_pump_hours: budget,
+          horizon: 10, control_minutes: 30,
+          sites: chosen.map((c) => ({
+            lat: c.site.lat, lon: c.site.lon, width_m: c.site.width_m,
+            outline: c.site.outline, line: c.site.line,
+            kind: c.piece.kind,
+            cost_model: c.piece.cost_model,
+            unit_cost: c.piece.unit,
+            height_m: c.piece.intensity,
+          })),
+      };
+      const r = await fetch("/api/operate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      let d = (await r.json()) as OperateReply & { detail?: string };
+      /* Join the run rather than making the reader click again.
+         A real event on real terrain takes minutes, and the service answers
+         `pending` while it finishes -- the work is keyed, so asking again
+         joins the same run instead of starting a second one. Without this
+         the panel simply reported "still running" and stopped. */
+      for (let i = 0; i < 12 && d?.pending; i++) {
+        await new Promise((ok) => setTimeout(ok, 15_000));
+        const again = await fetch("/api/operate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        d = (await again.json()) as OperateReply & { detail?: string };
+      }
+      setOp(d.ok === undefined && d.detail
+        ? { ok: false, reason: d.detail } : d);
+      setOpPolicy(d.results?.[0]?.policy ?? null);
+    } catch (e) {
+      setOp({ ok: false, reason: String((e as Error).message).slice(0, 200) });
+    } finally {
+      clearInterval(tick);
+      setOpBusy(false);
+    }
+  }, [kitBox, kit, placedPieces, analysis, forcing]);
+
+
   /** As `findSitesUntilDone`, for the plan library. */
   const solveKitPlanUntilDone = useCallback(async () => {
     for (let i = 0; i < 8; i++) {
@@ -1294,12 +1362,13 @@ export function Planner() {
         {section === "plan" && (
           <div className="border-b border-line px-5 py-3">
             <div className="flex flex-wrap gap-1">
-              {(["kit", "section"] as const).map((k) => (
+              {(["kit", "section", "operate"] as const).map((k) => (
                 <button key={k} className="pill whitespace-nowrap"
                         data-on={planMode === k}
                         onClick={() => { setPlanMode(k);
                                          if (k === "section") setSectionArmed(true); }}>
-                  {k === "kit" ? "Build a plan" : "Cross-section"}
+                  {k === "kit" ? "Build a plan"
+                    : k === "section" ? "Cross-section" : "Operate"}
                 </button>
               ))}
             </div>
@@ -1396,6 +1465,24 @@ export function Planner() {
               />
             )}
           </>
+        )}
+
+        {tab === "operate" && (
+          <OperatePanel
+            /* A schedule needs something with a setting on it. */
+            canRun={Boolean(kit?.ok) && placedPieces.some((p) => {
+              const k = pieceOf(p.piece)?.kind;
+              return k === "gate" || k === "pump";
+            })}
+            busy={opBusy}
+            elapsed={opSec}
+            reply={op}
+            onRun={runOperate}
+            onPick={(k) => { setOpPolicy(k); setOpFrame(null); }}
+            picked={opPolicy}
+            frame={opFrame}
+            onFrame={setOpFrame}
+          />
         )}
 
         {tab === "kit" && (

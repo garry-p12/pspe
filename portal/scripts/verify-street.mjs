@@ -53,18 +53,43 @@ ok("the street tab opens", /This street/.test(await aside.innerText()));
 
 // Down the channel, at 2.5x the 2013 peak. Not because 2013 was 2.5x -- it
 // was not -- but because that is what this model needs to reproduce the
-// inundation 2013 caused, which the panel says out loud. At 1x it puts no
-// house over its floor and the over-floor path would never be exercised.
+// inundation 2013 caused, which the panel says out loud.
+//
+// This comment used to add "at 1x it puts no house over its floor", which
+// was wrong: measured, 1x puts 31 of 78 over. See
+// `_verify_street_1x.mjs`. The over-floor path is exercised either way; 2.5x
+// is here because it is the configuration the interface recommends, not
+// because the assertion would otherwise be vacuous.
+//
+// 3823, not 3400: that is USGS's annual peak for 31 Oct 2013 (135,000 cfs,
+// measured indirectly from high-water marks), and it is the figure the panel
+// beside this field now quotes. A harness driving the model with a number
+// the interface does not name is testing something nobody can reproduce.
 await p.getByRole("button", { name: "Down the channel" }).click();
 await p.getByRole("button", { name: "2.5x" }).click();
-await p.locator("#street-q").fill("3400");
+await p.locator("#street-q").fill("3823");
 await p.waitForTimeout(400);
-await p.getByRole("button", { name: /Open the street view/ }).click();
+
+// Ask again on a timeout rather than failing.
+//
+// A cold street solve runs past the five minutes a browser's `fetch` will
+// wait -- the portal guide says so in §5 -- and the UI's own answer is to
+// restart it, which resets the counter under this assertion. Clicking once
+// and waiting therefore fails against a service that is working correctly,
+// which is exactly what it did after a restart cleared the solve cache. The
+// work is keyed, so asking again joins the run already going.
 let t = "";
-for (let i = 0; i < 160; i++) {
-  await p.waitForTimeout(3000);
-  t = await aside.innerText();
-  if (/Over floor level|Could not open/.test(t)) break;
+for (let attempt = 0; attempt < 4; attempt++) {
+  await p.getByRole("button", { name: /Open the street view|Look again/ })
+    .first().click().catch(() => {});
+  for (let i = 0; i < 120; i++) {
+    await p.waitForTimeout(3000);
+    t = await aside.innerText();
+    if (/Over floor level|Could not open/.test(t)) break;
+  }
+  if (/Over floor level/.test(t)) break;
+  console.log(`  (cold solve outran the browser's wait; asking again)`);
+  await p.waitForTimeout(4000);
 }
 ok("it solved", /Over floor level/.test(t), (t.match(/Over floor level\n[^\n]*/) || [""])[0].replace("\n", " "));
 if (!/Over floor level/.test(t)) { console.log(t.slice(0, 400)); await b.close(); process.exit(1); }

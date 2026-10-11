@@ -27,8 +27,9 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 import torch
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from PIL import Image
 from pydantic import BaseModel, Field
 
@@ -47,10 +48,40 @@ from pspe.simulate.real.anywhere import (  # noqa: E402
     build_domain, forcing_for,
 )
 
+class ObservationUnavailable(Exception):
+    """`river_q_observed` was asked for and there is nothing to observe.
+
+    Raised rather than falling through, because the fall-through is a
+    scenario. Rule 89: an observation that can be silently replaced by a
+    scenario is not an observation -- and this is the second time that rule
+    has had to be applied to this same function. The first fix reordered the
+    rainfall guard so it could not pre-empt the observed branch; it did not
+    stop the branch RETURNING to that guard when the gauge had nothing. A
+    caller who sets the flag and gets back a rainstorm has been told a
+    confident story about the wrong forcing.
+    """
+
+
 app = FastAPI(title="PSPE flood service")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+
+@app.exception_handler(ObservationUnavailable)
+async def _observation_unavailable(request: Request,
+                                   exc: ObservationUnavailable):
+    """Turn a refused observation into an answer, not a crash.
+
+    `ObservationUnavailable` means the caller asked to be driven by an
+    instrument and there was no reading. That is a legitimate outcome with a
+    reason attached, so it travels as 422 with the reason in `reason` -- the
+    same shape every other refusal in this service uses -- rather than as a
+    500 the client reads as "the solver broke".
+    """
+    return JSONResponse(status_code=422,
+                        content={"ok": False, "stage": "forcing",
+                                 "reason": str(exc)})
 
 CACHE: dict[str, dict[str, Any]] = {}
 DEPTH_VMAX = 8.0
@@ -372,6 +403,8 @@ def observe(req: ObserveRequest) -> dict:
                                * abs(fm.transform[0] * fm.transform[4]) / 1e6, 2),
         "threshold_db": round(fm.threshold_db, 2),
         "separability": round(fm.separability, 3),
+        # What the refusal actually gates on; see pspe/observe/sar.py.
+        "trough": round(fm.trough, 3),
         "observed_png": observed_png(fm.flooded, fm.permanent),
         "bounds": bbox,
         "seconds": round(time.time() - t0, 1),
@@ -1553,27 +1586,45 @@ def validate(req: ValidateRequest) -> dict:
     cell_km2 = _cell_km2(obox, obs_mask.shape)
     sweep = ([req.wet_m] if req.wet_m is not None
              else [round(v, 2) for v in _frange_svc(0.02, 1.0, 0.02)])
-    best = None
-    for t in sweep:
+    # The pinned threshold is scored whatever the sweep does, and reported
+    # beside the best of it.
+    #
+    # Taking the best of fifty thresholds is choosing the answer after seeing
+    # the mark, and it is the number a reader will quote. It stays, because
+    # it bounds what the model could do -- but a figure the model was tuned
+    # to on the test it is being graded by should never stand on its own, so
+    # the fixed 10 cm row this portal calls "wet" everywhere else goes out
+    # with it.
+    PINNED_M = 0.10
+
+    def score(t: float) -> dict:
         wet = model > t
         hit = int((wet & obs_mask).sum())
         miss = int((~wet & obs_mask).sum())
         fa = int((wet & ~obs_mask).sum())
-        csi = hit / max(hit + miss + fa, 1)
-        row = {"threshold_m": t, "csi": round(csi, 3),
-               "pod": round(hit / max(hit + miss, 1), 3),
-               "far": round(fa / max(hit + fa, 1), 3),
-               "ours_km2": round(float(wet.sum()) * cell_km2, 2),
-               "hit_km2": round(hit * cell_km2, 2),
-               "miss_km2": round(miss * cell_km2, 2),
-               "false_km2": round(fa * cell_km2, 2)}
+        return {"threshold_m": round(t, 2),
+                "csi": round(hit / max(hit + miss + fa, 1), 3),
+                "pod": round(hit / max(hit + miss, 1), 3),
+                "far": round(fa / max(hit + fa, 1), 3),
+                "ours_km2": round(float(wet.sum()) * cell_km2, 2),
+                "hit_km2": round(hit * cell_km2, 2),
+                "miss_km2": round(miss * cell_km2, 2),
+                "false_km2": round(fa * cell_km2, 2)}
+
+    best = None
+    for t in sweep:
+        row = score(t)
         if best is None or row["csi"] > best["csi"]:
             best = row
+    pinned = score(PINNED_M)
     return {
         "ok": True,
         "name": req.name,
         **best,
         "swept": req.wet_m is None,
+        # The same comparison at the threshold the rest of the portal uses,
+        # so the swept figure is never the only one on the page.
+        "at_pinned": pinned,
         "observed_km2": round(float(obs_mask.sum()) * cell_km2, 2),
         "acquired": obs["acquired"],
         "days_old": obs["days_old"],
@@ -1733,8 +1784,37 @@ def river_discharge(lat: float, lon: float) -> float | None:
         return None
 
 
+def _gauge_position(g: dict, box: tuple, edge: str) -> int:
+    """Where this gauge sits along the flow axis: 0 upstream, 1 inside, 2 down.
+
+    A boundary condition has a location, and matching the river's name does
+    not check it. Onion Creek's study box runs from `08158827` (Twin Creeks
+    Rd, 0.11 km before the west edge) to `08159000` (US Hwy 183, 0.13 km past
+    the east edge), and the selector preferred the second because it carries
+    NWS flood categories -- so the model was fed its own OUTLET discharge at
+    its inlet. On 30 October 2015 the daily means were 342.6 m3/s at Twin
+    Creeks and 1,101.5 m3/s at US 183: 69% of that flood was generated inside
+    the box, and the run put all of it in from upstream, a box-length early.
+    """
+    lat, lon = g.get("lat"), g.get("lon")
+    if lat is None or lon is None:
+        return 1
+    w, s_, e, n = box
+    if edge == "west":
+        up, down = lon <= w, lon >= e
+    elif edge == "east":
+        up, down = lon >= e, lon <= w
+    elif edge == "south":
+        up, down = lat <= s_, lat >= n
+    elif edge == "north":
+        up, down = lat >= n, lat <= s_
+    else:
+        return 1
+    return 0 if up else (2 if down else 1)
+
+
 def observed_discharge(west: float, south: float, east: float, north: float,
-                       reach: str) -> "dict | None":
+                       reach: str, edge: str = "") -> "dict | None":
     """What the river is doing RIGHT NOW, from the instrument.
 
     This is the difference between a scenario simulator and a shadow. Every
@@ -1780,12 +1860,26 @@ def observed_discharge(west: float, south: float, east: float, north: float,
         # gauge while naming scenarios from another is the same split that
         # put the Colorado River in the headline. Prefer a gauge the weather
         # service has set flood levels for, then the larger discharge.
-        cands.sort(key=lambda c: (0 if c[0].get("flood_levels_m") else 1,
+        #
+        # POSITION FIRST, though. A gauge at the wrong end of the domain is
+        # physically wrong whatever else it carries, and preferring flood
+        # categories is exactly what put this reach's OUTLET gauge on its
+        # inlet -- see `_gauge_position`. Flood levels and discharge only
+        # break ties between gauges at the same position.
+        box = (west, south, east, north)
+        cands.sort(key=lambda c: (_gauge_position(c[0], box, edge),
+                                  0 if c[0].get("flood_levels_m") else 1,
                                   -(c[0].get("q_m3s") or 0.0)))
         g, on = cands[0]
+        where = _gauge_position(g, box, edge)
         return {"site": g["site"], "name": g["name"],
                 "q_m3s": float(g["q_m3s"]), "at": g.get("at"),
-                "stage_m": g.get("stage_m"), "on_reach": on}
+                "stage_m": g.get("stage_m"), "on_reach": on,
+                # "upstream" | "inside" | "downstream", relative to the edge
+                # the water enters by. Reported because a reading taken below
+                # the domain already contains the domain's own runoff.
+                "position": ("upstream", "inside", "downstream")[where]
+                            if edge else "unknown"}
     # This reach's own gauge, or none. Driving Onion Creek from Williamson
     # Creek's instrument would be an observation of the wrong river, which is
     # worse than admitting there is nothing to observe.
@@ -1866,6 +1960,15 @@ def discharge_series(site: str, start: str, end: str) -> list[dict]:
     return out
 
 
+def _refuse_if_observed_was_asked_for(req, why: str) -> None:
+    if not getattr(req, "river_q_observed", False):
+        return
+    raise ObservationUnavailable(
+        f"this run was asked to be driven by the reach's own gauge, but "
+        f"{why}. Nothing was substituted: drive it with a discharge you "
+        f"choose, or pick a reach with a reporting gauge.")
+
+
 def build_forcing(dom, req) -> dict:
     """Turn the chosen driver into things the timestep loop can apply.
 
@@ -1885,13 +1988,18 @@ def build_forcing(dom, req) -> dict:
            "sea_series": None}
 
     if req.driver == "river":
-        # Ask the instrument first, when the caller wants to be driven by it.
-        # Done here rather than in every endpoint so `/analyse`, `/route`,
-        # `/section`, `/sites`, `/plan` and `/buildings` all gain it at once.
-        if getattr(req, "river_q_observed", False):
-            req.observed = observed_discharge(          # type: ignore[attr-defined]
-                req.west, req.south, req.east, req.north,
-                getattr(req, "name", "") or "")
+        # The instrument is asked AFTER the channel is found, not before.
+        #
+        # Which gauge is the right one depends on which edge the water enters
+        # by, and that is not known until `channel_from_network` has run. The
+        # first version asked here, had no edge to reason about, preferred
+        # whichever gauge carried flood categories, and so drove this reach
+        # from the gauge past its outlet. See `_gauge_position`.
+        #
+        # Done in this shared builder rather than in every endpoint so
+        # `/analyse`, `/route`, `/section`, `/sites`, `/plan` and
+        # `/buildings` all gain it at once.
+        #
         # dx matters: the channel cap is a physical width, and calling this
         # without a resolution reinstates the cell-count behaviour that made
         # the same river a channel at 200 m and flat ground at 130 m.
@@ -1913,9 +2021,18 @@ def build_forcing(dom, req) -> dict:
         except Exception:                                  # noqa: BLE001
             pair = None                                    # Overpass is optional
         inflow = pair[0] if pair else forcing.river_inflow(z, dx_m=dom.dx)
+
+        if getattr(req, "river_q_observed", False):
+            req.observed = observed_discharge(          # type: ignore[attr-defined]
+                req.west, req.south, req.east, req.north,
+                getattr(req, "name", "") or "",
+                getattr(inflow, "edge", "") or "")
         out["channel_from"] = "mapped network" if pair else "terrain edges"
         _outflow = pair[1] if pair else forcing.river_outflow(z, dx_m=dom.dx)
         if inflow is None:
+            _refuse_if_observed_was_asked_for(
+                req, "no through-channel crosses this box, so there is no "
+                     "edge to apply a gauge reading to")
             out["driver"] = "rain"
             out["note"] = ("No through-channel crosses this box, so the storm "
                            "is applied as rainfall instead.")
@@ -1934,6 +2051,8 @@ def build_forcing(dom, req) -> dict:
             lon = (dom.bounds["west"] + dom.bounds["east"]) / 2
             q = river_discharge(lat, lon)
         if obs is None and (not q or q <= 0):
+            _refuse_if_observed_was_asked_for(
+                req, "no gauge on this reach is publishing discharge")
             out["driver"] = "rain"
             out["note"] = ("No river discharge is published for this reach, so "
                            "the storm is applied as rainfall instead.")
@@ -2058,7 +2177,15 @@ def build_forcing(dom, req) -> dict:
             + f" on the {inflow.edge} edge "
             f"(channel from the {out['channel_from']}), "
             + (f"measured at {obs['name'].split(',')[0]} at "
-               f"{(obs.get('at') or '')[11:16]}. " if obs
+               f"{(obs.get('at') or '')[11:16]}"
+               # Say it when the reading comes from below the domain: that
+               # number already contains the box's own runoff, so feeding it
+               # in at the inlet counts it twice and routes it a box-length
+               # too far. Silence here is how it went unnoticed.
+               + ("" if obs.get("position") in ("upstream", "unknown")
+                  else f" -- which is {obs['position']} of this box, so the "
+                       f"reading already contains runoff generated inside it")
+               + ". " if obs
                else "as given. " if named else f"{scale:g}x ")
             + ("" if (named or obs)
                else f"the forecast peak of {q:,.0f} m3/s. "
@@ -2413,6 +2540,80 @@ def plan_anywhere(req: PlanRequest) -> dict:
     return res
 
 
+def _river_mask(dom, structures) -> "torch.Tensor":
+    """The cells the hydrograph is held in: the channel the gate discharges to.
+
+    Not a guess about low ground. The gate already names its outside cell --
+    `build_structures` put it there, a cell and a half across the bank from
+    the inside one -- so the channel is the connected run of ground at about
+    that elevation. Taken as the cells within a metre of the outfall's own
+    bed, which on a real section is the channel and not the floodplain.
+
+    This matters because `_apply_river` HOLDS these cells at the event's
+    stage. Hold too many and the model is a reservoir rather than a river;
+    hold too few and the gate never sees the river rise at all.
+    """
+    z = torch.as_tensor(dom.z, dtype=torch.float32)
+    if structures.gate_out is not None and structures.gate_out.numel():
+        ro, co = int(structures.gate_out[0][0]), int(structures.gate_out[0][1])
+    elif structures.pump_out is not None and structures.pump_out.numel():
+        ro, co = int(structures.pump_out[0][0]), int(structures.pump_out[0][1])
+    else:
+        return z <= torch.quantile(z.flatten(), 0.02)
+    return z <= (z[ro, co] + 1.0)
+
+
+def _protected_mask(dom, req) -> "tuple[torch.Tensor, str]":
+    """The ground a plan is bought to protect, and how it was decided.
+
+    Lifted out of `_solve_plan` so `/operate` scores a schedule over
+    the same set `/plan` scores a design over. Two tabs disagreeing
+    about which hectares count would report percentages of different
+    denominators and read as a contradiction in the model.
+    """
+    h_, w_ = dom.z.shape
+    yy, xx = torch.meshgrid(torch.arange(h_, dtype=torch.float32),
+                            torch.arange(w_, dtype=torch.float32), indexing="ij")
+    bb = dom.bounds
+
+    def to_rc(lon: float, lat: float) -> tuple[float, float]:
+        return ((bb["north"] - lat) / (bb["north"] - bb["south"]) * (h_ - 1),
+                (lon - bb["west"]) / (bb["east"] - bb["west"]) * (w_ - 1))
+
+    aligned = [sp for sp in req.sites
+               if (sp.get("line") or {}).get("a") and (sp.get("outline") or [])]
+    protect_basis = "whole domain"
+    sel = torch.zeros(dom.z.shape, dtype=torch.bool)
+    if aligned:
+        for sp in aligned:
+            pts = [to_rc(float(q[0]), float(q[1])) for q in sp["outline"]]
+            if len(pts) < 2:
+                continue
+            d = _polyline_dist(yy, xx, pts)
+            ln = sp["line"]
+            ra, ca = to_rc(float(ln["a"]["lon"]), float(ln["a"]["lat"]))
+            rb, cb = to_rc(float(ln["b"]["lon"]), float(ln["b"]["lat"]))
+            da = torch.sqrt((yy - ra) ** 2 + (xx - ca) ** 2)
+            db = torch.sqrt((yy - rb) ** 2 + (xx - cb) ** 2)
+            reach = float(ln.get("length_m", 800.0)) / 2.0 / dom.dx
+            sel |= (d <= reach) & (da < db)
+        if bool(sel.any()):
+            protect_basis = (f"the ground landward of {len(aligned)} alignment"
+                             f"{'' if len(aligned) == 1 else 's'}, within "
+                             f"{float(aligned[0]['line'].get('length_m', 800.0)) / 2:.0f} m "
+                             "of each")
+    if not bool(sel.any()) and req.protect:
+        r, c = to_rc(float(req.protect["lon"]), float(req.protect["lat"]))
+        rad = float(req.protect.get("radius_m", 2000.0)) / dom.dx
+        sel = (((yy - r) ** 2 + (xx - c) ** 2) <= rad ** 2)
+        protect_basis = (f"a {float(req.protect.get('radius_m', 2000.0)):.0f} m "
+                         "circle, because these measures carry no alignment")
+    if not bool(sel.any()):
+        sel = torch.ones(dom.z.shape, dtype=torch.bool)
+        protect_basis = "the whole box, because nothing named a smaller area"
+    return sel, protect_basis
+
+
 def _solve_plan(req: PlanRequest, key: str) -> dict:
     t0 = time.time()
     dom = build_domain(req.west, req.south, req.east, req.north,
@@ -2461,46 +2662,7 @@ def _solve_plan(req: PlanRequest, key: str) -> dict:
     # counting solved water on each side, and `line.a` is that end. The disc
     # survives only for a levee dropped on the map by hand, which carries no
     # alignment, and the response says which was used.
-    h_, w_ = dom.z.shape
-    yy, xx = torch.meshgrid(torch.arange(h_, dtype=torch.float32),
-                            torch.arange(w_, dtype=torch.float32), indexing="ij")
-    bb = dom.bounds
-
-    def to_rc(lon: float, lat: float) -> tuple[float, float]:
-        return ((bb["north"] - lat) / (bb["north"] - bb["south"]) * (h_ - 1),
-                (lon - bb["west"]) / (bb["east"] - bb["west"]) * (w_ - 1))
-
-    aligned = [sp for sp in req.sites
-               if (sp.get("line") or {}).get("a") and (sp.get("outline") or [])]
-    protect_basis = "whole domain"
-    sel = torch.zeros(dom.z.shape, dtype=torch.bool)
-    if aligned:
-        for sp in aligned:
-            pts = [to_rc(float(q[0]), float(q[1])) for q in sp["outline"]]
-            if len(pts) < 2:
-                continue
-            d = _polyline_dist(yy, xx, pts)
-            ln = sp["line"]
-            ra, ca = to_rc(float(ln["a"]["lon"]), float(ln["a"]["lat"]))
-            rb, cb = to_rc(float(ln["b"]["lon"]), float(ln["b"]["lat"]))
-            da = torch.sqrt((yy - ra) ** 2 + (xx - ca) ** 2)
-            db = torch.sqrt((yy - rb) ** 2 + (xx - cb) ** 2)
-            reach = float(ln.get("length_m", 800.0)) / 2.0 / dom.dx
-            sel |= (d <= reach) & (da < db)
-        if bool(sel.any()):
-            protect_basis = (f"the ground landward of {len(aligned)} alignment"
-                             f"{'' if len(aligned) == 1 else 's'}, within "
-                             f"{float(aligned[0]['line'].get('length_m', 800.0)) / 2:.0f} m "
-                             "of each")
-    if not bool(sel.any()) and req.protect:
-        r, c = to_rc(float(req.protect["lon"]), float(req.protect["lat"]))
-        rad = float(req.protect.get("radius_m", 2000.0)) / dom.dx
-        sel = (((yy - r) ** 2 + (xx - c) ** 2) <= rad ** 2)
-        protect_basis = (f"a {float(req.protect.get('radius_m', 2000.0)):.0f} m "
-                         "circle, because these measures carry no alignment")
-    if not bool(sel.any()):
-        sel = torch.ones(dom.z.shape, dtype=torch.bool)
-        protect_basis = "the whole box, because nothing named a smaller area"
+    sel, protect_basis = _protected_mask(dom, req)
 
     core = (peak * sel[None]).sum(dim=(1, 2)) / float(sel.sum())
     base = float(core[0])
@@ -3922,3 +4084,231 @@ def analyse(req: AnalyseRequest) -> dict:
         CACHE.pop(next(iter(CACHE)))
     CACHE[key] = out
     return {**out, "cached": False}
+
+
+class OperateRequest(PlanRequest):
+    """Run the gate and the pump you placed, hour by hour, through an event."""
+    horizon: int = Field(12, ge=2, le=24)
+    control_minutes: float = Field(30.0, ge=5.0, le=120.0)
+    # Pump-hours at rated capacity. The one hard constraint: fuel, or power,
+    # or crew -- whatever the station actually runs out of.
+    budget_pump_hours: float = Field(3.0, ge=0.0, le=48.0)
+    policies: list[str] = ["nothing", "gate_only", "rule_based", "sealed_aware"]
+
+
+# Readable names for what each controller does, because "sealed_aware" on a
+# panel tells a reader nothing about why it is the one to beat.
+POLICY_LABELS = {
+    "nothing": "Do nothing",
+    "gate_only": "Gate open, no pumping",
+    "rule_based": "Automatic level control",
+    "sealed_aware": "Pump only while the gate is sealed",
+    "pump_flat": "Pump flat out",
+}
+
+
+@app.post("/operate")
+def operate(req: OperateRequest) -> dict:
+    """Operate the structures a plan placed, and compare the ways of doing it.
+
+    `/plan` answers *what to build*. This answers *how to run it*, which is a
+    different question with a different kind of answer: not one number but a
+    schedule, and not one schedule but a comparison, because the interesting
+    result is almost always that the obvious controller is close to the best
+    one and much cheaper than pumping flat out.
+
+    There is no polder at Onion Creek, and this does not pretend otherwise.
+    What it runs is the structures ON THE MAP -- the floodgate and the pump
+    station from the kit, where the planner put them -- against the terrain
+    the rest of the portal uses. If nothing has been placed it says so rather
+    than inventing a basin to operate.
+
+    The environment is `pspe.envs.flood_env.FloodOperateEnv`, the same object
+    a policy is trained in, handed this domain's real structures instead of a
+    synthetic bank. That is deliberate: a portal that evaluates a controller
+    in a second implementation of its environment will agree with training
+    right up until it does not.
+    """
+    key = "operate:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
+    if key in CACHE:
+        return {**CACHE[key], "cached": True}
+    res = run_shared(key, lambda: _run_operate(req, key))
+    if res is None:
+        return {"ok": False, "pending": True,
+                "elapsed_s": round(pending_for(key) or 0.0),
+                "reason": "Still running the event. Ask again to join the "
+                          "same run."}
+    return res
+
+
+def _run_operate(req: OperateRequest, key: str) -> dict:
+    import numpy as _np
+
+    from pspe.envs.flood_env import FloodOperateEnv, FloodOperateTask
+
+    t0 = time.time()
+    kinds = [str(x.get("kind", "levee")) for x in req.sites]
+    if not any(k in ("gate", "pump") for k in kinds):
+        return {"ok": False, "reason":
+                "Nothing to operate. A gate or a pump station has to be on "
+                "the map before there is a schedule to choose: a levee has no "
+                "setting, it is either there or it is not."}
+
+    dom = build_domain(req.west, req.south, req.east, req.north,
+                       dx=req.dx, name=req.name, source=TERRAIN)
+    z0 = torch.as_tensor(dom.z, dtype=torch.float32)
+
+    # One world, built at the intensity the planner chose for each piece.
+    one = torch.ones(1, len(req.sites))
+    lev = [i for i, kd in enumerate(kinds) if kd not in ("gate", "pump")]
+    z = z0[None].clone()
+    if lev:
+        masks = site_masks(dom, [req.sites[i] for i in lev], req.max_height_m)
+        amps = torch.tensor([[float(req.sites[i].get("height_m", 1.0))
+                              for i in lev]], dtype=torch.float32)
+        z = z + (amps[:, :, None, None] * masks[None]).sum(1)
+    structures = build_structures(dom, req.sites, one)
+    if structures is None:
+        return {"ok": False, "reason":
+                "The gate or pump on the map could not be tied to a bank: it "
+                "needs an alignment to sit across, so the inside and the "
+                "outside are named cells rather than a guess."}
+
+    protect, basis = _protected_mask(dom, req)
+    if not bool(protect.any()):
+        return {"ok": False, "reason":
+                "No protected ground could be derived from these pieces, so "
+                "there is nothing to score a schedule against."}
+
+    pump_in = structures.pump_in if structures.pump_in is not None else structures.gate_in
+    sump_rc = (int(pump_in[0][0].item()), int(pump_in[0][1].item()))
+    river = _river_mask(dom, structures)
+
+    bank = {"z": z, "river": river, "protect": protect}
+    rated = float(structures.pump_q_m3s[0].sum().item()) if structures.pump_q_m3s is not None else 0.0
+    env = FloodOperateEnv(
+        bank, task=FloodOperateTask(cost_limit=req.budget_pump_hours),
+        horizon=req.horizon, control_minutes=req.control_minutes, dx=dom.dx,
+        structures=structures, sump_rc=sump_rc,
+        n_pumps=int(structures.pump_in.shape[0]) if structures.pump_in is not None else 0,
+        pump_q_m3s=max(rated, 1e-6), device="cpu")
+
+    runners = {
+        "nothing": lambda s, e: torch.full((s.shape[0], e.action_dim), -1.0),
+        "gate_only": lambda s, e: torch.cat(
+            [torch.ones(s.shape[0], 1),
+             torch.full((s.shape[0], max(e.n_pumps, 0)), -1.0)], dim=1),
+        "rule_based": lambda s, e: e.baseline_action(s),
+        "sealed_aware": lambda s, e: e.sealed_aware_action(s),
+        "pump_flat": lambda s, e: torch.ones(s.shape[0], e.action_dim),
+    }
+
+    vmax = None
+    out = []
+    for name in req.policies:
+        fn = runners.get(name)
+        if fn is None:
+            continue
+        s = env.reset(1, generator=torch.Generator().manual_seed(0))
+        frames, spent, ret = [], 0.0, 0.0
+        while True:
+            a = fn(s, env)
+            s, r, c, done = env.step(a)
+            spent += float(c[0]); ret += float(r[0])
+            d = s[0, 0].detach().cpu().numpy()
+            if vmax is None:
+                vmax = max(float(_np.percentile(d[d > WET_M], 90)) if (d > WET_M).any()
+                           else 1.0, 0.5)
+            frames.append({
+                "t_h": round(env.t * req.control_minutes / 60.0, 2),
+                "gate": round(float((a[0, 0] + 1) / 2), 3),
+                "pump": round(float((a[0, 1:] + 1).mean() / 2) if env.n_pumps else 0.0, 3),
+                # 2-D: `depth_png` builds (H, W, 4) and PIL refuses a
+                # leading batch axis.
+                "depth_png": depth_png(d, vmax),
+            })
+            if done:
+                break
+        st = env.episode_stats()
+        out.append({
+            "policy": name,
+            "label": POLICY_LABELS.get(name, name),
+            "return": round(ret, 2),
+            "pump_hours": round(spent, 2),
+            "within_budget": bool(spent <= req.budget_pump_hours + 1e-6),
+            "wet_km2": round(float(st["wet_km2"][0]), 3),
+            "deepest_m": round(float(st["deepest_m"][0]), 2),
+            "frames": frames,
+        })
+
+    out.sort(key=lambda r: -r["return"])
+    best = out[0] if out else None
+
+    # Refuse a comparison in which nothing compares.
+    #
+    # Measured on Onion Creek at the 2013 peak with a 2 m levee and a
+    # 1 m3/s pump: all four controllers left 0.277 km2 of a 0.280 km2 strip
+    # wet -- 99% of it -- with 9.94 m standing in the protected ground. At
+    # that size of event the structures are not a decision, and four
+    # identical rows presented as a choice is the most misleading thing this
+    # endpoint could return. It is the same failure `pspe/envs/task.py`
+    # warns about for testbeds, arriving on real terrain: an environment
+    # where no action changes the outcome fails silently, because it still
+    # produces a ranking.
+    #
+    # The threshold is on the SPREAD, not on the flooding: a schedule that
+    # leaves everything wet is a legitimate answer when the controllers
+    # disagree about how wet.
+    wets = [r["wet_km2"] for r in out]
+    prot_km2 = float(protect.sum()) * dom.dx * dom.dx / 1e6
+    spread = (max(wets) - min(wets)) if wets else 0.0
+    # Two tests, and the second is the one that matters to a reader.
+    #
+    # A relative threshold alone let four rows through that every one of them
+    # DISPLAYED as "0.64 km2" -- a difference the panel rounds away, offered
+    # as a choice between four schedules. If the numbers on screen are the
+    # same number, the honest answer is that there is nothing to choose,
+    # whatever the sixth decimal place says.
+    same_on_screen = len({round(w, 2) for w in wets}) <= 1
+    if prot_km2 > 0 and (spread < 0.01 * prot_km2 or same_on_screen):
+        return {
+            "ok": False,
+            "stage": "separation",
+            "reason": (
+                f"Every way of running these structures gives the same "
+                f"answer here: {min(wets):.3f}-{max(wets):.3f} km2 of a "
+                f"{prot_km2:.2f} km2 strip left wet, with {out[0]['deepest_m']:.1f} m "
+                f"standing in it"
+                + (", identical to the two decimals this panel shows"
+                   if same_on_screen else "")
+                + f". This event is far beyond what a {rated:.1f} m3/s pump "
+                f"and this gate can move, so there is no operating decision "
+                f"to make — not a schedule worth choosing between. Try a "
+                f"smaller event, a larger station, or a protected area the "
+                f"levee can actually keep dry."),
+            "protected_km2": round(prot_km2, 2),
+            "wet_km2_range": [round(min(wets), 3), round(max(wets), 3)],
+            "deepest_m": out[0]["deepest_m"],
+            "rated_pump_m3s": round(rated, 2),
+            "seconds": round(time.time() - t0, 1),
+        }
+
+    return {
+        "ok": True,
+        "name": req.name,
+        "bounds": [dom.bounds["west"], dom.bounds["south"],
+                   dom.bounds["east"], dom.bounds["north"]],
+        "protected_basis": basis,
+        "protected_km2": round(float(protect.sum()) * dom.dx * dom.dx / 1e6, 2),
+        "budget_pump_hours": req.budget_pump_hours,
+        "rated_pump_m3s": round(rated, 2),
+        "depth_vmax_m": round(vmax or 1.0, 2),
+        "results": out,
+        "best": best["policy"] if best else None,
+        "seconds": round(time.time() - t0, 1),
+        "note": ("A schedule, not a design. The structures are the ones on "
+                 "the map; what differs between these rows is only how they "
+                 "are run. No observational record says what this ground "
+                 "would have done under a different schedule, so the "
+                 "comparison is between model runs."),
+    }

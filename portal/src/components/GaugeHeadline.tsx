@@ -92,12 +92,24 @@ export function GaugeHeadline({ feed }: { feed: GaugeFeed | null }) {
   // that is a flood, which is the thing the headline is for.
   const g = pickGauge(feed);
   if (!g) {
+    /* Two different facts used to print the same headline. A reach with no
+       instrument is a permanent property of the place; USGS not answering is
+       a transient property of the network, and a reader who is told the
+       first when the second is true will stop looking for a reading that
+       exists. The service says which in `note`. */
+    const outage = /did not answer/i.test(feed.note ?? "");
     return (
       <div className="border-b border-line-soft px-5 py-3">
-        <p className="eyebrow">No gauged stream in this box</p>
+        <p className="eyebrow">
+          {outage ? "No reading right now" : "No gauged stream in this box"}
+        </p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
-          No gauge here — everything on this map is a model. Move to a gauged
-          reach for a real reading.
+          {outage
+            ? `The gauge feed did not answer, so there is no live reading on
+               this map — everything drawn is a model. It is retried every
+               five minutes.`
+            : `No gauge here — everything on this map is a model. Move to a
+               gauged reach for a real reading.`}
         </p>
       </div>
     );

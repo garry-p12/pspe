@@ -89,6 +89,53 @@ def test_alpha_stays_in_the_unit_interval_and_grads_are_set() -> None:
     assert layer.weight.grad is not None
 
 
+def test_a_dead_pathwise_branch_does_not_win_on_having_no_variance() -> None:
+    """A zero estimator has zero variance, and a* cannot see the difference.
+
+    `a* = (V_lr - Cov) / (B^2 + V_pw + V_lr - 2 Cov)` assumes both arms
+    estimate the same gradient. Where the pathwise branch is UNAVAILABLE --
+    dynamics that carry no graph -- every fold returns exactly zero, so
+    V_pw = 0, Cov = 0, and the rule evaluates to V_lr / V_lr = 1: the mixture
+    then weights the zero gradient exclusively and the planner stops learning
+    while reporting a confident alpha. B^2 is no defence, being populated only
+    by a surrogate-versus-truth comparison.
+
+    Found by running `HybridPlannerTrainer` on `FloodOperateEnv`.
+    """
+    layer = torch.nn.Linear(4, 1)
+    estimator = HybridGradientEstimator(layer.parameters(), estimate_every=1,
+                                        n_folds=2, alpha_init=0.5)
+    x = torch.randn(16, 4)
+    seen = []
+    # `alpha_ema` is 0.9, so the coefficient walks rather than jumps; what
+    # matters is the direction and the limit, not the first step.
+    for _ in range(60):
+        dead = (layer(x).squeeze(-1) * 0.0)          # no gradient at all
+        live = (layer(x).squeeze(-1) * torch.randn(16))
+        stats = estimator.step(dead, live)
+        seen.append(stats.alpha)
+    assert seen[-1] < seen[0], "alpha moved toward the branch with no gradient"
+    assert seen[-1] < 0.05, (
+        f"alpha settled at {seen[-1]:.3f}; a branch carrying no gradient must "
+        f"not be preferred for being quiet")
+
+
+def test_a_nan_alpha_never_reaches_the_mixture() -> None:
+    """`min`/`max` do not sanitise NaN: every comparison against it is False.
+
+    `float(min(max(nan, 0.0), 1.0))` is nan, so the unit-interval clip passed
+    it through and a NaN alpha poisons every parameter downstream.
+    """
+    layer = torch.nn.Linear(4, 1)
+    estimator = HybridGradientEstimator(layer.parameters(), estimate_every=1,
+                                        n_folds=2)
+    x = torch.randn(8, 4)
+    bad = torch.full((8,), float("nan")) * layer(x).squeeze(-1)
+    stats = estimator.step(bad, (layer(x).squeeze(-1) * torch.randn(8)))
+    assert stats.alpha == stats.alpha, "alpha came back NaN"
+    assert 0.0 <= stats.alpha <= 1.0
+
+
 def test_fixed_alpha_ablation_pins_the_coefficient() -> None:
     layer = torch.nn.Linear(4, 1)
     estimator = HybridGradientEstimator(layer.parameters(), adaptive=False, alpha_init=0.25)

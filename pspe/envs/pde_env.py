@@ -140,6 +140,12 @@ class PDEControlEnv(gym.Env):
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
     ) -> tuple[np.ndarray, dict[str, Any]]:
+        # Seeds `self.np_random`, which Gymnasium's `check_env` requires and
+        # which this env did not do. No behaviour change -- the episode is
+        # driven by `self._generator` below -- but without it the env fails
+        # conformance, and a caller reading `env.np_random` gets an unseeded
+        # stream. Found while writing the flood env's sibling wrapper.
+        super().reset(seed=seed)
         if seed is not None:
             self._generator = torch.Generator().manual_seed(seed)
         state = self._core.reset(batch=1, generator=self._generator)

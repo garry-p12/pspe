@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import math
 import torch
 import torch.nn as nn
 
@@ -209,6 +210,26 @@ class HybridPlannerTrainer:
         self.critic = (critic or FieldCritic(env.obs_shape[0])).to(self.device)
         self.opt_policy = torch.optim.Adam(self.policy.parameters(), lr=self.cfg.lr_policy)
         self.opt_critic = torch.optim.Adam(self.critic.parameters(), lr=self.cfg.lr_critic)
+        # An env that cannot supply pathwise gradients pins alpha to zero.
+        #
+        # The adaptive rule cannot discover this for itself, and the reason is
+        # structural rather than a tuning problem. `_per_sample_losses` adds
+        # the entropy bonus and the saturation wall to BOTH branches, and both
+        # are direct functions of the policy parameters rather than of the
+        # dynamics. So when the dynamics carry no graph the pathwise branch is
+        # not zero -- it is those two terms alone, and they are low-variance,
+        # so `a* = (V_lr - Cov) / (B^2 + V_pw + V_lr - 2 Cov)` goes to 1 and
+        # the mixture weights a gradient that knows about entropy and nothing
+        # about the objective. Measured on `FloodOperateEnv` with
+        # `differentiable=False`: alpha walking 0.50 -> 0.55 while the
+        # training return went NaN.
+        #
+        # B^2 is no defence: `measure_pathwise_bias` compares a surrogate
+        # against the truth and is 0 when there is no surrogate.
+        pathwise_available = bool(getattr(env, "differentiable", True))
+        if not pathwise_available:
+            self.cfg.adaptive_alpha = False
+            self.cfg.alpha_fixed = 0.0
         self.estimator = HybridGradientEstimator(
             self.policy.parameters(),
             adaptive=self.cfg.adaptive_alpha,
@@ -546,9 +567,29 @@ class HybridPlannerTrainer:
                 if (self.cfg.eq8_alpha and self.cfg.real_cost_every
                         and it % self.cfg.real_cost_every == 0):
                     b_sq = self.measure_pathwise_bias(batch.states[0], multiplier)
-                    self.pathwise_bias_sq = 0.7 * self.pathwise_bias_sq + 0.3 * b_sq
-                    self.estimator.bias_sq = self.pathwise_bias_sq
-                    dual_record["alpha/pathwise_bias_sq"] = self.pathwise_bias_sq
+                    # A non-finite B^2 is not a very large bias, it is a
+                    # broken reference.
+                    #
+                    # `measure_pathwise_bias` is `||g_sur - g_truth||^2`, and
+                    # it assumes the truth gradient is a gradient. On
+                    # `FloodOperateEnv` it is not: the gate's orifice
+                    # derivative diverges and `|g_truth|` comes back `inf`,
+                    # so B^2 is `inf`, so `a* = V_lr / inf = 0`. That is the
+                    # right answer -- do not trust the pathwise branch --
+                    # arrived at by overflow rather than by measurement, and
+                    # nothing downstream could tell the two apart. Worse, it
+                    # would read as "the surrogate is infinitely biased" when
+                    # the surrogate's own gradient was the well-behaved one
+                    # (|g_sur| = 0.68 against |g_truth| = inf).
+                    #
+                    # Refuse the measurement instead of laundering it.
+                    if not math.isfinite(b_sq):
+                        dual_record["alpha/bias_unmeasurable"] = 1.0
+                    else:
+                        self.pathwise_bias_sq = (0.7 * self.pathwise_bias_sq
+                                                 + 0.3 * b_sq)
+                        self.estimator.bias_sq = self.pathwise_bias_sq
+                        dual_record["alpha/pathwise_bias_sq"] = self.pathwise_bias_sq
 
                 equity_multiplier = 0.0
                 equity_record: dict[str, float] = {}

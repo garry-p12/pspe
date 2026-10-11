@@ -7559,6 +7559,17 @@ state.
 
 ### 5.14u From scenario simulator to shadow: the gauge drives the model, and the model gets marked (2026-10-10)
 
+> **Partly superseded by §5.14v, same day.** Three claims below did not
+> survive review: that the replay settled the street view's 2.5× multiplier
+> (the comparison changed three variables at once — the correct ablation is in
+> §5.14v and the conclusion happens to survive it), that this makes the portal
+> a digital *shadow* (it is a shadow-capable API; nothing runs the coupling),
+> and that the separability floor of 0.55 is a working guard (it admits
+> unimodal scenes and rejects floods covering a few per cent of the box).
+> Also, the gauge all of this is driven from sits past the box's **outlet**
+> edge, not upstream. The measurements below stand; those readings of them do
+> not.
+
 A reviewer put the portal against the standard taxonomy — digital model, digital
 shadow, digital twin — and placed it in the first box: "a scenario simulator
 with a live-data sidebar. The physics and the reality never touch: the gauges
@@ -7665,6 +7676,429 @@ site is narrower than hoped: the `sentinel-1-rtc` collection covers this box
 from March 2015 but sparsely, with no pass at all through the October 2015
 event, so extent validation of that flood has to come from FEMA's map or from
 high-water marks rather than from the satellite.
+
+### 5.14v Three claims checked, two withdrawn: the gauge is at the wrong end and the SAR guard was backwards (2026-10-10)
+
+A reviewer read §5.14u and §7 of the portal guide and rejected the headline:
+"the 2.5× is missing physics" was stated in three places and not supported by
+the experiment behind it. Checking it cost one NWIS query and one solve, and
+both went against the claim as written.
+
+**The gauge is at the wrong end of the box.** `observed_discharge` prefers a
+gauge carrying NWS flood categories. On Onion Creek that is `08159000`, *Onion
+Ck at US Hwy 183* — which NWIS puts at **30.17799, −97.68861**, i.e. **0.13 km
+past the study box's east edge**. East is where this model's water leaves. The
+gauge that actually feeds the box is `08158827`, *Onion Ck at Twin Creeks Rd*,
+**0.11 km before the west edge**, and it has no flood categories, so the
+selector passes it over.
+
+The study box is, to within a few hundred metres, the reach between those two
+gauges. So every observed-driven run here injects the **outlet** discharge at
+the **inlet**. Daily means for 30 October 2015:
+
+| gauge | position | daily mean, 30 Oct 2015 |
+|---|---|---|
+| 08158827 Twin Creeks Rd | 0.11 km before the west edge | 342.6 m³/s |
+| 08159000 US Hwy 183 | 0.13 km past the east edge | 1,101.5 m³/s |
+
+**69% of that flood was generated inside the box**, and the replay feeds all of
+it in from upstream, a box-length too early. This also removes one of the three
+excuses offered for the street multiplier: "a 14 km box truncating an
+eighty-kilometre catchment" cannot apply to a run whose inflow is measured at
+the outlet, because the whole catchment is already in the number.
+
+**Rule 91: a boundary condition has a location, and a name match does not
+check it.** The selector matched the right river and the right units and was
+still wrong by the length of the domain.
+
+**The fix splits the gauge in two, and that is correct.** The headline and the
+forcing now ask different questions of the same feed. The headline wants the
+gauge that can say whether this is a *flood*, which needs NWS category levels
+— US Hwy 183. The solver wants the gauge that says what is *entering the box*,
+which needs to be upstream of the inflow edge — Twin Creeks Rd, which has no
+categories. So the panel names one gauge and `driver_note` names another, and
+a reader has to be told that is the two rules working rather than the old
+two-different-creeks bug returning. §1 of the portal guide now says so
+explicitly; without that note the fix reads as a regression.
+
+**The forcing-shape experiment, run properly.** The earlier table compared a
+river replay at `dx` 60 against a rain-on-box design storm at `dx` 40 and
+concluded from it. Three variables, one comparison. The experiment that
+isolates shape holds everything but shape:
+
+| forcing of the same 3,455 m³/s peak | water delivered | flooded |
+|---|---|---|
+| held flat for 6 h | 74.6 Mm³ | **3.74 km²** |
+| the gauge's own hydrograph over 48 h | 109.4 Mm³ | **3.51 km²** |
+
+Same box, same `dx` 60, same river driver, same peak. **Forcing shape is worth
+about 6% of flooded area.** A 6% effect cannot account for a 2.5× knob, so the
+conclusion survives — but only now, and the reasoning that produced it first
+was wrong in its own right: the real hydrograph delivers **47% more** water
+than six hours held at the peak, not less, and still floods slightly less,
+because peak extent is set by peak discharge and both peak at 3,455 m³/s.
+
+**The separability guard was wrong in both directions.** §5.14u added a floor
+of 0.55 on Otsu's η to stop the detector reporting water in dry scenes. Writing
+a unit test for it found that a **pure Gaussian scores 0.577** — above the
+floor meant to reject it. Otsu's η is between-class variance over total
+variance, which measures class *balance*: a split at the mean of any symmetric
+distribution captures 2/π ≈ 0.637 of the variance.
+
+| scene | η | trough depth |
+|---|---|---|
+| unimodal Gaussian, sd 2.0 | 0.577 | 0.013 |
+| unimodal Gaussian, sd 3.5 | 0.576 | 0.000 |
+| unimodal, left-skewed | 0.559 | −0.007 |
+| bimodal, water 50% of box | 0.906 | 0.998 |
+| bimodal, water 10% of box | 0.722 | 0.985 |
+| bimodal, water **3%** of box | **0.355** | **0.842** |
+
+The second failure is the worse one: a genuine flood covering 3% of the box
+scores 0.355 and was **refused**. Onion Creek in flood is about 2.5% of this
+study box, so the floor was tuned to reject the exact case it exists to
+measure. It passed its two field tests by accident — both of those scenes also
+failed the threshold-location test (`thr > −12 dB`), which is what was doing
+the work.
+
+`trough_depth` replaces it: the depth of the valley at the threshold against
+the smaller mode beside it. Unimodal scenes score −0.01 to 0.01; a 3% flood
+scores 0.84. `MIN_TROUGH = 0.35` sits in a gap two orders of magnitude wide.
+Separability is still reported and nothing gates on it.
+
+**Rule 92: a guard tuned on the cases it refused has only been tested in one
+direction.** Both 0.41 and 0.48 were below 0.55, so the floor looked
+calibrated; neither scene ever exercised the side where it admits a dry
+Gaussian or rejects a real flood.
+
+**Rule 89 had to be applied to the same function twice.** §5.14u reported the
+rainfall-fallback ordering bug as fixed: the guard that returns a rainstorm
+used to run *before* the observed branch, so it was moved. Writing a test for
+the refusal showed the branch still **returns** to that guard when the gauge
+has nothing — `river_q_observed=True` with a silent instrument fell through
+the forecast product and out into "the storm is applied as rainfall instead".
+Measured directly: driver asked for `river` with the flag set, driver returned
+`rain`. The portal guide had been asserting this refusal for a day while the
+code did the opposite.
+
+`build_forcing` now raises `ObservationUnavailable`, which a FastAPI handler
+turns into a `422` carrying `{"ok": false, "stage": "forcing", "reason": ...}`
+— the shape every other refusal in the service uses. Callers that did not ask
+for an instrument still get the fallback, because the refusal is a promise to
+the caller who asked for one, not a new failure mode for everyone else.
+
+**Rule 93: reordering a fallback is not removing it.** The first fix made the
+scenario unreachable *before* the observation was tried; it left it reachable
+*after*. A guard that can still be reached by falling forward has not been
+removed, and the only way to know which happened is a test that asserts the
+refusal rather than the ordering.
+
+**The stated reason for the 2.5× multiplier was false.** The street panel's
+(i) read: *"At 3,400 m³/s with no multiplier this model puts no house in the
+block over its floor, and 2013 flooded this neighbourhood."* That sentence is
+the justification a reader is given for the only free knob in the street view.
+Correcting 3,400 to 3,823 moved the number inside it, which is what prompted
+checking the claim at all:
+
+| forcing at the gauge's 2013 peak | over floor | deepest at a house |
+|---|---|---|
+| 3,823 m³/s, no multiplier | **31 of 78** | 2.90 m |
+| 3,823 m³/s × 2.5 | 60 of 78 | 4.85 m |
+
+Not "no house" — 31 of them. The model does not go silent without the
+multiplier; it under-predicts against what 2013 actually did. The knob is
+still defensible as calibration against a recorded outcome, and §5.14v's
+hydrograph ablation says what it stands in for, but it had been justified by
+a model behaviour the model does not have. The same false claim sat in a
+comment in `verify-street.mjs` explaining why that harness runs at 2.5×.
+
+**Rule 94: a number inside a sentence is not the only thing that changes when
+you correct it.** The figure and the claim about the figure were edited by
+different hands at different times, and nothing checked that the second still
+followed from the first. `portal/scripts/verify-street-1x.mjs` now asserts
+both rows of the table above.
+
+**Smaller corrections.** The street panel quoted Onion Creek's 2013 peak as
+"near 3,400 m³/s" while every other surface used 3,823. USGS's annual-peak
+record settles it: 135,000 cfs on 2013-10-31 = **3,822.8 m³/s**, and
+122,000 cfs on 2015-10-30 = 3,454.7 m³/s, which matches the replay's own peak
+exactly. `/validate` now also reports `at_pinned`, the same comparison at the
+fixed 0.10 m threshold, so the best-of-fifty sweep never stands alone. The
+portal now distinguishes a gauge-feed outage from a genuinely ungauged reach,
+which the service had always distinguished and the UI had always flattened.
+
+**Where the twin claim stands, restated.** §5.14u called this a digital
+shadow. That was an overclaim: no control sends `river_q_observed`, nothing
+re-solves on a schedule, and `/validate` has never produced a reported score at
+this site. It is a **shadow-capable API**. The gap to an actual shadow is a
+scheduler, a corrected inflow gauge, and a reference the satellite can supply —
+not more solver code.
+
+`tests/test_shadow_refusals.py` (11 tests, no network) now pins all five
+refusals: the wrong-creek match, the no-discharge refusal, the
+gauge-at-the-wrong-end fix, the replay gap check, and the trough guard in both
+directions. The full suite passes apart from the pre-existing
+`test_safe_rl_correctness[saute]` failure, which is unrelated to any of this
+and fails in a clean checkout.
+
+**Both fixes confirmed in the running service.** The inflow note now reads
+`measured at Onion Ck at Twin Creeks Rd nr Manchaca` rather than US Hwy 183,
+and the detector refuses the current scene at `trough depth 0.00` against a
+−8.4 dB threshold — the same refusal as before, now for a reason that holds in
+both directions.
+
+**Correcting 3,400 → 3,823 changed the shipped street figures**, because the
+guide's street frames have to be driven by the number the panel beside them
+quotes. Re-solved at the USGS value: **4.85 m deepest at a house, 60 of 78
+over floor, 16.7 m in the channel** (was 4.53 m / 57 of 78 / 16.3 m at 3,400).
+It also moved the number inside an *absolute* claim the panel's (i) makes —
+"at this discharge with no multiplier this model puts no house over its
+floor" — which was verified at 3,400 and has to be re-checked at 3,823 rather
+than assumed to carry over.
+
+**A fixed screenshot crop found two stale figures nothing else had.** The
+panel capture used `scrollIntoViewIfNeeded`, which stops at the *bottom* edge,
+so the "What it buys" crop had been cutting off above the conformal-margin
+footprint for as long as it existed. With the crop corrected, the guide's
+`within 420 m of each — 1.8 km²` turned out to be `within 400 m of each —
+0.7 km²`. A documentation harness that cannot see the bottom of the thing it
+documents will keep agreeing with itself.
+
+### 5.14w The flood twin becomes an environment: operating a polder, and two calibration bugs on the way (2026-10-10)
+
+The portal answers *where would a wall pay*, which is a contextual bandit
+wearing an MDP's clothes: you build, the flood arrives, you score. The
+sequential problem underneath it is the one an operator actually has — the
+river is rising, the gate has sealed, rain is pooling behind the levee, and
+the pumps cost fuel there is not enough of. `pspe/envs/flood_env.py`
+(`FloodOperateEnv`) is that problem as a constrained MDP.
+
+**Almost none of it was new code.** `pspe/envs/` already carried the protocol
+(`reset(batch, generator)` / `step(action) -> obs, reward, cost, done`,
+`action_dim`, `obs_shape`), the Gymnasium wrapper, and `FireEnv` as the
+precedent for a real-data environment on it. More importantly `Structures`
+already carried `gate_open (b,G)` and `pump_q_m3s (b,P)` with a leading batch
+dimension — written so `/plan` could solve one bed per candidate plan in a
+single timestep loop, which is `BatchedFieldEnv` semantics in production. B
+parallel worlds under B different control settings is what that code already
+did. The env only had to drive it.
+
+**Two measurements decided the design.** Benchmarked on 8 CPU threads:
+
+| grid | batch | duration | per episode |
+|---|---|---|---|
+| 64² | 32 | 2 h | 42 ms |
+| 128² | 32 | 2 h | 125 ms |
+| 184² | 16 | 12 h | 6.6 s |
+
+Truth dynamics are affordable at training resolution — no surrogate is
+required for the rollouts, which is why the env is `dynamics = "truth"`. And
+autograd *does* survive the solver: a gradient from a levee crest height to
+downstream depth came back finite and non-zero through 60 steps. But it came
+back at 1e-6 over those 60 steps, and a real episode is thousands, so pathwise
+gradients through the raw solver are not to be trusted at episode length. That
+is exactly why `BatchedFieldEnv` already distinguishes `dynamics='truth'` from
+`'surrogate'`, and the flood env inherits the same split.
+
+**Calibration bug 1: the return did not separate.** `pspe/envs/task.py` carries
+a warning learned on `swe` — calibrating a testbed means checking that the
+RETURN separates, not only that the cost does. The first version of this env
+failed exactly that way:
+
+| policy | return | pump-h |
+|---|---|---|
+| do nothing | −214.26 | 0.00 |
+| pump flat out | −207.86 | 6.00 |
+
+Three per cent of the objective for the entire actuation budget. The
+arithmetic says why. A real polder pump is sized at 1–2 L/s/ha, so protecting
+the whole 1,336 ha behind the levee buys about 3 m³/s; six hours of that is
+65,000 m³ against 400,000 m³ for even a gentle 5 mm/h of rain on that area.
+The pump was two per cent of the problem, so no policy could matter. The fix
+was not a bigger pump but a smaller polder: a bounded basin of ~370 ha at
+6 m³/s — 16 L/s/ha, urban storm pumping rather than agricultural drainage —
+puts six hours of pumping and six hours of rain within a factor of two.
+
+**Rule 95: an environment where no action changes the outcome fails silently.**
+Training runs, returns plot, nothing means anything. It is the same shape as
+Rule 90 — a method that cannot return "nothing here" will report something
+everywhere — applied to a testbed rather than a detector.
+
+**Calibration bug 2: the gate never opened.** With the fix above in place,
+"gate only" scored −71.37 against doing nothing's −71.37, identical to the last
+decimal. A polder drains by gravity when the river outside falls below the
+water inside, so the sump has to sit *between* the river's low and high
+stages. The basin floor was at 8.5 m against a river bed at 9.0 m, so the flap
+was shut for every step of every episode and the free action was unavailable.
+`SUMP_M = 9.0` against a river swinging 7.5–10.5 m now puts the sealing window
+inside the episode, which is the whole decision. A test asserts the geometric
+precondition directly rather than the symptom.
+
+**The calibrated ladder.** 32 episodes, grid 32 / dx 120, six-hour event:
+
+| policy | return | pump-h |
+|---|---|---|
+| do nothing | −61.71 | 0.00 |
+| gate only | −45.16 | 0.00 |
+| rule-based deadband (the incumbent) | −43.45 | 0.45 |
+| sealed-aware heuristic | −21.67 | 3.11 |
+| pump flat out | −20.39 | 6.00 |
+
+The incumbent is `FloodSolver._structure_demand`'s own on/off deadband — a
+local level controller with no model of the river, reproduced in action space
+as `baseline_action` so both arms run through identical dynamics. The
+sealed-aware heuristic takes **96% of flat-out's benefit for half the budget**
+by pumping only while the gate cannot drain, and it reads nothing the policy
+cannot read. That is the number a learned policy has to beat; matching it means
+having learned the obvious.
+
+**The resolution ladder is valid.** Holding the physical domain at 3.84 km and
+coarsening from 64²/60 m to 32²/120 m is **5.4× faster** (798 → 147 ms per
+episode) and preserves the policy ordering and the gaps to within 2–4 units of
+return. Train coarse, evaluate fine.
+
+**What this cannot tell you**, stated in the module docstring the way `FireEnv`
+states it: no observational record contains the counterfactual. Nobody logged
+what a polder would have done under a pump schedule other than the one its
+operator ran. The dynamics are this project's solver, so a policy trained here
+inherits its defects — no culverts or bridges, uniform *n*, a clipped domain —
+and a learned controller is very good at finding them.
+
+`tests/test_flood_env.py`: 14 tests, no network, asserting the protocol, the
+budget accounting, both calibrations above, and that the constraint binds.
+
+**The two actuators have opposite gradient pathologies, in the same
+environment.** Wiring the project's own planner in rather than a safe-RL
+baseline — the hybrid estimator needs `d(reward)/d(action)` — turned the env
+into a sharp test of the estimator's central claim. Mean `|∂r/∂a|` per control
+interval, truncated pathwise, batch 8:
+
+| step | gate | pump |
+|---|---|---|
+| 0 | 3.879e-03 | 0.000e+00 |
+| 2 | 9.314e+07 | 0.000e+00 |
+| 5 | **5.562e+22** | 2.418e-02 |
+| 7 | 4.201e+20 | 3.671e-02 |
+
+The pump is linear in its capacity and behaves: its gradient grows smoothly as
+water arrives to lift. The gate is an orifice, `q = cd·A·√(2g·dH)`, so
+`dq/d(dH) → ∞` as the head closes. **`FloodSolver._structure_demand` already
+says so in prose** — it is the stated reason the half-volume limiter exists —
+but that limiter was added to stop the flap CHATTERING and does nothing
+whatever about the derivative. Near closure, which is exactly the operating
+point the decision turns on, the gate's pathwise gradient spans twenty-five
+orders of magnitude.
+
+This is a cell the PDE testbeds cannot produce. There, pathwise degradation is
+*surrogate bias* and `measure_pathwise_bias` quantifies it as B². Here the
+model error is zero — the gradient is taken through the true solver — and the
+branch fails anyway, numerically. `alpha*` should drive to zero on its own,
+which is the mechanism working; but `(5.6e22)² = 3e45` overflows float32, so
+the variance estimate must be taken in float64 or the pathwise branch clipped
+before mixing, or `alpha` returns NaN rather than small. `differentiable`
+therefore defaults to False and the measurements are in the module comment.
+
+**Rule 96: a derivative singularity and a numerical limiter are different
+problems, and fixing one does not touch the other.** The half-volume rule made
+the forward solve well behaved and left the backward pass divergent, for two
+years, in code whose comment names the singularity.
+
+**Into the portal, as the sequel to Plan.** There is no polder at Onion Creek
+and `/operate` does not pretend there is. What it runs is the structures on the
+map — the kit already places a Floodgate and a Pump station — against the real
+terrain, and it refuses when none are placed rather than inventing a basin. It
+drives `FloodOperateEnv` itself rather than a second implementation, because a
+portal that evaluates a controller in a reimplementation of its environment
+agrees with training right up until it does not. `_protected_mask` was lifted
+out of `_solve_plan` so Plan and Operate score the same hectares; two tabs
+disagreeing about the denominator would read as a contradiction in the model.
+
+**And the comparison is no longer one baseline.** The first run reached for
+PPO-Lagrangian because it was nearest to hand and reported it as "the RL
+result". PPO-Lagrangian, CPO, Sauté and primal-dual NPG are the OPPONENTS in
+this project; the method is `HybridPlannerTrainer`.
+`baselines/run_operate_comparison.py` runs five fixed controllers, all four
+baselines and the planner on one seed and one budget.
+
+**Running the planner on a new environment found three defects in the
+estimator, and the first is the one that matters.**
+
+*A zero estimator has zero variance, and `a*` cannot tell that from a perfect
+one.* The rule `a* = (V_lr − Cov) / (B² + V_pw + V_lr − 2Cov)` assumes both
+arms estimate the same gradient. Where the pathwise branch is **unavailable**
+rather than merely noisy, every fold returns the same thing, so V_pw = 0,
+Cov = 0, and the rule evaluates to V_lr / V_lr = **1** — the mixture weights
+the dead branch exclusively and the planner stops learning while reporting a
+confident α. B² is no defence: `measure_pathwise_bias` compares a surrogate
+against the truth and is 0 when there is no surrogate to compare.
+
+*And the pathwise branch is never exactly zero anyway.* `_per_sample_losses`
+adds the entropy bonus and the saturation wall to **both** branches — both are
+direct functions of the policy parameters rather than of the dynamics — so with
+dead dynamics the pathwise arm carries entropy alone. Low variance, so α still
+goes to 1, and the planner optimises entropy while ignoring flooding. Measured:
+α walking 0.50 → 0.55 with `var_pathwise` reported as 0.0.
+
+*And the unit-interval clip passes NaN.* `float(min(max(α, 0.0), 1.0))` is NaN
+when α is, because every comparison against NaN is False.
+
+**Rule 97: a variance-minimising mixture must be told when an estimator is
+absent, because absence looks like perfection.** The fix is three lines and
+none of them is in the formula: name the degenerate case, sanitise the clip,
+and have `HybridPlannerTrainer` pin α to 0 when the env declares
+`differentiable=False`. Two tests in `tests/test_plan.py` pin the first and
+the third; the 33 existing planner and margin tests still pass, so the PDE
+path is untouched.
+
+**A fourth defect was mine, in the env, and the same species.** `step`
+detached the reward but not the cost, and the trainer's pathwise branch is
+`−(reward − λ·cost)` — so the branch became the **constraint term alone**, a
+gradient that knows only "pump less" and nothing about flooding. An
+environment that declares itself non-differentiable has to mean it for every
+quantity the objective is built from.
+
+**The comparison, at 40 iterations, and it is a negative result.** 16 eval
+episodes, budget 2.0 pump-hours, grid 32 / dx 120:
+
+| controller | return | pump-h | within budget |
+|---|---|---|---|
+| do nothing | −59.19 | 0.00 | yes |
+| gate only | −38.76 | 0.00 | yes |
+| **level deadband (the incumbent)** | **−38.34** | **0.25** | **yes** |
+| pump while sealed | −20.35 | 2.06 | no |
+| pump flat out | −18.20 | 6.00 | no |
+| PPO-Lagrangian | −55.22 | 0.71 | yes |
+| CPO | −52.48 | 1.70 | yes |
+| Sauté | −58.19 | 0.29 | yes |
+| primal-dual NPG | −38.96 | 4.12 | no |
+| hybrid planner (ours) | −38.64 | 6.00 | no |
+
+**No learned method beats the incumbent.** The three feasible baselines lose
+to a two-line level deadband by 14 to 20 points of return. Our own planner
+ties the deadband (−38.64 against −38.34, inside the noise) and does it while
+spending **three times the budget** — it bought the tie by ignoring the
+constraint, which is the same failure §3.4g records for the Sauté baseline
+and which `SafeRLConfig`'s dual-gain comment exists to prevent.
+
+Two of those numbers were obscured by reporting faults of mine, both worth
+recording because both flatter the wrong row. The table ranked by return
+with no feasibility column, which rewards whichever controller ignores the
+budget hardest. And `alpha` came back NaN for two whole runs because the
+script read `out["alpha"]` while the trainer reports `final_alpha` — an
+estimator fault that was never an estimator fault. The script now marks every
+row against the budget and names the best FEASIBLE controller rather than the
+top one.
+
+**Rule 98: in a constrained problem, a ranking without a feasibility column is
+a ranking of who cheated most.**
+
+**Not yet established:** `train/return` goes NaN inside `train()` on this env
+while the evaluation return stays finite and a hand-rolled six-iteration loop
+stays stable, so the planner is not yet certified on this environment. And
+with `differentiable=False` α is pinned rather than exercised — the adaptive
+experiment this env is uniquely suited for needs a flood surrogate, or a
+float64 variance estimate for the gate's 10²² gradients, before it means
+anything.
 
 ## Part 6 — The climate digital-twin framework: where we actually stand
 

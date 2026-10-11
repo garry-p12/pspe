@@ -159,10 +159,17 @@ export function LayersPanel({
   );
 
   const n = feed?.gauges.length ?? 0;
+  /* An outage and an ungauged reach are not the same fact, and collapsing
+     them to one line is how "no gauged stream in this box" came to be
+     printed over a creek that has two gauges on it. The service already
+     distinguishes the three cases in `note` -- USGS did not answer, no
+     active site in the area, or no feed for this country -- so say which.
+     `answer` with a null feed is the fetch itself having failed. */
   const gaugeSub = busy ? "loading…"
-    : feed?.supported === false ? "no open feed for this area"
-      : n ? `${n} station${n === 1 ? "" : "s"}`
-        : "no gauged stream in this box";
+    : answer && answer.feed === null ? "could not reach the gauge feed"
+      : feed?.supported === false ? "no open feed for this area"
+        : n ? `${n} station${n === 1 ? "" : "s"}`
+          : feed?.note ?? "no gauged stream in this box";
 
   return (
     <div className="border-b border-line-soft px-5 py-3">

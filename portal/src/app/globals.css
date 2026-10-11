@@ -36,6 +36,16 @@
 
   --ok:   #18181b;
   --warn: #52525b;
+
+  /* The Operate schedule strip: one column per control interval, gate over
+     pump. Two hues rather than two shades of ink, because the two rows are
+     different instruments and not more or less of one thing -- the gate is
+     gravity and free, the pump is fuel. Defined here because the strip was
+     written against `--gate` and `--pump` before either existed, so it
+     rendered as an invisible block that a screenshot caught and the type
+     checker could not. */
+  --gate: #2563a8;
+  --pump: #b45309;
   /* The one hue that is not the map's.
    *
    * Everything else here is achromatic on purpose -- the colour on screen
