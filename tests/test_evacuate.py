@@ -72,12 +72,38 @@ def _roll(env, policy, batch=16, seed=0):
 def test_matches_the_batched_field_env_protocol():
     env = _env()
     assert env.action_dim == K
-    assert env.obs_shape == (4, 1, K)
+    # A FIELD, not a vector of zones: the zones are scattered onto an 8x8
+    # raster by their real lon/lat. `(4, 1, K)` is what this used to be, and
+    # it failed in `GaussianFieldPolicy` before the first update -- the
+    # encoder strides by two three times, so eight is the floor in both axes.
+    assert env.obs_shape == (4, env.grid, env.grid)
+    assert env.grid >= 8
     s = env.reset(16, generator=torch.Generator().manual_seed(0))
     assert s.shape == (16, *env.obs_shape)
     s2, r, c, done = env.step(torch.zeros(16, env.action_dim))
     assert s2.shape == s.shape and r.shape == (16,) and c.shape == (16,)
     assert isinstance(done, bool)
+
+
+def test_zones_land_in_distinct_cells_of_the_raster():
+    """Two neighbourhoods in one cell would have their states summed.
+
+    A policy would then see one zone where there are two, and an order given
+    to the pair could not be told apart from an order given to either.
+    """
+    env = _env()
+    cells = list(zip(env._rows.tolist(), env._cols.tolist()))
+    assert len(set(cells)) == len(cells), f"zones collided on the raster: {cells}"
+    assert all(0 <= r < env.grid and 0 <= c < env.grid for r, c in cells)
+
+
+def test_the_global_signal_fills_the_field_rather_than_sitting_on_zones():
+    """A kernel that never covers a zone cell must still read the signal."""
+    env = _env()
+    s = env.reset(4, generator=torch.Generator().manual_seed(0))
+    sig = s[:, 1]
+    assert torch.allclose(sig, sig[:, :1, :1].expand_as(sig)), \
+        "the signal channel is not uniform over the field"
 
 
 def test_done_fires_at_the_horizon():

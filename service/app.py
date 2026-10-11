@@ -1931,6 +1931,18 @@ def discharge_at(site: str, when: str) -> "dict | None":
     return best[1] if best else None
 
 
+def discharge_series_day(site: str, day: str) -> list[dict]:
+    """One calendar day of instantaneous values, for comparing peak timing.
+
+    A daily mean cannot resolve an hour, and the whole question here is which
+    of two gauges peaked first.
+    """
+    try:
+        return discharge_series(site, f"{day}T00:00", f"{day}T23:59")
+    except Exception:                                        # noqa: BLE001
+        return []
+
+
 def discharge_series(site: str, start: str, end: str) -> list[dict]:
     """A gauge's whole record over a window, as it happened.
 
@@ -4312,3 +4324,150 @@ def _run_operate(req: OperateRequest, key: str) -> dict:
                  "would have done under a different schedule, so the "
                  "comparison is between model runs."),
     }
+
+
+class WarningRequest(BaseModel):
+    """How much notice the upstream gauge gives this reach."""
+    west: float
+    south: float
+    east: float
+    north: float
+    name: str = ""
+    #: Annual peaks to test. More is slower: each costs two NWIS calls.
+    events: int = Field(10, ge=3, le=25)
+
+
+@app.post("/warning")
+def warning(req: WarningRequest) -> dict:
+    """The lead time between this reach's upstream gauge and its outlet.
+
+    A road-closure map says a crossing will be cut. It does not say whether
+    anyone will know in time, and that is a different question with a
+    different answer: it depends on how far upstream the nearest instrument
+    is and whether it was recording. This measures it from the record rather
+    than modelling it -- the lag between the two gauges' peaks on real
+    events.
+
+    The honest part of this endpoint is the refusals. An event where the
+    upstream gauge logged nothing, or peaked at zero, or has a hole across
+    the peak, contributes no lead time and is reported as such rather than
+    dropped. A median taken over the events that worked would describe a
+    warning system by the days it was not needed: measured on Onion Creek,
+    the two largest floods in the record -- 31 October 2013 and 30 October
+    2015 -- are exactly the two where the upstream gauge has no usable trace.
+    """
+    key = "warning:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()[:16]
+    if key in CACHE:
+        return {**CACHE[key], "cached": True}
+    t0 = time.time()
+
+    pad = 0.12
+    feed = gauges(RoadsRequest(west=req.west - pad, south=req.south - pad,
+                               east=req.east + pad, north=req.north + pad,
+                               reach=req.name))
+    if not feed.get("supported"):
+        return {"ok": False, "reason": feed.get("note", "no gauge feed here")}
+    want = _reach_words(req.name or "")
+    on_reach = [g for g in feed.get("gauges", [])
+                if want and any(w in (g.get("name") or "").lower() for w in want)]
+    if len(on_reach) < 2:
+        return {"ok": False, "reason": (
+            f"{len(on_reach)} gauge on this reach. A warning time is the lag "
+            f"between two of them, so it needs an upstream instrument and a "
+            f"downstream one; with a single gauge there is nothing to measure "
+            f"against.")}
+
+    box = (req.west, req.south, req.east, req.north)
+    # Upstream and downstream by position along the flow axis, west to east
+    # being the usual case here; `_gauge_position` already encodes it.
+    on_reach.sort(key=lambda g: g.get("lon", 0.0))
+    up, down = on_reach[0], on_reach[-1]
+
+    # When did the upstream instrument start?
+    #
+    # Without this the answer is a slander. The largest peaks on this reach
+    # are 1921, 1929, 1941 -- decades before Twin Creeks Rd was built in 2003
+    # -- and scoring them as "the gauge logged nothing" reported 9 of 10
+    # events blind when the truth is that most of them predate the gauge.
+    # "Not yet instrumented" and "instrumented and silent" are different
+    # facts and only the second is a failure of the warning system.
+    began = ""
+    try:
+        cat = _get("https://waterservices.usgs.gov/nwis/site/?format=rdb"
+                   f"&sites={up['site']}&seriesCatalogOutput=true&parameterCd=00060")
+        for line in cat.splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            p_ = line.split("\t")
+            if len(p_) > 22 and p_[1] == up["site"] and len(p_[22]) == 10:
+                began = min(began, p_[22]) if began else p_[22]
+    except Exception:                                        # noqa: BLE001
+        began = ""
+
+    peaks_rdb = _get("https://nwis.waterdata.usgs.gov/nwis/peak"
+                     f"?site_no={down['site']}&agency_cd=USGS&format=rdb")
+    days: list[tuple[str, float]] = []
+    for line in peaks_rdb.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        p = line.split("\t")
+        if len(p) > 5 and len(p[2]) == 10 and p[2][:4].isdigit():
+            try:
+                days.append((p[2], float(p[4]) * 0.0283168466))
+            except ValueError:
+                continue
+    days.sort(key=lambda r: -r[1])
+    days = days[:req.events]
+
+    rows, lags, pre = [], [], []
+    for day, q in days:
+        if began and day < began:
+            pre.append(day)
+            rows.append({"date": day, "peak_m3s": round(q, 1), "lag_min": None,
+                         "why": f"before {up['name'].split(',')[0]} was built "
+                                f"({began})"})
+            continue
+        a, b = discharge_series_day(up["site"], day), discharge_series_day(down["site"], day)
+        if len(a) < 8 or len(b) < 8 or max(r["q_m3s"] for r in a) <= 0.0:
+            rows.append({"date": day, "peak_m3s": round(q, 1), "lag_min": None,
+                         "why": ("the upstream gauge logged nothing that day"
+                                 if len(a) < 8 else
+                                 "the upstream gauge peaked at zero")})
+            continue
+        pa = max(a, key=lambda r: r["q_m3s"])
+        pb = max(b, key=lambda r: r["q_m3s"])
+        lag = (datetime.fromisoformat(pb["at"])
+               - datetime.fromisoformat(pa["at"])).total_seconds() / 60.0
+        rows.append({"date": day, "peak_m3s": round(q, 1), "lag_min": round(lag),
+                     "why": None if lag > 0 else
+                            "the downstream peak came first: a local storm, not this wave"})
+        if lag > 0:
+            lags.append(lag)
+
+    lags.sort()
+    out = {
+        "ok": True,
+        "upstream": {"site": up["site"], "name": up["name"]},
+        "downstream": {"site": down["site"], "name": down["name"]},
+        "events": rows,
+        "measured": len(lags),
+        "tested": len(rows),
+        "median_lag_min": round(lags[len(lags) // 2]) if lags else None,
+        "min_lag_min": round(lags[0]) if lags else None,
+        "upstream_record_from": began or None,
+        # Only events the instrument was alive for. The rest are listed with a
+        # reason but are not evidence about the warning system.
+        "blind_on": [r["date"] for r in rows
+                     if r["lag_min"] is None and r["date"] not in pre],
+        "before_gauge_existed": pre,
+        "seconds": round(time.time() - t0, 1),
+        "note": ("Measured, not modelled: the lag between the two gauges' peaks "
+                 "on real events. Events where the upstream gauge was not "
+                 "recording carry no lead time and are listed rather than "
+                 "dropped — a median over the days it worked would describe "
+                 "the warning by the floods nobody needed warning for. Events "
+                 "predating the upstream gauge are separated out: they are not "
+                 "evidence about a warning system that did not exist yet."),
+    }
+    CACHE[key] = out
+    return out

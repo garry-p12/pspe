@@ -8282,13 +8282,73 @@ sixty minutes and then jumps to the full −1426.7. Below the cliff the only
 policy that helps is blanket evacuation at cost 48, which the budget cannot
 buy; above it, a threshold of 0.55 buys the same outcome for 29.4.
 
-**Which closes the loop with the gauge.** The measurement above gives Twin
-Creeks a median lead of **285 minutes** over US 183 — comfortably past the
-120 the decision needs. So Onion Creek *is* evacuable by upstream warning,
-on the five events where the wave routed and both instruments recorded. It is
-not on 31 October 2013 (0 readings) or 30 October 2015 (a hole across the
-peak), which are the two largest floods in the record. Rule 102 stands and
-sharpens: the warning is sufficient exactly when it is not needed.
+**Which closes the loop with the gauge — and the first version of this
+paragraph counted wrongly.** `POST /warning` now measures the lag from the
+record, and the denominator turned out to matter more than the median.
+
+Ranking the downstream gauge's annual peaks by size puts 1921, 1929, 1941,
+1981, 1991, 1998 and 2001 at the top — all before Twin Creeks Rd began
+recording on **2004-10-26**. Scoring those as "the upstream gauge logged
+nothing" reported 9 of 10 events blind, which is a slander on an instrument
+that did not yet exist. "Not yet instrumented" and "instrumented and silent"
+are different facts and only the second is a failure of a warning system; the
+endpoint separates them.
+
+Of the **six** floods since the gauge was built:
+
+| date | peak | lead |
+|---|---|---|
+| 2013-10-31 | 3,822.8 m³/s | **no trace** |
+| 2015-10-30 | 3,454.7 m³/s | **no trace** |
+| 2019-05-04 | 764.6 m³/s | 285 min |
+| 2004-11-17 | 535.2 m³/s | 275 min |
+| 2015-05-24 | 427.6 m³/s | 335 min |
+| 2007-01-13 | 404.9 m³/s | **20 min** |
+
+It recorded four of six, with a median lead of 285 minutes on those — past
+the 120 the decision needs. The two it missed are the two largest, by more
+than fourfold. And one of the four it did record gave **20 minutes**, which is
+inside the cliff: a policy acting on that event would have been no better
+than doing nothing.
+
+So the honest statement is narrower and worse than "285 minutes of warning".
+It is: *this gauge gives enough warning for the floods it can see, has never
+seen a flood above 800 m³/s, and on one of the four it did see gave a sixth
+of what the decision requires.*
+
+**And a learned policy does not beat the trigger here either.** Four seeds,
+PPO-Lagrangian against the best feasible threshold (−1426.7 at cost 29.4):
+
+| iterations | return | sd | cost | beats baseline |
+|---|---|---|---|---|
+| 10 | −1411.0 | 934.6 | 23.9 | 2 of 4 |
+| 30 | −1869.8 | 1070.8 | 21.8 | 1 of 4 |
+| 60 | −2629.8 | 1268.9 | 12.9 | 1 of 4 |
+
+At ten iterations the mean is 15.7 better than the baseline against a standard
+deviation of 934.6 — sixty times the effect. It is a coin flip on seeds. A
+single run of that configuration had scored **−189.5**, seven times better
+than the baseline, and I reported it as "the first time anything learned has
+beaten a heuristic here". It was a lucky seed. That is the third time this
+session Rule 100 has caught the same mistake.
+
+Two things do survive the seeds. The constraint is **slack** — every arm lands
+well inside the budget of 32 — and the dual keeps tightening anyway: cost falls
+23.9 → 12.9 as training proceeds while return degrades 1411 → 2630. A PID dual
+on a non-binding constraint should stop, and this one buys budget nobody asked
+for and pays in people. And **more training is reliably worse**, which is the
+same symptom from the other side.
+
+So both environments in this project now carry the same negative result: on the
+polder a level deadband beat every learned method on 4 of 4 seeds, and on the
+evacuation problem a one-number trigger is indistinguishable from PPO-Lagrangian
+at its best and better than it everywhere else. Two independent problems, two
+well-matched heuristics, nothing learned ahead of either.
+
+**Rule 103: a reliability figure is a ratio, and the denominator is an
+argument.** Every misleading number this session came from counting the wrong
+set — events before the instrument existed, controllers that round to the same
+displayed value, arms compared on single runs.
 
 **Caveats, stated rather than buried.** The flood schedules driving the
 environment are synthetic — a coherent corridor widening with member size, not

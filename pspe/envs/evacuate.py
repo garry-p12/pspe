@@ -113,12 +113,55 @@ class EgressTable:
     zone_nodes: list[int]
     safe_node: int
     interval_min: float
+    #: Where each zone sits on a coarse raster, from its real lon/lat. The
+    #: observation is a FIELD rather than a vector of zones, because
+    #: neighbouring neighbourhoods flood together and a convolutional policy
+    #: can use that. It is also what the rest of this repository's policies
+    #: and critics expect: `GaussianFieldPolicy` strides by two three times,
+    #: so a (4, 1, 8) observation fails with "kernel size can't be greater
+    #: than actual input size" before training starts.
+    zone_rc: list[tuple[int, int]] = field(default_factory=list)
+    grid: int = 8
     members: int = field(init=False)
     zones: int = field(init=False)
     slots: int = field(init=False)
 
     def __post_init__(self) -> None:
         self.members, self.zones, self.slots = self.ok.shape
+
+
+def rasterise_zones(graph: "routes.Graph", zone_nodes: list[int],
+                    grid: int = 8) -> list[tuple[int, int]]:
+    """Put each zone in a cell of a `grid` x `grid` raster by its real position.
+
+    Spread over the zones' own bounding box rather than the domain's, so the
+    cells are used even when the zones cluster. Collisions are walked to the
+    nearest free cell: two neighbourhoods in one cell would have their states
+    summed, and a policy would see one zone where there are two.
+    """
+    pts = [graph.nodes[i] for i in zone_nodes]
+    lons = [p[0] for p in pts]
+    lats = [p[1] for p in pts]
+    w, e = min(lons), max(lons)
+    s_, n = min(lats), max(lats)
+    taken: set[tuple[int, int]] = set()
+    out: list[tuple[int, int]] = []
+    for lon, lat in pts:
+        c = int(round((lon - w) / max(e - w, 1e-9) * (grid - 1)))
+        r = int(round((n - lat) / max(n - s_, 1e-9) * (grid - 1)))
+        if (r, c) in taken:
+            best, bd = None, 1e9
+            for rr in range(grid):
+                for cc in range(grid):
+                    if (rr, cc) in taken:
+                        continue
+                    d = (rr - r) ** 2 + (cc - c) ** 2
+                    if d < bd:
+                        best, bd = (rr, cc), d
+            r, c = best if best else (r, c)
+        taken.add((r, c))
+        out.append((r, c))
+    return out
 
 
 def build_egress_table(
@@ -195,7 +238,8 @@ def build_egress_table(
     mag = mag / max(float(mag.max()), 1e-6)
     sig = np.stack([mag[:, min(t + lead_slots, T - 1)] for t in range(T)], axis=1)
 
-    return EgressTable(ok=ok, minutes=minutes, exposure=exposure, signal=sig,
+    return EgressTable(zone_rc=rasterise_zones(graph, list(zone_nodes)),
+                       ok=ok, minutes=minutes, exposure=exposure, signal=sig,
                        deadline=deadline,
                        population=np.asarray(population, dtype=np.float32),
                        zone_nodes=list(zone_nodes), safe_node=safe_node,
@@ -245,6 +289,13 @@ class FloodEvacuateEnv:
             signal = table.signal
         self.signal = torch.as_tensor(np.asarray(signal, dtype=np.float32),
                                       device=self.device)
+        self.grid = int(getattr(table, "grid", 8))
+        rc = list(getattr(table, "zone_rc", []) or
+                  [(i // self.grid, i % self.grid) for i in range(self.K)])
+        self._rows = torch.tensor([r for r, _ in rc], dtype=torch.long,
+                                  device=self.device)
+        self._cols = torch.tensor([c for _, c in rc], dtype=torch.long,
+                                  device=self.device)
         self.state: Tensor | None = None
         self.t = 0
 
@@ -255,7 +306,7 @@ class FloodEvacuateEnv:
 
     @property
     def obs_shape(self) -> tuple[int, int, int]:
-        return (4, 1, self.K)
+        return (4, self.grid, self.grid)
 
     # -- episode ------------------------------------------------------------- #
     def reset(self, batch: int = 1, generator: torch.Generator | None = None,
@@ -277,13 +328,33 @@ class FloodEvacuateEnv:
         self.t = 0
 
     def _observe(self) -> Tensor:
+        """The zones scattered onto their raster, as a (B, 4, G, G) field.
+
+        A field and not a vector of zones, for two reasons. Neighbourhoods
+        that are near each other flood together, so geography is signal a
+        convolutional encoder can use. And everything else in this repository
+        -- `GaussianFieldPolicy`, `FieldCritic` -- expects a field: handed
+        (4, 1, 8) they fail before the first update with "kernel size can't
+        be greater than actual input size", because the encoder strides by
+        two three times.
+        """
         b = self.remaining.shape[0]
+        g = self.grid
         frac = self.remaining / self.pop[None].clamp(min=1e-6)
-        sig = self.signal[self._member, min(self.t, self.horizon - 1)]
-        sig = sig.view(b, 1).expand(b, self.K)
-        tf = torch.full((b, self.K), self.t / max(self.horizon, 1),
-                        device=self.device)
-        return torch.stack([frac, sig, tf, self.under_order], dim=1).unsqueeze(2)
+        sig = self.signal[self._member, min(self.t, self.horizon - 1)].view(b, 1)
+        tf = torch.full((b, 1), self.t / max(self.horizon, 1), device=self.device)
+
+        out = torch.zeros(b, 4, g, g, device=self.device)
+        rows = self._rows
+        cols = self._cols
+        out[:, 0, rows, cols] = frac
+        out[:, 3, rows, cols] = self.under_order
+        # The signal and the clock are global, so they fill the field rather
+        # than sitting on the zones: a conv kernel that never sees a zone cell
+        # would otherwise read neither.
+        out[:, 1] = sig.view(b, 1, 1)
+        out[:, 2] = tf.view(b, 1, 1)
+        return out
 
     # -- the incumbents ------------------------------------------------------ #
     @torch.no_grad()
@@ -304,7 +375,7 @@ class FloodEvacuateEnv:
         to get, which is exactly the thing a policy could learn — and exactly
         why it is the arm worth beating rather than a strawman.
         """
-        sig = state[:, 1, 0, 0]
+        sig = state[:, 1].flatten(1)[:, 0]        # the signal fills the field
         on = (sig >= threshold).float() * 2.0 - 1.0
         return on.view(-1, 1).expand(-1, self.K).contiguous()
 
