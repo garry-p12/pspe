@@ -1393,14 +1393,6 @@ export function Planner() {
             in Forecast replaces `adHocGrids` but not `adHocRoads`, so the
             panel would score this place's roads against another place's
             flood and cheerfully report that nothing is cut off. */}
-        {/* "Getting out" says whether a road out exists and until when.
-            This says whether anyone would be told in time, which a closure
-            map cannot answer: it depends on how far upstream the nearest
-            gauge is and whether it was recording when it mattered. */}
-        {tab === "trip" && (
-          <WarningTime box={kitBox} name={scenarioName} />
-        )}
-
         {tab === "trip" && !tripRoutesOwned && showingShippedStudy
           && adHocRoads && adHocGrids && mapBounds && (
           <div className="border-t border-line">
@@ -1427,6 +1419,17 @@ export function Planner() {
                 r ? { ...(r as object), forTab: "trip" } as typeof routeLines : null)}
             />
           </div>
+        )}
+
+        {/* AFTER the closure card, not before it. The question only makes
+            sense in that order -- "these roads shut" first, then "would
+            anyone have been told in time", which a closure map cannot
+            answer because it depends on how far upstream the nearest gauge
+            is and whether it was recording when it mattered. Mounted above
+            it, the panel opened with a warning time for a flood the reader
+            had not been shown yet. */}
+        {tab === "trip" && (
+          <WarningTime box={kitBox} name={scenarioName} />
         )}
 
         {tab === "trip" && (

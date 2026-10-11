@@ -3,10 +3,10 @@
 /**
  * How much notice this reach's upstream gauge actually gives.
  *
- * The card above this one says which roads close. It does not say whether
- * anyone would know in time, and that is a different question with a
- * different answer: it depends on how far upstream the nearest instrument is
- * and whether it was recording when it mattered.
+ * The card above this one -- "Getting out" -- says which roads close. It does
+ * not say whether anyone would know in time, and that is a different question
+ * with a different answer: it depends on how far upstream the nearest
+ * instrument is and whether it was recording when it mattered.
  *
  * Measured from the record, not modelled — the lag between the upstream
  * gauge's peak and the outlet's on real floods. What makes it worth a panel

@@ -436,6 +436,15 @@ What it does *not* claim: this is the lag between two instruments, not the
 notice a resident would get. Detection, decision and dissemination all come
 out of it, and none of the three is measured here.
 
+![The two cards together](images/portal-guide/28-warning-rail.png)
+
+The two cards are worth reading as one screen. The road out is open and takes
+**2 minutes**; the warning that would tell anyone to take it arrives **4 h 45
+min** ahead — and on 2013-10-31 and 2015-10-30 it did not arrive. An
+evacuation route is only as good as the notice to use it, and those are
+measured by different instruments with different failure modes. The portal
+shows both because showing either alone is the more comforting picture.
+
 ### Plan a trip
 
 **From** and **To** are place searches (three characters, 350 ms debounce,
