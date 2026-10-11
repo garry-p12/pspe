@@ -389,7 +389,7 @@ the two peaks.
 ```
 Warning time              from Onion Ck at Twin Creeks Rd nr Manchaca
 4 h 45 min
-median on the 4 floods it recorded, of 6 since 2004
+median on the 4 it recorded, of the 6 largest since 2004
 
 No warning on the 2 largest floods
 The upstream gauge left no usable trace on 2013-10-31 or 2015-10-30 —
@@ -425,6 +425,13 @@ starts 2004-10-26. Ranking the peaks by size and taking the top ten put
 which read as a much worse warning system than the one that exists. "Not yet
 instrumented" and "instrumented and silent" are different facts and only the
 second says anything about a warning system.
+- **The sample is the largest floods on record, and the card says so.** It
+reads *"of the 6 largest since 2004"*, not *"of 6 since 2004"* — the outlet
+has **22** annual peaks since the upstream gauge was built, and six of them
+rank in the fourteen largest of its fifty-nine. The earlier wording made the
+denominator look nearly four times smaller than the record it was drawn from.
+The small floods are left out on purpose: a warning time matters for the ones
+that need warning.
 - **The failures are listed individually, with dates and discharges**, rather
 than folded into a success rate. `4 of 6` is a number you can look at without
 learning which two.

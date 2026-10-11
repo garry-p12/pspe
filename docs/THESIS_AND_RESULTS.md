@@ -8392,6 +8392,46 @@ is domination, and the write-up called it a loss, because it was being
 compared against a trigger spending 2.3× as much. Whether it survives the
 correct cost statistic is the open question, not a conclusion.
 
+**The trigger family's frontier, measured** (2026-10-11, 27 thresholds from
+0.30 to 0.95 at 0.025 spacing, 4 seeds and 64 episodes each). It is a step
+function with **three Pareto points**:
+
+| threshold | return | cost | what it dominates |
+|---|---|---|---|
+| 0.550 | −1426.7 | 29.45 | every threshold from 0.300 down-cost, all scoring −1426.7 at 30.1–46.2 |
+| 0.675 | −2579.7 | 15.19 | 0.575–0.650, all −2579.7 at 21.3–28.3 |
+| 0.950 | −3511.4 | 7.27 | 0.700–0.925, all −3511.4 at 7.7–15.1 |
+
+Eleven consecutive thresholds return *the same number to one decimal* while
+their cost varies by a factor of 1.6. That is not noise, it is the family's
+resolution: one threshold on one global signal selects which SLOT the order
+fires at, and there are only a handful of distinct slots in a 48-step episode
+where the decision changes anything. A one-degree-of-freedom controller on an
+eight-zone problem can express three behaviours.
+
+This is the structural reason the comparison matters. The learned arms do not
+have to be *better* than the trigger to be worth something — they have to be
+able to sit between its steps, and the steps are 1,100 return apart.
+
+Reading the learned arms against that curve at their own cost — provisionally,
+because their cost column is the retracted statistic:
+
+| arm | its cost | best trigger affordable at that cost | learned | delta |
+|---|---|---|---|---|
+| PPO-Lagrangian | 12.9 | −3511.4 (at 7.27) | −2629.8 | **+881.6** |
+| CPO | 20.2 | −2579.7 (at 15.19) | −1872.2 | **+707.5** |
+
+Both learned arms beat the best trigger they could afford, having previously
+been reported as losing to a trigger that spent 2.3× as much. **The sign of
+the result flips when the comparison is made at matched cost.**
+
+It is still not a win, and saying so is the point of Rule 100. The deltas are
++882 and +708; the seed spread on the learned arms is sd ≈ 1,270, so the
+standard error on a 4-seed mean is ≈ 635 and the gap is 1.4 of them. A
+direction, not a difference. The run now out uses eight seeds for
+PPO-Lagrangian, which halves that error, and reports `episode_cost` so the
+cost axis means what the table says it means.
+
 So the negative result on this environment is **suspended, not reversed**.
 Two experiments are running to settle it: the trigger family's full frontier
 at 0.025 spacing, and the learned arms at budgets of 12, 20 and 32 reporting

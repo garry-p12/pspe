@@ -1931,14 +1931,32 @@ def discharge_at(site: str, when: str) -> "dict | None":
     return best[1] if best else None
 
 
-def discharge_series_day(site: str, day: str) -> list[dict]:
-    """One calendar day of instantaneous values, for comparing peak timing.
+def discharge_series_day(site: str, day: str, lead_days: int = 0) -> list[dict]:
+    """Instantaneous values around a day, for comparing peak timing.
 
     A daily mean cannot resolve an hour, and the whole question here is which
     of two gauges peaked first.
+
+    `lead_days` extends the window BACKWARDS only, and only the upstream gauge
+    should use it. An annual peak is dated by the day the outlet crested, so a
+    crest just after midnight leaves the upstream peak in the previous
+    evening, outside a calendar day. Searching only inside the day then finds
+    some lesser local maximum later in the morning and reports a confidently
+    wrong, too-short lag -- the failure is silent, which is what makes it
+    worth the extra call.
+
+    Checked on this reach before it was added: on all four measured Onion
+    Creek events the one-day and two-day peaks are identical for both gauges,
+    so this changes nothing here and is for the reaches the portal also
+    serves. The window is never extended forwards, because the upstream peak
+    that caused an outlet crest cannot follow it.
     """
     try:
-        return discharge_series(site, f"{day}T00:00", f"{day}T23:59")
+        start = day
+        if lead_days > 0:
+            start = (datetime.fromisoformat(day)
+                     - timedelta(days=lead_days)).date().isoformat()
+        return discharge_series(site, f"{start}T00:00", f"{day}T23:59")
     except Exception:                                        # noqa: BLE001
         return []
 
@@ -4337,6 +4355,14 @@ class WarningRequest(BaseModel):
     events: int = Field(10, ge=3, le=25)
 
 
+#: How long a wave may take to run from the upstream gauge to the outlet
+#: before the two peaks stop being the same event. See the note in `warning`.
+LAG_MAX = timedelta(hours=8)
+#: How far AFTER the outlet crest an upstream peak may sit and still be read
+#: as a storm centred below the upstream gauge rather than noise.
+LAG_LOCAL_STORM_MAX = timedelta(hours=6)
+
+
 @app.post("/warning")
 def warning(req: WarningRequest) -> dict:
     """The lead time between this reach's upstream gauge and its outlet.
@@ -4426,6 +4452,15 @@ def warning(req: WarningRequest) -> dict:
                 days.append((p[2], float(p[4]) * 0.0283168466))
             except ValueError:
                 continue
+    # Ranked by SIZE, then truncated -- so the sample is "the N largest
+    # floods on record", not "the last N floods". Both numbers are reported
+    # because the difference is the whole denominator: on Onion Creek the
+    # outlet has 59 annual peaks since 1921 and 22 since the upstream gauge
+    # began, but only 6 of the 22 rank in the largest 14. A panel saying
+    # "of 6 since 2004" reads as "there were 6 floods since 2004", which is
+    # false by a factor of nearly four.
+    on_record = len(days)
+    since_gauge = len([d for d, _ in days if not began or d >= began])
     days.sort(key=lambda r: -r[1])
     days = days[:req.events]
 
@@ -4437,17 +4472,51 @@ def warning(req: WarningRequest) -> dict:
                          "why": f"before {up['name'].split(',')[0]} was built "
                                 f"({began})"})
             continue
-        a, b = discharge_series_day(up["site"], day), discharge_series_day(down["site"], day)
+        # The upstream window reaches back a day; the downstream one does not.
+        # The peak's DATE is the outlet's, so widening that side could pick up
+        # a different event entirely.
+        a = discharge_series_day(up["site"], day, lead_days=1)
+        b = discharge_series_day(down["site"], day)
         if len(a) < 8 or len(b) < 8 or max(r["q_m3s"] for r in a) <= 0.0:
             rows.append({"date": day, "peak_m3s": round(q, 1), "lag_min": None,
                          "why": ("the upstream gauge logged nothing that day"
                                  if len(a) < 8 else
                                  "the upstream gauge peaked at zero")})
             continue
-        pa = max(a, key=lambda r: r["q_m3s"])
+        # Anchor on the outlet crest, then look for the upstream peak around
+        # it, and bound that search HARD.
+        #
+        # This was first written with a 24-hour lookback and it fabricated a
+        # warning. On 2015-10-30 -- one of the two floods this panel exists to
+        # say the gauge missed -- the window reached back into the previous
+        # day, found an unrelated reading and reported a lag of 1,434 minutes:
+        # a 24-hour advance warning, on a flood where the correct answer is
+        # that there was none. A bound loose enough to admit yesterday is a
+        # bound that invents the headline.
+        #
+        # LAG_MAX is 8 hours because the longest lag ever measured between
+        # these two gauges is 335 minutes and they are 13 km apart. It is a
+        # statement about this stretch of creek, not a universal constant, and
+        # it is deliberately nearer the observed maximum than to a day.
+        # Anything slower than this is a different event, and the honest
+        # output for a different event is a refusal.
+        #
+        # The window is asymmetric because the physics is: the wave reaches
+        # the upstream gauge first. The hours after the crest are kept so a
+        # storm centred BELOW the upstream gauge still shows up as the
+        # negative lag it is, rather than being excluded for disagreeing.
         pb = max(b, key=lambda r: r["q_m3s"])
-        lag = (datetime.fromisoformat(pb["at"])
-               - datetime.fromisoformat(pa["at"])).total_seconds() / 60.0
+        tb = datetime.fromisoformat(pb["at"])
+        near = [r for r in a
+                if -LAG_LOCAL_STORM_MAX
+                <= tb - datetime.fromisoformat(r["at"]) <= LAG_MAX]
+        if not near:
+            rows.append({"date": day, "peak_m3s": round(q, 1), "lag_min": None,
+                         "why": "the upstream gauge has no reading around "
+                                "this crest"})
+            continue
+        pa = max(near, key=lambda r: r["q_m3s"])
+        lag = (tb - datetime.fromisoformat(pa["at"])).total_seconds() / 60.0
         rows.append({"date": day, "peak_m3s": round(q, 1), "lag_min": round(lag),
                      "why": None if lag > 0 else
                             "the downstream peak came first: a local storm, not this wave"})
@@ -4465,6 +4534,10 @@ def warning(req: WarningRequest) -> dict:
         "median_lag_min": round(lags[len(lags) // 2]) if lags else None,
         "min_lag_min": round(lags[0]) if lags else None,
         "upstream_record_from": began or None,
+        #: What the sample was drawn FROM, so the ratio can be read correctly.
+        "considered": req.events,
+        "peaks_on_record": on_record,
+        "peaks_since_gauge": since_gauge,
         # Only events the instrument was alive for. The rest are listed with a
         # reason but are not evidence about the warning system.
         "blind_on": [r["date"] for r in rows

@@ -34,3 +34,9 @@ data/osm_cache/
 
 # Cached elevation rasters: a fetch result, not source.
 data/dem_cache/
+
+# Evacuation experiment inputs: solver output and fetched road geometry,
+# rebuilt by `python3 -m baselines.evac.prepare`. The egress table beside
+# them is a deterministic function of the two, cached because it costs
+# eight minutes of real routing.
+data/evac/

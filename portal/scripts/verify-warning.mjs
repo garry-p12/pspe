@@ -46,8 +46,12 @@ ok("it names the gauge it came from", /Twin Creeks|from .+ Ck/.test(t));
 const lag = (await aside.locator("[data-warning-lag]").innerText().catch(() => "")).trim();
 ok("it gives a figure, not a verdict",
    /^(\d+ h( \d+ min)?|\d+ min)$/.test(lag), `headline: ${lag || "(absent)"}`);
-ok("it says how many floods that figure rests on",
-   /median on the \d+ flood/.test(t));
+// Not just "how many" but what OF. The sample is the N largest floods on
+// record, so "of 6 since 2004" read as "there were 6 floods since 2004" --
+// false by nearly four times, since the outlet has 22 annual peaks since the
+// upstream gauge was built. The word "largest" is the whole correction.
+ok("it says how many floods that figure rests on, and of what",
+   /median on the \d+ it recorded, of the \d+ largest since \d{4}/.test(t));
 // The honest half: the failures have to be visible, not averaged away.
 ok("it reports the floods with no warning at all",
    /No warning on the/.test(t) && /no usable trace/.test(t));

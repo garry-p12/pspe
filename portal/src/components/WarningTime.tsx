@@ -40,6 +40,9 @@ export interface WarningReply {
   blind_on?: string[];
   before_gauge_existed?: string[];
   upstream_record_from?: string | null;
+  considered?: number;
+  peaks_on_record?: number;
+  peaks_since_gauge?: number;
 }
 
 /** Under two hours is not a warning anyone can act on at city scale: it is
@@ -112,8 +115,8 @@ export function WarningTime({ box, name }: { box: object | null; name: string | 
         {reply.median_lag_min ? hhmm(reply.median_lag_min) : "—"}
       </p>
       <p className="anno mt-0.5">
-        median on the {reply.measured} flood{reply.measured === 1 ? "" : "s"} it
-        recorded, of {seen.length} since {reply.upstream_record_from?.slice(0, 4)}
+        median on the {reply.measured} it recorded, of the {seen.length}{" "}
+        largest since {reply.upstream_record_from?.slice(0, 4)}
       </p>
 
       {blind.length > 0 && (
@@ -163,12 +166,21 @@ export function WarningTime({ box, name }: { box: object | null; name: string | 
             outlet&apos;s, on floods that actually happened. Not a model.
           </p>
           <p>
-            Floods before the upstream gauge was built are excluded rather
-            than counted as failures — {reply.before_gauge_existed?.length ?? 0}{" "}
-            of the peaks on this reach predate it. &ldquo;Not yet
-            instrumented&rdquo; and &ldquo;instrumented and silent&rdquo; are
-            different facts, and only the second says anything about a warning
-            system.
+            The sample is the {reply.considered ?? 0} largest floods in the
+            outlet&apos;s record of {reply.peaks_on_record ?? 0} annual peaks —
+            not the most recent ones. Of those,{" "}
+            {reply.before_gauge_existed?.length ?? 0} predate the upstream
+            gauge and are excluded rather than counted as failures:
+            &ldquo;not yet instrumented&rdquo; and &ldquo;instrumented and
+            silent&rdquo; are different facts, and only the second says
+            anything about a warning system.
+          </p>
+          <p>
+            So {seen.length} is not how many floods there have been since the
+            gauge was built — there have been{" "}
+            {reply.peaks_since_gauge ?? 0}. It is how many of the largest on
+            record fall after it. The small ones are left out because a
+            warning time matters for the floods that need warning.
           </p>
           <p>
             A lag is only meaningful when the wave routed from one gauge to the
