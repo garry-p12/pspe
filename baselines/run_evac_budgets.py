@@ -33,6 +33,39 @@ is heavy-tailed -- one run at -824 and another at -4416 in the same
 configuration -- so "how many seeds beat the baseline" is the more honest
 summary, and a mean plus a standard deviation over four draws of that
 distribution is close to meaningless.
+
+## What the first full sweep found, which was not what it was looking for
+
+Run at budgets 12, 20 and 32 (2026-10-11), the comparison came out at
++491 +/- 513 for PPO-Lagrangian over eight seeds and +708 +/- 647 for CPO
+over four: the learned arms are ahead of the trigger they could afford
+rather than behind it, and neither is distinguishable from zero.
+
+The useful result was the budget axis itself.
+
+**The budget does not bind, across a 2.6x range.** PPO-Lagrangian's final
+policy spends 6.94, 6.80 and 6.83 at limits of 12, 20 and 32 -- it puts
+itself far inside the constraint unprompted, and three to four of its eight
+seeds come in cheaper than every member of the trigger family, whose floor
+is 6.51.
+
+**CPO at 12 and 20 is bit-identical, seed for seed.** The CPO recovery step
+is `-sqrt(2*delta/s) * w`, which contains no constraint surplus: once the
+linearised constraint is infeasible inside the trust region, the direction
+depends on the cost gradient and the trust radius and NOT on how badly the
+budget is exceeded. That is what the algorithm specifies, not a defect. It
+means two budgets on the same side of feasibility give the same policy.
+
+**And it is always in recovery, because training costs double evaluation.**
+`buf.episode_cost` runs near 40 under the stochastic rollout policy while a
+deterministic evaluation of that same policy spends 19-24. Every budget here
+is under 40, so every budget is violated throughout training.
+
+So a sweep over 12/20/32 is one experiment run three times. Varying the
+budget on this environment requires either a limit above the TRAINING cost,
+or a shorter horizon -- `--budgets 45,60` is the range where it would start
+to bind. Checked here by the slack column, which says so rather than leaving
+it to be noticed in the identical digits.
 """
 from __future__ import annotations
 
@@ -139,9 +172,18 @@ def main() -> int:
                 row["p_sign"] = sign_test(row["wins"], len(per))
                 row["delta_mean"] = st.fmean(per) if per else float("nan")
 
+            # Say whether the knob reached the thing it was turned for. A
+            # budget the policy never approaches is not a constraint, and a
+            # sweep over three of those is one experiment with three labels.
+            slack = budget - row["cost"]
+            row["slack"] = slack
+            row["binds"] = bool(slack < 0.1 * budget)
+
             rows.append(row)
             msg = (f"b{budget:<4.0f} {algo:<16} {row['return']:10.1f} "
-                   f"(sd {row['return_sd']:7.1f})  cost {row['cost']:5.1f}")
+                   f"(sd {row['return_sd']:7.1f})  cost {row['cost']:5.1f}"
+                   f"  slack {slack:5.1f}"
+                   f"{'' if row['binds'] else '  BUDGET DID NOT BIND'}")
             if curve and row.get("wins") is not None:
                 msg += (f"  |  beats affordable trigger on {row['wins']}/"
                         f"{len(rs)} seeds, mean {row['delta_mean']:+.1f}, "
