@@ -28,7 +28,15 @@ source "$VENV/bin/activate"; cd "$REPO"
 OUT="${OUT:-runs/alpha_live}"
 SEEDS="${SEEDS:-0 1 2 3 4 5 6 7}"
 ARMS="${ARMS:-adaptive alpha0 truth}"
-THREADS="${THREADS:-4}"
+# v1 is the defaults every flood result in this project has used. v2 turns on
+# the saturation wall and the normalised dual that PlannerConfig's own notes
+# prescribe for exactly the failure the polder exhibits -- pre-tanh past 3 by
+# iteration 30 and reaching 1,436, alpha 0.979 on a dead branch, lambda 27.7
+# climbing linearly and binding nothing. v1 is kept as the control, because a
+# fix with no documented "before" is an assertion.
+CONFIGS="${CONFIGS:-v1 v2}"
+# 3 threads x 24 concurrent fits the node and gets the 48 runs into two waves.
+THREADS="${THREADS:-3}"
 ITERS="${ITERS:-150}"
 
 mkdir -p "$OUT"
@@ -43,11 +51,13 @@ python -m baselines.run_alpha_live --fit --out "$OUT" \
 # jobs, leaving the exit-code loop below nothing to read, which has silently
 # turned failed runs into rc=0 on this cluster before.
 PIDS=()
-for arm in $ARMS; do
-  for s in $SEEDS; do
-    python -m baselines.run_alpha_live --arm "$arm" --seed "$s" \
-      --out "$OUT" --iterations "$ITERS" --threads "$THREADS" &
-    PIDS+=($!)
+for cfg in $CONFIGS; do
+  for arm in $ARMS; do
+    for s in $SEEDS; do
+      python -m baselines.run_alpha_live --arm "$arm" --config "$cfg" \
+        --seed "$s" --out "$OUT" --iterations "$ITERS" --threads "$THREADS" &
+      PIDS+=($!)
+    done
   done
 done
 

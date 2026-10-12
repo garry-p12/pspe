@@ -61,6 +61,27 @@ from pspe.plan.trainer import HybridPlannerTrainer, PlannerConfig
 
 ARMS = ("adaptive", "alpha0", "truth")
 
+#: The planner settings `eval/run_ndws_planning.py` calls "PSPE v2", which this
+#: environment has never used. Every flood number in this project was produced
+#: with all five at their defaults, and the trace says that is why.
+#:
+#: `saturation_coef` is the one that matters here. PlannerConfig documents the
+#: failure precisely -- "the reward-greedy sprint drives the pre-tanh policy
+#: mean past |mu| ~ 3 within 40 iterations. There tanh'(mu) ~ 0: the pathwise
+#: gradient dies, the variance rule then picks the dead branch (alpha -> 0.99)
+#: because zero variance looks like precision, and lambda = 38 multiplies
+#: nothing" -- and then leaves the guard at 0.0 because dar never needed it.
+#: Measured on the polder: pre-tanh past 3 by iteration 30, reaching 1,436;
+#: alpha 0.979; lambda 27.7 and still climbing linearly at the last iteration.
+#: That is the documented pathology, line for line.
+#:
+#: `dual_normalize` is the second half. The budget is in pump-hours (limit 2.0)
+#: while the reward is a percentage, so the raw dual gains are working across a
+#: scale gap -- the same mismatch ndws hit, where lambda needed about thirty
+#: times the length of the run to bind.
+V2 = dict(saturation_coef=1.0, advantage_std_floor=1e-2, dual_ema=0.7,
+          ki=0.5, dual_normalize=True)
+
 
 def build_bank(args):
     #: One bank for every arm and every seed. The terrain is not the variable.
@@ -149,6 +170,9 @@ def cmd_arm(args) -> int:
     pol = GaussianFieldPolicy(env.obs_shape[0], env.action_dim)
     cfg = PlannerConfig(iterations=args.iterations, batch=args.batch,
                         horizon=args.horizon)
+    if args.config == "v2":
+        for k, v in V2.items():
+            setattr(cfg, k, v)
     if args.arm == "alpha0":
         # The matched control: same surrogate dynamics, mixing switched off.
         cfg.adaptive_alpha = False
@@ -160,7 +184,7 @@ def cmd_arm(args) -> int:
         eval_env=make_env(bank, args))          # scored on the TRUE solver
     res = trainer.train()
     row = {
-        "arm": args.arm, "seed": args.seed,
+        "arm": args.arm, "config": args.config, "seed": args.seed,
         "return": res.get("return", float("nan")),
         "episode_cost": res.get("episode_cost", float("nan")),
         "final_alpha": res.get("final_alpha", float("nan")),
@@ -185,8 +209,9 @@ def cmd_arm(args) -> int:
         "cost_limit": args.budget,
         "seconds": round(time.time() - t0, 1),
     }
-    (out / f"{args.arm}_s{args.seed}.json").write_text(json.dumps(row, indent=1))
-    print(f"{args.arm} seed {args.seed}: return {row['return']:9.2f}  "
+    (out / f"{args.arm}_{args.config}_s{args.seed}.json").write_text(
+        json.dumps(row, indent=1))
+    print(f"{args.arm}/{args.config} seed {args.seed}: return {row['return']:9.2f}  "
           f"cost {row['episode_cost']:6.2f}  alpha {row['final_alpha']:.3f}  "
           f"lambda {row['final_lambda']:.3f}  pretanh {row['pre_tanh_mean_abs']:.2f}  "
           f"B^2 {row['pathwise_bias_sq']:.3e}  ({row['seconds']:.0f}s)")
@@ -214,16 +239,19 @@ def cmd_aggregate(args) -> int:
               f"{b['return']:.2f} at {b['cost']:.2f} pump-hours "
               f"(budget {rep['budget']})\n")
 
-    by = {a: {r["seed"]: r for r in rows if r["arm"] == a} for a in ARMS}
-    print(f"{'arm':<10} {'n':>3} {'return':>10} {'sd':>8} {'cost':>7} "
+    cfgs = sorted({r.get("config", "v1") for r in rows})
+    by = {(a, c): {r["seed"]: r for r in rows
+                   if r["arm"] == a and r.get("config", "v1") == c}
+          for a in ARMS for c in cfgs}
+    print(f"{'arm/config':<14} {'n':>3} {'return':>10} {'sd':>8} {'cost':>7} "
           f"{'alpha':>7} {'lambda':>8} {'pretanh':>8} {'satur':>6}")
-    for a in ARMS:
-        vals = list(by[a].values())
+    for a, c in [(a, c) for c in cfgs for a in ARMS]:
+        vals = list(by[(a, c)].values())
         if not vals:
             continue
         rs = [r["return"] for r in vals]
         sat = sum(1 for r in vals if r.get("pre_tanh_mean_abs", 0) > 3.0)
-        print(f"{a:<10} {len(rs):>3} {st.fmean(rs):>10.2f} "
+        print(f"{a + '/' + c:<14} {len(rs):>3} {st.fmean(rs):>10.2f} "
               f"{(st.pstdev(rs) if len(rs) > 1 else 0):>8.2f} "
               f"{st.fmean([r['episode_cost'] for r in vals]):>7.2f} "
               f"{st.fmean([r['final_alpha'] for r in vals]):>7.3f} "
@@ -233,27 +261,34 @@ def cmd_aggregate(args) -> int:
 
     # The only comparison that isolates the rule: same surrogate, same seed,
     # alpha on versus alpha off.
-    shared = sorted(set(by["adaptive"]) & set(by["alpha0"]))
+    for c in cfgs:
+        _paired(by, c, args)
+    return 0
+
+
+def _paired(by, c, args) -> None:
+    shared = sorted(set(by[("adaptive", c)]) & set(by[("alpha0", c)]))
     if shared:
-        d = [by["adaptive"][s]["return"] - by["alpha0"][s]["return"]
+        d = [by[("adaptive", c)][s]["return"] - by[("alpha0", c)][s]["return"]
              for s in shared]
         n = len(d)
         mean = st.fmean(d)
         sd = st.stdev(d) if n > 1 else 0.0
         se = sd / math.sqrt(n) if n > 1 and sd else float("nan")
         wins = sum(1 for x in d if x > 0)
-        print(f"\nadaptive - alpha0, paired on {n} seeds (same surrogate):")
+        print(f"\n[{c}] adaptive - alpha0, paired on {n} seeds "
+              f"(same surrogate):")
         print(f"  mean {mean:+.2f}  sd {sd:.2f}  SE {se:.2f}  "
               f"t={mean / se if se == se and se else float('nan'):.2f}")
         print(f"  wins {wins}/{n}  sign p={sign_p(wins, n):.3f}")
-        if all(abs(by['adaptive'][s]['final_alpha']) < 1e-9 for s in shared):
+        if all(abs(by[('adaptive', c)][s]['final_alpha']) < 1e-9 for s in shared):
             print("  NOTE: alpha is 0.000 on every seed, so the two arms are "
                   "the same estimator and this comparison measures nothing "
                   "but seed noise.")
         # The failure this guard exists for, which the alpha check missed.
         same = [s for s in shared
-                if abs(by["adaptive"][s]["return"]
-                       - by["alpha0"][s]["return"]) < 1e-6]
+                if abs(by[("adaptive", c)][s]["return"]
+                       - by[("alpha0", c)][s]["return"]) < 1e-6]
         if same:
             print(f"  WARNING: {len(same)}/{len(shared)} seeds return an "
                   f"IDENTICAL score for both arms. Two policies do not agree "
@@ -263,21 +298,20 @@ def cmd_aggregate(args) -> int:
                   f"then being measured on a policy that cannot move, and the "
                   f"paired comparison above is meaningless for those seeds.")
         hot = [s for s in shared
-               if by["adaptive"][s].get("pre_tanh_mean_abs", 0) > 3.0]
+               if by[("adaptive", c)][s].get("pre_tanh_mean_abs", 0) > 3.0]
         if hot:
             print(f"  WARNING: pre-tanh magnitude above 3 on {len(hot)}/"
                   f"{len(shared)} adaptive seeds: the squashing function is "
                   f"flat there, so the policy is a corner rather than a "
                   f"distribution.")
         over = [s for s in shared
-                if by["adaptive"][s]["episode_cost"] > 1.0001 * args.budget]
+                if by[("adaptive", c)][s]["episode_cost"] > 1.0001 * args.budget]
         if over:
             print(f"  WARNING: {len(over)}/{len(shared)} adaptive seeds end "
                   f"INFEASIBLE (cost > {args.budget}). A constrained method "
                   f"outside its constraint is not a weaker solution, it is "
                   f"not a solution, and its return does not belong in a "
                   f"ranking.")
-    return 0
 
 
 def main() -> int:
@@ -285,6 +319,10 @@ def main() -> int:
     ap.add_argument("--fit", action="store_true")
     ap.add_argument("--aggregate", action="store_true")
     ap.add_argument("--arm", choices=ARMS)
+    ap.add_argument("--config", choices=("v1", "v2"), default="v1",
+                    help="v1 is the defaults every flood result so far used; "
+                         "v2 turns on the saturation wall and the normalised "
+                         "dual that PlannerConfig's own notes prescribe")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", type=str, default="runs/alpha_live")
     ap.add_argument("--iterations", type=int, default=150)
