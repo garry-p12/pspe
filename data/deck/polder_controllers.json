@@ -1,0 +1,104 @@
+[
+ {
+  "group": "fixed",
+  "name": "do nothing",
+  "return": -66.86941528320312,
+  "cost": 0.0,
+  "wet_km2": 0.4148999750614166,
+  "feasible": true
+ },
+ {
+  "group": "fixed",
+  "name": "gate only",
+  "return": -43.327728271484375,
+  "cost": 0.0,
+  "wet_km2": 0.26864999532699585,
+  "feasible": true
+ },
+ {
+  "group": "fixed",
+  "name": "level deadband (incumbent)",
+  "return": -41.50394821166992,
+  "cost": 0.4375,
+  "wet_km2": 0.24254998564720154,
+  "feasible": true
+ },
+ {
+  "group": "fixed",
+  "name": "pump while sealed",
+  "return": -23.976964950561523,
+  "cost": 2.546875,
+  "wet_km2": 0.13410000503063202,
+  "feasible": false
+ },
+ {
+  "group": "fixed",
+  "name": "pump flat out",
+  "return": -21.30390739440918,
+  "cost": 6.0,
+  "wet_km2": 0.10484999418258667,
+  "feasible": false
+ },
+ {
+  "group": "baseline",
+  "name": "ppo_lagrangian",
+  "return": -46.9161376953125,
+  "cost": 2.6526217460632324,
+  "cost_mean_over_run": 1.62479979544878,
+  "violation_rate": 1.0,
+  "seconds": 1009.4,
+  "samples": 43200.0,
+  "feasible": false
+ },
+ {
+  "group": "baseline",
+  "name": "cpo",
+  "return": -43.13093566894531,
+  "cost": 2.467207431793213,
+  "cost_mean_over_run": 2.0081514418125153,
+  "violation_rate": 0.75,
+  "seconds": 2036.7,
+  "samples": 43200.0,
+  "feasible": false
+ },
+ {
+  "group": "baseline",
+  "name": "saute",
+  "return": -53.67275619506836,
+  "cost": 0.35863691568374634,
+  "cost_mean_over_run": 0.30277079809457064,
+  "violation_rate": 0.0,
+  "seconds": 983.1,
+  "samples": 43200.0,
+  "feasible": true
+ },
+ {
+  "group": "baseline",
+  "name": "primal_dual_npg",
+  "return": -36.71263122558594,
+  "cost": 3.798806667327881,
+  "cost_mean_over_run": 4.22721004486084,
+  "violation_rate": 1.0,
+  "seconds": 1517.2,
+  "samples": 43200.0,
+  "feasible": false
+ },
+ {
+  "group": "ours",
+  "name": "hybrid planner",
+  "return": -32.009300231933594,
+  "cost": 6.0,
+  "cost_mean_over_run": 5.771210134029388,
+  "alpha": 0.0,
+  "seconds": 854.7
+ },
+ {
+  "group": "ours",
+  "name": "hybrid planner + surrogate",
+  "return": -32.009300231933594,
+  "cost": 6.0,
+  "alpha": 0.9786381157576597,
+  "seconds": 590.1,
+  "feasible": false
+ }
+]
