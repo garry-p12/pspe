@@ -16,5 +16,3 @@ HOW TO READ THE OUTLINE
 PNG is supplied. Vector versions (svg, pdf) of every figure are in
 docs/figures/deck/ if the tool accepts them -- they will stay sharp at any
 projector size.
-
-  PROMPT.txt   a ready-to-paste prompt for a slide-building tool.

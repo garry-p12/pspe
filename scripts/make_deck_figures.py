@@ -502,9 +502,11 @@ def fig_warning():
             ax.barh(y, lag, color=col, height=0.6, zorder=2)
             ax.text(lag + 9, y, f"{lag} min", va="center", fontsize=8.2, color=col)
     ax.axvline(120, color=C["ink"], lw=1.2, ls="--", zorder=3)
-    ax.text(128, len(WARNING) - 0.62,
-            "minimum needed\nto evacuate", fontsize=9.0, color=C["ink"],
-            fontweight="bold")
+    # Below the shortest bar, where nothing is drawn. At the top of the axes
+    # this label printed straight through the chart title.
+    ax.text(128, -0.78, "minimum needed to evacuate", fontsize=9.0,
+            color=C["ink"], fontweight="bold", va="center")
+    ax.set_ylim(-1.3, len(WARNING) - 0.4)
     ax.set_yticks(ys)
     ax.set_yticklabels([f"{d}   {q:,.0f} m³/s" for d, q, _ in WARNING], fontsize=8.3)
     ax.set_xlabel("warning time available  (minutes)", fontsize=9.2)
