@@ -332,6 +332,86 @@ footnote.**
 
 ---
 
+## Figure captions
+
+The images carry no caption of their own — manuscript convention, and it keeps
+them clean enough to drop into a paper or a slide unedited. These are the
+captions. Use them under the figure, or read them aloud.
+
+**Fig. 1 — `deck_framework`.** The estimator. A fast differentiable model
+supplies a low-noise but biased gradient; the real system supplies an unbiased
+but noisy one. The two are combined at the weight α that minimises the variance
+of the result, where B² is the *measured* bias of the model gradient rather than
+an assumed constant. A budget controller adjusts λ, and the resulting policy is
+re-measured on the real system rather than on the model that trained it.
+
+**Fig. 2 — `deck_measurement`.** Six components, each of which passed its own
+metric (left) while the decision it fed was worse than that metric implied
+(centre); the right column names the measurement that revealed the gap. The map
+from component metric to decision quality is not monotone, and in three of these
+cases it is inverted.
+
+**Fig. 3 — `deck_matched_budget`.** Improvement over a do-nothing policy on two
+PDE control families, with every method restricted to the *same* number of
+real-system samples (≈8,300 in (a), ≈4,000 in (b)). Points are means over 20
+random seeds, seed-paired; bars are 95% bootstrap intervals from 20,000
+resamples. The percentage beside each interval is the fraction of runs that
+violated the safety constraint. The proposed method is ahead of all four
+published baselines on both families; the four baselines in (b) cannot be
+separated from zero.
+
+**Fig. 4 — `deck_null_floor`.** The same family as Fig. 3(b), with the baselines
+given their *full* customary data budget (≈9.5× more). Three of the four still
+cannot be shown to improve on doing nothing: their intervals straddle zero. A
+benchmark on which standard methods do not beat a null policy cannot rank
+methods, which is why Fig. 3 equalises the budget instead.
+
+**Fig. 5 — `deck_mixing_rule`.** (a) Fraction of runs that violated the safety
+limit, over 20 seeds, for a fixed blend weight against two adaptive rules.
+(b) The real-system samples each arm consumed. The third arm's zero violations
+come with 75% more data, so its advantage is not attributable to the rule; the
+only budget-matched comparison is the first against the second, which does not
+separate on the mean (p = 0.083). The effect of adapting the weight is on the
+*tail*, not the average.
+
+**Fig. 6 — `deck_margin`.** Constraint violations over 20 seeds. A calibrated
+margin applied on its own changes nothing (0 of 20 seeds improve); periodically
+testing against the real system helps; the two together cut violations from
+14.1% to 5.0%, a paired effect of −9.1 points (95% CI [−11.8, −5.5], p = 0.0002),
+better on 15 of 20 seeds.
+
+**Fig. 7 — `deck_flood_frontier`.** Every setting of a single-threshold
+evacuation rule, swept across its full range. The rule produces only three
+distinct outcomes. Across the shaded band the cost of the decision varies by a
+factor of 2.3 while the outcome does not change at all, so a learned policy does
+not need to beat this rule to be useful — it needs to reach the outcomes between
+these three levels, which the rule cannot express at any setting.
+
+**Fig. 8 — `deck_collapse`.** One flood-control training run, with a stabilising
+guard disabled (red) and enabled (green). (a) Without the guard the policy's
+output grows without bound, past the point where its own response saturates and
+all gradients vanish. (b) It then consumes the maximum possible energy and stays
+there, far outside the budget. (c) The safety penalty grows without limit
+because the quantity it is pushing on can no longer respond. With the guard, the
+policy stays responsive, comes inside the budget, and the penalty rises and then
+releases. Single run; a multi-seed replication is in progress.
+
+**Fig. 9 — `deck_polder`.** Controllers for a flood gate and pump, scored
+against an energy budget (dashed line). Circles are within budget, crosses are
+not. The best admissible controller is the simple rule-based one already in
+operational use. Three of four published safe-RL methods finish outside the
+budget — two of them on every evaluation run — and still score below it.
+
+**Fig. 10 — `deck_warning`.** Warning time actually available before each of the
+six largest floods on record at this site, measured as the lag between an
+upstream river gauge's peak and the outlet's. The dashed line is the minimum
+needed to evacuate. The median over the floods the gauge recorded is 4 h 45 min,
+but the two largest events produced no usable record at all, and one of the four
+it did capture gave 20 minutes. Averaging over the occasions an instrument
+worked describes the warning available during the events that needed it least.
+
+---
+
 ## Appendix slides to hold in reserve
 
 - **A1.** The DEM, the gauge at the wrong end, and the surface-vs-bare-earth

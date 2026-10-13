@@ -6,7 +6,14 @@
 Writes docs/figures/deck/*.{svg,pdf,png} in the palette the thesis figures
 already use, so a slide can sit beside a paper figure without reformatting.
 
-Two rules this file follows, both learned the hard way in this project:
+Drawn for a reader who has never seen this repository: testbeds are named by
+their physics rather than by their directory, quantities are named in words
+rather than in code, and NO figure carries its own caption. A manuscript
+figure's caption belongs in the text beside it, so the captions live in
+`docs/DECK_POINTERS.md` and the images stay clean enough to drop into a paper
+or a slide without cropping anything off.
+
+Two further rules, both learned the hard way in this project:
 
 * **Every number is measured and traceable.** Results computed on Vista are
   hard-coded with the job number and section in a comment beside them; results
@@ -107,25 +114,25 @@ def arrow(ax, a, b, *, color=None, lw=1.4, dashed=False, rad=0.0):
 # --------------------------------------------------------------------------- #
 def fig_framework():
     """What the method is, in one picture: two gradients and a rule to mix them."""
-    fig, ax = plt.subplots(figsize=(11.2, 5.6))
-    ax.set_xlim(0, 11.2); ax.set_ylim(0, 5.6); ax.axis("off")
+    fig, ax = plt.subplots(figsize=(10.4, 5.0))
+    ax.set_xlim(0, 11.2); ax.set_ylim(0.2, 5.3); ax.axis("off")
 
-    box(ax, 0.2, 3.5, 2.6, 1.6, "Differentiable model", [
-        "roll the surrogate forward,", "differentiate through it"], "simulate")
-    box(ax, 0.2, 1.2, 2.6, 1.6, "Real environment", [
-        "sample, score, no gradient", "through the dynamics"], "world")
+    box(ax, 0.2, 3.5, 2.6, 1.6, "Learned model", [
+        "fast, differentiable", "approximation"], "simulate")
+    box(ax, 0.2, 1.2, 2.6, 1.6, "Real system", [
+        "slow, exact,", "no gradient"], "world")
 
-    box(ax, 3.3, 3.5, 2.5, 1.6, "Pathwise", [
-        r"$g_{\mathrm{pw}}$", "low variance,", "biased by model error"], "simulate")
-    box(ax, 3.3, 1.2, 2.5, 1.6, "Likelihood ratio", [
-        r"$g_{\mathrm{lr}}$", "unbiased,", "high variance"], "world")
+    box(ax, 3.3, 3.5, 2.5, 1.6, "Gradient A", [
+        r"$g_{\mathrm{pw}}$", "low noise", "biased"], "simulate")
+    box(ax, 3.3, 1.2, 2.5, 1.6, "Gradient B", [
+        r"$g_{\mathrm{lr}}$", "unbiased", "high noise"], "world")
 
-    box(ax, 6.3, 1.55, 2.6, 2.75, "Mixing rule", [
+    box(ax, 6.3, 1.55, 2.6, 2.75, "Combine", [
         r"$g = \alpha\, g_{\mathrm{pw}} + (1-\alpha)\, g_{\mathrm{lr}}$", "",
-        "choose α to minimise", "the variance of g"], "plan")
+        "α minimises the", "noise in g"], "plan")
 
     box(ax, 9.2, 3.5, 1.85, 1.6, "Policy", ["update"], "plan")
-    box(ax, 9.2, 1.2, 1.85, 1.6, "PID dual", [r"$\lambda$ on the", "budget"], "explain")
+    box(ax, 9.2, 1.2, 1.85, 1.6, "Budget", ["controller", r"$\lambda$"], "explain")
 
     for y in (4.3, 2.0):
         arrow(ax, (2.8, y), (3.3, y))
@@ -145,40 +152,31 @@ def fig_framework():
     ax.plot([10.1, 10.1, 1.5, 1.5], [1.2, 0.72, 0.72, 1.2],
             color=C["muted"], lw=1.2, ls="--", zorder=1)
     arrow(ax, (1.5, 0.95), (1.5, 1.2), color=C["muted"], lw=1.2, dashed=True)
-    ax.text(5.8, 0.42, "the policy is re-measured on the REAL environment, "
-                       "not on the model that trained it",
-            ha="center", fontsize=8.5, color=C["muted"], style="italic")
-    ax.text(5.6, 5.42, "The estimator: a biased cheap gradient and an unbiased "
-                       "expensive one, combined at the variance-minimising weight",
-            ha="center", fontsize=10, fontweight="bold")
+    ax.text(5.8, 0.42, "re-measured on the real system", ha="center",
+            fontsize=8.8, color=C["muted"])
+
     save(fig, "deck_framework")
 
 
 def fig_measurement():
     """The thesis in one picture: component metrics do not imply decision quality."""
     rows = [
-        ("surrogate cost satisfied the dual", "7.3% of real evaluations violated",
-         "probe the true environment"),
-        ("one-step forecast skill high", "open-loop rollout invents a fire",
-         "sync to observation"),
-        ("faithfulness 0.47 vs 0.18, t = +21", "briefs carry zero state information",
-         "permutation control"),
-        ("reconstruction AP 0.594 vs 0.006", "decision worse in 0 of 9 configs",
-         "score the belief on the decision"),
-        ("solver matches reference, CSI 0.979", "reference matches satellite at 0.535",
-         "score the reference too"),
-        ("twin loop improved 8 of 8, t = 3.0", "at 607 fires, a third the size",
-         "test at a size that can be wrong"),
+        ("budget satisfied", "7.3% of real runs broke it", "test on the real system"),
+        ("forecast accurate", "rollout invents an event", "re-anchor to observation"),
+        ("explanations faithful", "carry no real information", "permutation control"),
+        ("state estimate better", "decisions no better", "score on the decision"),
+        ("matches the reference", "reference misses reality", "score the reference too"),
+        ("improved 8 of 8 cases", "a third the size at 607", "test at a larger n"),
     ]
     fig, ax = plt.subplots(figsize=(11.6, 0.62 * len(rows) + 1.25))
     ax.set_xlim(0, 11.6); ax.set_ylim(0, 0.62 * len(rows) + 1.25); ax.axis("off")
     y0 = 0.62 * len(rows) + 0.3
-    ax.text(1.75, y0 + 0.30, "the component metric said", ha="center",
-            fontsize=9.5, fontweight="bold", color=C["good"])
-    ax.text(5.55, y0 + 0.30, "the decision in fact", ha="center",
-            fontsize=9.5, fontweight="bold", color=C["bad"])
-    ax.text(9.55, y0 + 0.30, "what exposed it", ha="center",
-            fontsize=9.5, fontweight="bold", color=C["plan"][1])
+    ax.text(1.75, y0 + 0.30, "the metric said", ha="center",
+            fontsize=10.5, fontweight="bold", color=C["good"])
+    ax.text(5.55, y0 + 0.30, "reality was", ha="center",
+            fontsize=10.5, fontweight="bold", color=C["bad"])
+    ax.text(9.6, y0 + 0.30, "the test that found it", ha="center",
+            fontsize=10.5, fontweight="bold", color=C["plan"][1])
     for i, (ok, bad, fix) in enumerate(rows):
         y = y0 - 0.62 * i - 0.30
         ax.add_patch(FancyBboxPatch((0.1, y - 0.21), 3.3, 0.44,
@@ -193,15 +191,12 @@ def fig_measurement():
                                     boxstyle="round,pad=0.01,rounding_size=0.05",
                                     linewidth=1.0, edgecolor=C["plan"][1],
                                     facecolor=C["plan"][0], zorder=2))
-        ax.text(1.75, y, ok, ha="center", va="center", fontsize=8.1, zorder=3)
-        ax.text(5.55, y, bad, ha="center", va="center", fontsize=8.1, zorder=3)
-        ax.text(9.6, y, fix, ha="center", va="center", fontsize=8.1, zorder=3)
+        ax.text(1.75, y, ok, ha="center", va="center", fontsize=9.3, zorder=3)
+        ax.text(5.55, y, bad, ha="center", va="center", fontsize=9.3, zorder=3)
+        ax.text(9.6, y, fix, ha="center", va="center", fontsize=9.3, zorder=3)
         arrow(ax, (3.42, y), (3.88, y), color=C["muted"], lw=1.0)
         arrow(ax, (7.22, y), (7.68, y), color=C["muted"], lw=1.0)
-    ax.text(5.8, 0.12, "Each row: a component whose own metric certified it. "
-                       "The map from component metric to decision quality is not "
-                       "monotone, and in three cases it is inverted.",
-            ha="center", fontsize=8.6, color=C["muted"], style="italic")
+
     save(fig, "deck_measurement")
 
 
@@ -211,14 +206,14 @@ def fig_measurement():
 #: §3.4n, Vista job 1049073, 20 seeds, baselines capped at OUR real-sample count.
 #: (label, effect vs do-nothing, ci_lo, ci_hi, violating %)
 MATCHED_RDF = [
-    ("probe + conformal (ours)", 0.5008, 0.451, 0.556, 5.0),
+    ("This work", 0.5008, 0.451, 0.556, 5.0),
     ("Sauté RL",                 0.1073, 0.062, 0.156, 0.0),
     ("PPO-Lagrangian",           0.0843, 0.046, 0.126, 0.0),
     ("CPO",                      0.0405, 0.019, 0.064, 0.0),
     ("primal-dual NPG",          0.0405, 0.019, 0.065, 0.0),
 ]
 MATCHED_DAR = [
-    ("probe + margin (ours)", 0.0866, 0.077, 0.096, 0.5),
+    ("This work", 0.0866, 0.077, 0.096, 0.5),
     ("Sauté RL",              0.0066, -0.002, 0.016, 0.0),
     ("CPO",                   0.0052, -0.001, 0.011, 0.0),
     ("primal-dual NPG",       0.0052, -0.001, 0.011, 0.0),
@@ -229,7 +224,7 @@ MATCHED_DAR = [
 def _forest(ax, rows, title, xlabel):
     ys = np.arange(len(rows))[::-1]
     for y, (name, mu, lo, hi, viol) in zip(ys, rows):
-        ours = "ours" in name
+        ours = name == "This work"
         col = C["plan"][1] if ours else C["muted"]
         ax.plot([lo, hi], [y, y], color=col, lw=2.6 if ours else 1.8,
                 solid_capstyle="round", zorder=2)
@@ -240,7 +235,7 @@ def _forest(ax, rows, title, xlabel):
     ax.set_yticks(ys)
     ax.set_yticklabels([r[0] for r in rows], fontsize=8.6)
     for lbl in ax.get_yticklabels():
-        if "ours" in lbl.get_text():
+        if lbl.get_text() == "This work":
             lbl.set_fontweight("bold")
             lbl.set_color(C["plan"][1])
     ax.set_xlabel(xlabel, fontsize=8.8)
@@ -252,20 +247,13 @@ def _forest(ax, rows, title, xlabel):
 def fig_matched_budget():
     fig, axes = plt.subplots(1, 2, figsize=(11.4, 3.1))
     _forest(axes[0], MATCHED_RDF,
-            "rdf — matched at ≈8,300 real transitions each",
-            "return gained over a do-nothing policy  (95% bootstrap CI)")
+            "(a)  Reaction–diffusion front",
+            "improvement over doing nothing")
     _forest(axes[1], MATCHED_DAR,
-            "dar — matched at ≈4,000 real transitions each",
-            "return gained over a do-nothing policy  (95% bootstrap CI)")
+            "(b)  Diffusion–advection–reaction",
+            "improvement over doing nothing")
     axes[0].set_xlim(-0.03, 0.72)
     axes[1].set_xlim(-0.02, 0.122)
-    fig.suptitle("At an equal data budget, the method beats all four published "
-                 "baselines; the dashed line is doing nothing",
-                 fontsize=10.4, fontweight="bold", y=1.04)
-    fig.text(0.5, -0.085, "20 seeds, seed-paired, 20,000-resample bootstrap. "
-             "The percentage beside each interval is how often that arm violated "
-             "the constraint — the trade we make, stated rather than hidden.",
-             ha="center", fontsize=8.2, color=C["muted"], style="italic")
     fig.tight_layout()
     save(fig, "deck_matched_budget")
 
@@ -289,22 +277,18 @@ def fig_null_floor():
                 fontsize=7.8, color=C["muted"])
     ax.axvline(0, color=C["bad"], lw=1.2, ls="--")
     ax.set_yticks(ys); ax.set_yticklabels([r[0] for r in FULL_DAR], fontsize=8.8)
-    ax.set_xlabel("return gained over doing nothing  (95% bootstrap CI)", fontsize=8.8)
-    ax.set_title("At full budget on dar, three of four published baselines cannot "
-                 "be shown to beat inaction", fontsize=9.6, fontweight="bold", loc="left")
+    ax.set_xlabel("improvement over doing nothing", fontsize=9.2)
+    ax.set_title("Diffusion–advection–reaction, full data budget",
+                 fontsize=10.0, fontweight="bold", loc="left")
     ax.grid(axis="x", color=C["rule"], lw=0.6, alpha=0.7); ax.set_axisbelow(True)
     ax.set_xlim(-0.012, 0.047)
-    fig.text(0.5, -0.1, "Three intervals straddle zero. A benchmark on which the "
-             "baselines do not beat a null policy cannot rank methods — which is "
-             "why the comparison above is run at a matched budget instead.",
-             ha="center", fontsize=8.2, color=C["muted"], style="italic")
     fig.tight_layout()
     save(fig, "deck_null_floor")
 
 
 #: §4.2a, 20 seeds, Vista job 1033239. Matched-budget arms only.
 def fig_mixing_rule():
-    arms = ["fixed α", "variance rule", "Eq. 8 (measured bias)"]
+    arms = ["fixed blend", "variance rule", "measured-bias rule"]
     viol_pct = [3.18, 0.45, 0.00]
     seeds = [5, 1, 0]
     samples = [5120, 5120, 8960]
@@ -315,10 +299,10 @@ def fig_mixing_rule():
     for i, (v, s) in enumerate(zip(viol_pct, seeds)):
         axes[0].text(i, v + 0.09, f"{v:.2f}%\n{s}/20 seeds", ha="center",
                      fontsize=8.2, color=C["ink"])
-    axes[0].set_ylabel("evaluations violating the limit (%)", fontsize=8.6)
+    axes[0].set_ylabel("runs that broke the safety limit (%)", fontsize=9.0)
     axes[0].set_ylim(0, 4.0)
-    axes[0].set_title("Adaptive α removes the tail", fontsize=9.6,
-                      fontweight="bold", loc="left")
+    axes[0].set_title("(a)  Adapting the blend removes the failures",
+                      fontsize=10.0, fontweight="bold", loc="left")
     axes[0].grid(axis="y", color=C["rule"], lw=0.6, alpha=0.7)
     axes[0].set_axisbelow(True)
     axes[0].tick_params(axis="x", labelsize=8.2)
@@ -327,27 +311,21 @@ def fig_mixing_rule():
                 width=0.56, zorder=2)
     for i, s in enumerate(samples):
         axes[1].text(i, s + 140, f"{s:,}", ha="center", fontsize=8.2)
-    axes[1].set_ylabel("real transitions used", fontsize=8.6)
+    axes[1].set_ylabel("real-world samples used", fontsize=9.0)
     axes[1].set_ylim(0, 10500)
-    axes[1].set_title("…but read the budget before the result",
-                      fontsize=9.6, fontweight="bold", loc="left")
+    axes[1].set_title("(b)  …but one arm paid more for them",
+                      fontsize=10.0, fontweight="bold", loc="left")
     axes[1].grid(axis="y", color=C["rule"], lw=0.6, alpha=0.7)
     axes[1].set_axisbelow(True)
     axes[1].tick_params(axis="x", labelsize=8.2)
 
-    fig.text(0.5, -0.12,
-             "The only matched comparison is variance rule against fixed α: "
-             "p = 0.083 at 20 seeds, which does not separate on the mean. "
-             "Eq. 8 spends 75% more real data, so its zero is not attributable "
-             "to the rule. What holds: α is a VARIANCE effect, not a mean one.",
-             ha="center", fontsize=8.2, color=C["muted"], style="italic")
     fig.tight_layout()
     save(fig, "deck_mixing_rule")
 
 
 #: §3.2b, 20 seeds, Vista job 1032033.
 def fig_margin():
-    arms = ["baseline", "margin only", "probe only", "probe + conformal"]
+    arms = ["no correction", "margin\nalone", "real-world\ntesting alone", "both"]
     mean = [14.1, 14.1, 10.9, 5.0]
     lo = [9.1, 9.1, 6.4, 0.9]
     hi = [17.3, 17.3, 15.5, 8.2]
@@ -362,15 +340,11 @@ def fig_margin():
         ax.text(i, hi[i] + 0.55, f"{m:.1f}%", ha="center", fontsize=8.6,
                 fontweight="bold" if i == 3 else "normal")
     ax.set_xticks(x); ax.set_xticklabels(arms, fontsize=8.4)
-    ax.set_ylabel("evaluations violating the limit (%)", fontsize=8.6)
+    ax.set_ylabel("runs that broke the safety limit (%)", fontsize=9.0)
     ax.set_ylim(0, 20)
-    ax.set_title("Conformal margin on the quantity that actually violates: "
-                 "14.1% → 5.0%", fontsize=9.6, fontweight="bold", loc="left")
+    ax.set_title("Safety violations, 20 repeats", fontsize=10.0,
+                 fontweight="bold", loc="left")
     ax.grid(axis="y", color=C["rule"], lw=0.6, alpha=0.7); ax.set_axisbelow(True)
-    fig.text(0.5, -0.08, "20 seeds. Seed-paired effect −9.1 points "
-             "[−11.8, −5.5], t = −4.59, p = 0.0002, better on 15 of 20 seeds. "
-             "A margin alone does nothing (0/20); the probe is what makes it bite.",
-             ha="center", fontsize=8.2, color=C["muted"], style="italic")
     fig.tight_layout()
     save(fig, "deck_margin")
 
@@ -379,32 +353,44 @@ def fig_margin():
 # 3. the flood twin
 # --------------------------------------------------------------------------- #
 def fig_flood_frontier():
+    """Three flat rows of dots. The picture IS the result, so keep it clear."""
     d = json.loads((DATA / "evac_frontier.json").read_text())
     curve = sorted(d["curve"], key=lambda r: r[2])
     cost = [r[2] for r in curve]
     ret = [r[1] for r in curve]
-    fig, ax = plt.subplots(figsize=(7.6, 3.2))
-    ax.plot(cost, ret, "o", color=C["muted"], ms=4, zorder=2,
-            label="one threshold each (70 swept, 0.30 to 0.99)")
-    for th, r, c in d["pareto"]:
-        ax.plot([c], [r], "o", color=C["plan"][1], ms=9, zorder=4)
-        ax.annotate(f"threshold {th:.2f}", (c, r), textcoords="offset points",
-                    xytext=(10, -4), fontsize=8.2, color=C["plan"][1])
-    lo = min(p[2] for p in d["pareto"])
-    ax.axvspan(6.51, 15.19, color=C["bad"], alpha=0.07, zorder=1)
-    ax.text(10.8, -3200, "between these costs the family\noffers exactly ONE return",
-            ha="center", fontsize=8.2, color=C["bad"], style="italic")
-    ax.set_xlabel("disruption spent  (people-intervals under evacuation order)",
-                  fontsize=8.8)
-    ax.set_ylabel("return  (higher is better)", fontsize=8.8)
-    ax.set_title("A one-number trigger has three behaviours, not a frontier",
-                 fontsize=9.6, fontweight="bold", loc="left")
-    ax.grid(color=C["rule"], lw=0.6, alpha=0.7); ax.set_axisbelow(True)
-    ax.legend(fontsize=8.0, frameon=False, loc="lower right")
-    fig.text(0.5, -0.06, "Thirty consecutive thresholds return the same number "
-             "to one decimal while their cost varies 2.3×. One degree of freedom "
-             "on an eight-zone problem.",
-             ha="center", fontsize=8.2, color=C["muted"], style="italic")
+    fig, ax = plt.subplots(figsize=(8.0, 3.4))
+    ax.plot(cost, ret, "o", color=C["muted"], ms=4.5, zorder=2)
+
+    # Label each row at ITS OWN right-hand end, where nothing is plotted.
+    # Centring the label on the Pareto point drew it straight through the row.
+    levels = sorted({round(r, 1) for r in ret}, reverse=True)
+    for i, lv in enumerate(levels):
+        xs = [c for c, r in zip(cost, ret) if round(r, 1) == lv]
+        ax.plot([min(xs)], [lv], "o", color=C["plan"][1], ms=10, zorder=4)
+        ax.annotate(f"behaviour {len(levels) - i}", (max(xs), lv),
+                    textcoords="offset points", xytext=(12, -3),
+                    fontsize=9.6, color=C["plan"][1], fontweight="bold")
+
+    lo, hi = 6.51, 15.19
+    span = max(ret) - min(ret)
+    floor = min(ret) - 0.20 * span
+    ax.set_ylim(floor - 0.06 * span, max(ret) + 0.12 * span)
+    ax.set_xlim(min(cost) - 2.5, max(cost) + 9.5)
+    ax.axvspan(lo, hi, color=C["bad"], alpha=0.07, zorder=1)
+    ax.annotate("", xy=(lo, floor), xytext=(hi, floor),
+                arrowprops=dict(arrowstyle="<->", color=C["bad"], lw=1.4))
+    ax.text((lo + hi) / 2, floor + 0.035 * span,
+            "cost varies 2.3× across this band,\noutcome does not change at all",
+            ha="center", fontsize=9.0, color=C["bad"], fontweight="bold")
+
+    ax.text(0.985, 0.045, "each dot is one setting of the rule",
+            transform=ax.transAxes, ha="right", fontsize=8.8, color=C["muted"])
+    ax.set_xlabel("disruption caused by evacuating early", fontsize=9.2)
+    ax.set_ylabel("outcome  (higher is better)", fontsize=9.2)
+    ax.set_title("A single-threshold rule has only three behaviours",
+                 fontsize=10.0, fontweight="bold", loc="left")
+    ax.grid(color=C["rule"], lw=0.6, alpha=0.7)
+    ax.set_axisbelow(True)
     fig.tight_layout()
     save(fig, "deck_flood_frontier")
 
@@ -419,37 +405,29 @@ def fig_collapse():
 
     fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.5))
     for ax, key, lab, logy in (
-            (axes[0], "train/pre_tanh_mean_abs", "policy pre-tanh magnitude", True),
-            (axes[1], "train/episode_cost", "cost spent (pump-hours)", False),
-            (axes[2], "lambda", "dual multiplier λ", False)):
+            (axes[0], "train/pre_tanh_mean_abs", "how hard the policy pushes", True),
+            (axes[1], "train/episode_cost", "energy used", False),
+            (axes[2], "lambda", "safety penalty applied", False)):
         x1, y1 = series(v1, key)
         x2, y2 = series(v2, key)
         if y1:
-            ax.plot(x1, y1, color=C["bad"], lw=1.7, label="defaults")
+            ax.plot(x1, y1, color=C["bad"], lw=1.9, label="guard off")
         if y2:
-            ax.plot(x2, y2, color=C["good"], lw=1.7, label="guard on")
+            ax.plot(x2, y2, color=C["good"], lw=1.9, label="guard on")
         if logy:
             ax.set_yscale("log")
             ax.axhline(3.0, color=C["muted"], lw=1.0, ls=":")
-            ax.text(76, 3.6, "beyond 3 the squash is flat:\nevery gradient vanishes",
-                    fontsize=7.4, color=C["muted"])
+            ax.text(60, 4.4, "above this line the policy\nstops responding at all",
+                    fontsize=8.4, color=C["muted"])
         if key == "train/episode_cost":
             ax.axhline(2.0, color=C["ink"], lw=1.0, ls="--")
-            ax.text(78, 2.18, "budget", fontsize=7.6, color=C["ink"])
-        ax.set_xlabel("training iteration", fontsize=8.5)
-        ax.set_ylabel(lab, fontsize=8.5)
+            ax.text(78, 2.2, "budget", fontsize=8.6, color=C["ink"])
+        ax.set_xlabel("training progress", fontsize=9.0)
+        ax.set_ylabel(lab, fontsize=9.0)
         ax.grid(color=C["rule"], lw=0.6, alpha=0.7); ax.set_axisbelow(True)
-    axes[0].legend(fontsize=8.0, frameon=False, loc="lower right")
-    fig.suptitle("The same planner, with one guard off and on: a policy that runs "
-                 "to the boundary, against one that stays where gradients exist",
-                 fontsize=10.2, fontweight="bold", y=1.06)
-    fig.text(0.5, -0.145,
-             "Defaults (red): pre-tanh reaches 1,436, cost pins at the ceiling "
-             "from iteration 50, and λ winds up linearly\nagainst a quantity that "
-             "can no longer respond. Guard on (green): pre-tanh settles near 1.9, "
-             "cost comes inside\nthe budget, and λ rises then RELEASES. "
-             "One seed each — the eight-seed version is still running.",
-             ha="center", fontsize=8.4, color=C["muted"], style="italic")
+    axes[0].legend(fontsize=9.0, frameon=False, loc="lower right")
+    for ax, t in zip(axes, ("(a)", "(b)", "(c)")):
+        ax.set_title(t, fontsize=10.0, fontweight="bold", loc="left")
     fig.tight_layout()
     save(fig, "deck_collapse")
 
@@ -496,15 +474,11 @@ def fig_polder():
     # Short, and kept in the lower third, where no controller sits.
     ax.text(budget + 0.11, min(rets) + 1.5, "over budget",
             fontsize=8.0, color=C["bad"], rotation=90, va="bottom")
-    ax.set_xlabel("fuel spent (pump-hours)", fontsize=8.8)
-    ax.set_ylabel("return (higher is better)", fontsize=8.8)
-    ax.set_title("On the flood polder, the best FEASIBLE controller is the "
-                 "incumbent deadband", fontsize=9.6, fontweight="bold", loc="left")
+    ax.set_xlabel("energy used", fontsize=9.2)
+    ax.set_ylabel("outcome  (higher is better)", fontsize=9.2)
+    ax.set_title("Flood gate and pump control, against an energy budget",
+                 fontsize=10.0, fontweight="bold", loc="left")
     ax.grid(color=C["rule"], lw=0.6, alpha=0.7); ax.set_axisbelow(True)
-    fig.text(0.5, -0.07, "Circles are feasible, crosses are not. Three of four "
-             "published safe-RL methods finish outside the budget — two of them "
-             "on every evaluation episode — and still score below the deadband.",
-             ha="center", fontsize=8.2, color=C["muted"], style="italic")
     fig.tight_layout()
     save(fig, "deck_polder")
 
@@ -521,31 +495,23 @@ def fig_warning():
     for y, (date, q, lag) in zip(ys, WARNING):
         if lag is None:
             ax.barh(y, 480, color=C["bad"], alpha=0.16, height=0.6, zorder=2)
-            ax.text(240, y, "no usable trace — the gauge was silent",
-                    ha="center", va="center", fontsize=8.0,
-                    color=C["bad"], fontweight="bold", zorder=4)
+            ax.text(240, y, "gauge recorded nothing", ha="center", va="center",
+                    fontsize=9.2, color=C["bad"], fontweight="bold", zorder=4)
         else:
             col = C["warn"] if lag < 120 else C["good"]
             ax.barh(y, lag, color=col, height=0.6, zorder=2)
             ax.text(lag + 9, y, f"{lag} min", va="center", fontsize=8.2, color=col)
     ax.axvline(120, color=C["ink"], lw=1.2, ls="--", zorder=3)
-    ax.text(126, len(WARNING) - 0.45,
-            "120 min: below this the evacuation\nstudy finds no route out for everyone",
-            fontsize=7.8, color=C["ink"])
+    ax.text(128, len(WARNING) - 0.62,
+            "minimum needed\nto evacuate", fontsize=9.0, color=C["ink"],
+            fontweight="bold")
     ax.set_yticks(ys)
     ax.set_yticklabels([f"{d}   {q:,.0f} m³/s" for d, q, _ in WARNING], fontsize=8.3)
-    ax.set_xlabel("warning time — lag between the upstream gauge's peak and the "
-                  "outlet's (minutes)", fontsize=8.6)
+    ax.set_xlabel("warning time available  (minutes)", fontsize=9.2)
     ax.set_xlim(0, 520)
-    ax.set_title("Measured, not modelled: how much notice the gauge actually gave",
-                 fontsize=9.6, fontweight="bold", loc="left")
+    ax.set_title("How much notice the river gauge actually gave, by flood",
+                 fontsize=10.0, fontweight="bold", loc="left")
     ax.grid(axis="x", color=C["rule"], lw=0.6, alpha=0.7); ax.set_axisbelow(True)
-    fig.text(0.5, -0.08, "Median 4 h 45 min — on the four it recorded. The two "
-             "largest floods since the gauge was built left no trace at all, and "
-             "one of the four it did see gave 20 minutes. A median over the days "
-             "the instrument worked describes the warning available during the "
-             "floods nobody needed warning for.",
-             ha="center", fontsize=8.2, color=C["muted"], style="italic")
     fig.tight_layout()
     save(fig, "deck_warning")
 
