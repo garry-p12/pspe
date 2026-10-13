@@ -516,6 +516,212 @@ def fig_warning():
     save(fig, "deck_warning")
 
 
+
+# --------------------------------------------------------------------------- #
+# 4. what the framework offers, and how the twin and the gym work
+# --------------------------------------------------------------------------- #
+def fig_offers():
+    """What the method buys, in three panels, before any numbers."""
+    fig, axes = plt.subplots(1, 3, figsize=(11.4, 3.0))
+    for ax in axes:
+        ax.axis("off")
+
+    # (a) learns from less real data
+    ax = axes[0]
+    ax.set_xlim(0, 10); ax.set_ylim(0, 10)
+    ax.add_patch(FancyBboxPatch((0.6, 6.2), 8.8, 1.5,
+                                boxstyle="round,pad=0.05,rounding_size=0.2",
+                                facecolor=C["world"][0], edgecolor=C["muted"], lw=1.2))
+    ax.text(5.0, 6.95, "standard methods", ha="center", va="center", fontsize=9.6)
+    ax.add_patch(FancyBboxPatch((0.6, 3.9), 1.9, 1.5,
+                                boxstyle="round,pad=0.05,rounding_size=0.2",
+                                facecolor=C["plan"][0], edgecolor=C["plan"][1], lw=1.6))
+    ax.text(1.55, 4.65, "ours", ha="center", va="center", fontsize=9.6,
+            fontweight="bold", color=C["plan"][1])
+    ax.annotate("", xy=(2.5, 3.15), xytext=(9.4, 3.15),
+                arrowprops=dict(arrowstyle="<->", color=C["ink"], lw=1.3))
+    ax.text(5.9, 2.65, "4.6× less real-world data\nfor the same result",
+            ha="center", va="top", fontsize=9.6, fontweight="bold")
+    ax.set_title("(a)  Learns from less", fontsize=10.4, fontweight="bold", loc="left")
+
+    # (b) a stated failure rate
+    ax = axes[1]
+    ax.set_xlim(0, 10); ax.set_ylim(0, 10)
+    for i in range(20):
+        x, y = 1.0 + (i % 5) * 1.75, 7.3 - (i // 5) * 1.45
+        bad = i == 0
+        ax.add_patch(FancyBboxPatch((x - 0.52, y - 0.45), 1.05, 0.9,
+                                    boxstyle="round,pad=0.02,rounding_size=0.12",
+                                    facecolor=C["bad"] if bad else "#e8f3ee",
+                                    edgecolor=C["bad"] if bad else C["good"], lw=1.2))
+    ax.text(5.0, 2.05, "we say in advance how often\nthe limit will be crossed",
+            ha="center", va="top", fontsize=9.6, fontweight="bold")
+    ax.set_title("(b)  States its own failure rate", fontsize=10.4,
+                 fontweight="bold", loc="left")
+
+    # (c) refuses
+    ax = axes[2]
+    ax.set_xlim(0, 10); ax.set_ylim(0, 10)
+    ax.add_patch(FancyBboxPatch((0.7, 4.3), 8.6, 3.4,
+                                boxstyle="round,pad=0.06,rounding_size=0.25",
+                                facecolor=C["explain"][0], edgecolor=C["explain"][1],
+                                lw=1.6))
+    ax.text(5.0, 6.6, "“No usable answer here.”", ha="center", va="center",
+            fontsize=11.0, fontweight="bold", color=C["explain"][1])
+    ax.text(5.0, 5.2, "the gauge was silent;\nthe plan moves risk rather than removing it",
+            ha="center", va="center", fontsize=8.8, color=C["ink"])
+    ax.text(5.0, 3.3, "a refusal is a result,\nnot a missing feature",
+            ha="center", va="top", fontsize=9.6, fontweight="bold")
+    ax.set_title("(c)  Refuses when it cannot answer", fontsize=10.4,
+                 fontweight="bold", loc="left")
+    fig.tight_layout()
+    save(fig, "deck_offers")
+
+
+def fig_twin_pipeline():
+    """How the flood twin actually works, left to right, no jargon."""
+    fig, ax = plt.subplots(figsize=(11.4, 3.5))
+    ax.set_xlim(0, 11.4); ax.set_ylim(0, 3.5); ax.axis("off")
+
+    ins = [("Ground elevation", "laser survey,\nbare earth"),
+           ("Rainfall", "storm, or\nlive radar"),
+           ("River level", "live gauges")]
+    for i, (t, sub) in enumerate(ins):
+        y = 2.45 - i * 0.92
+        ax.add_patch(FancyBboxPatch((0.15, y - 0.33), 2.0, 0.76,
+                                    boxstyle="round,pad=0.03,rounding_size=0.1",
+                                    facecolor=C["perceive"][0],
+                                    edgecolor=C["perceive"][1], lw=1.3))
+        ax.text(1.15, y + 0.12, t, ha="center", fontsize=9.2, fontweight="bold",
+                color=C["perceive"][1])
+        ax.text(1.15, y - 0.19, sub, ha="center", fontsize=7.8, color=C["ink"])
+        arrow(ax, (2.2, y), (3.0, 1.75), color=C["muted"], lw=1.1)
+
+    ax.add_patch(FancyBboxPatch((3.05, 1.05), 2.3, 1.45,
+                                boxstyle="round,pad=0.04,rounding_size=0.14",
+                                facecolor=C["simulate"][0],
+                                edgecolor=C["simulate"][1], lw=1.7))
+    ax.text(4.2, 2.18, "Water model", ha="center", fontsize=10.2,
+            fontweight="bold", color=C["simulate"][1])
+    ax.text(4.2, 1.72, "shallow-water physics\non a 40 m grid", ha="center",
+            fontsize=8.4)
+    ax.text(4.2, 1.28, "18 hours in ~2 min", ha="center", fontsize=8.4,
+            color=C["muted"])
+    arrow(ax, (5.4, 1.75), (6.1, 1.75), lw=1.6)
+
+    ax.add_patch(FancyBboxPatch((6.15, 1.2), 1.6, 1.1,
+                                boxstyle="round,pad=0.03,rounding_size=0.12",
+                                facecolor=C["world"][0], edgecolor=C["world"][1], lw=1.3))
+    ax.text(6.95, 1.75, "Depth of water\neverywhere, hour\nby hour", ha="center",
+            va="center", fontsize=8.4)
+
+    outs = [("Which roads close", C["bad"]), ("Whose floor floods", C["bad"]),
+            ("Where to build", C["plan"][1]), ("When to evacuate", C["plan"][1])]
+    for i, (t, col) in enumerate(outs):
+        y = 2.72 - i * 0.66
+        ax.add_patch(FancyBboxPatch((8.3, y - 0.26), 2.95, 0.56,
+                                    boxstyle="round,pad=0.03,rounding_size=0.1",
+                                    facecolor="white", edgecolor=col, lw=1.4))
+        ax.text(9.78, y + 0.01, t, ha="center", va="center", fontsize=9.2,
+                color=col, fontweight="bold")
+        arrow(ax, (7.8, 1.75), (8.25, y), color=C["muted"], lw=1.0)
+
+    # Under everything, not through it. Routed at box height this line ran
+    # straight across the "River level" label.
+    ax.plot([6.95, 6.95, 1.15, 1.15], [1.15, 0.42, 0.42, 1.34],
+            color=C["muted"], lw=1.2, ls="--", zorder=0)
+    arrow(ax, (1.15, 0.95), (1.15, 1.34), color=C["muted"], lw=1.2, dashed=True)
+    ax.text(4.05, 0.52, "the live gauge corrects the model as the storm runs",
+            ha="center", fontsize=8.8, color=C["muted"],
+            bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none"))
+    fig.tight_layout()
+    save(fig, "deck_twin_pipeline")
+
+
+def fig_gym_loop():
+    """What turns a simulator into a decision problem."""
+    fig, ax = plt.subplots(figsize=(10.6, 3.9))
+    ax.set_xlim(0, 10.6); ax.set_ylim(0, 3.9); ax.axis("off")
+
+    ax.add_patch(FancyBboxPatch((3.5, 1.85), 3.6, 1.5,
+                                boxstyle="round,pad=0.05,rounding_size=0.16",
+                                facecolor=C["simulate"][0],
+                                edgecolor=C["simulate"][1], lw=1.8))
+    ax.text(5.3, 2.95, "The flood twin", ha="center", fontsize=11.0,
+            fontweight="bold", color=C["simulate"][1])
+    ax.text(5.3, 2.45, "real terrain, real roads,\nreal river", ha="center",
+            fontsize=8.8)
+
+    ax.add_patch(FancyBboxPatch((0.25, 1.95), 2.55, 1.3,
+                                boxstyle="round,pad=0.04,rounding_size=0.14",
+                                facecolor=C["plan"][0], edgecolor=C["plan"][1], lw=1.6))
+    ax.text(1.52, 2.88, "Controller", ha="center", fontsize=10.4,
+            fontweight="bold", color=C["plan"][1])
+    ax.text(1.52, 2.38, "learned, or a\nsimple rule", ha="center", fontsize=8.8)
+
+    # Labels sit ABOVE their own arrow in the gap, not anchored to a box edge,
+    # where they were drawn over the frames on both sides.
+    arrow(ax, (3.45, 3.02), (2.80, 3.02), color=C["muted"], lw=1.4)
+    ax.text(3.12, 3.14, "what it sees", ha="center", fontsize=8.8,
+            color=C["muted"])
+    arrow(ax, (2.80, 2.18), (3.45, 2.18), color=C["muted"], lw=1.4)
+    ax.text(3.12, 2.30, "what it does", ha="center", fontsize=8.8,
+            color=C["muted"])
+
+    ax.add_patch(FancyBboxPatch((7.75, 2.5), 2.6, 0.75,
+                                boxstyle="round,pad=0.03,rounding_size=0.12",
+                                facecolor="#e8f3ee", edgecolor=C["good"], lw=1.4))
+    ax.text(9.05, 2.87, "Outcome: less flooding", ha="center", va="center",
+            fontsize=9.0, color=C["good"], fontweight="bold")
+    ax.add_patch(FancyBboxPatch((7.75, 1.6), 2.6, 0.75,
+                                boxstyle="round,pad=0.03,rounding_size=0.12",
+                                facecolor="#f7e7e7", edgecolor=C["bad"], lw=1.4))
+    ax.text(9.05, 1.97, "Cost: fuel, or disruption", ha="center", va="center",
+            fontsize=9.0, color=C["bad"], fontweight="bold")
+    arrow(ax, (7.1, 2.75), (7.7, 2.87), color=C["good"], lw=1.3)
+    arrow(ax, (7.1, 2.3), (7.7, 1.97), color=C["bad"], lw=1.3)
+
+    for x, title, sub in ((1.55, "Task 1 — Operate",
+                           "when to open the gate,\nwhen to run the pump"),
+                          (6.4, "Task 2 — Evacuate",
+                           "which neighbourhoods to warn,\nand when")):
+        ax.add_patch(FancyBboxPatch((x - 1.3, 0.12), 3.3, 1.0,
+                                    boxstyle="round,pad=0.04,rounding_size=0.14",
+                                    facecolor=C["explain"][0],
+                                    edgecolor=C["explain"][1], lw=1.4))
+        ax.text(x + 0.35, 0.86, title, ha="center", fontsize=9.6,
+                fontweight="bold", color=C["explain"][1])
+        ax.text(x + 0.35, 0.45, sub, ha="center", fontsize=8.4)
+    ax.text(5.3, 1.42, "two decisions the twin is asked to make",
+            ha="center", fontsize=8.8, color=C["muted"])
+    fig.tight_layout()
+    save(fig, "deck_gym_loop")
+
+
+def fig_dem():
+    """One number, two elevation datasets: the same storm, 54% more flood."""
+    fig, ax = plt.subplots(figsize=(6.6, 3.0))
+    labels = ["Surface model\n(default)", "Bare-earth model\n(correct)"]
+    vals = [28.84, 18.71]
+    bars = ax.bar(labels, vals, color=[C["bad"], C["good"]], width=0.5, zorder=2)
+    for b, v in zip(bars, vals):
+        ax.text(b.get_x() + b.get_width() / 2, v + 0.6, f"{v:.2f} km²",
+                ha="center", fontsize=11.0, fontweight="bold")
+    ax.annotate("", xy=(0, 26.5), xytext=(1, 26.5),
+                arrowprops=dict(arrowstyle="<->", color=C["ink"], lw=1.3))
+    ax.text(0.5, 27.3, "54% more flood,\nfrom the elevation data alone",
+            ha="center", fontsize=9.4, fontweight="bold")
+    ax.set_ylabel("area flooded by the same storm", fontsize=9.2)
+    ax.set_ylim(0, 33)
+    ax.set_title("Trees and rooftops are not ground", fontsize=10.4,
+                 fontweight="bold", loc="left")
+    ax.grid(axis="y", color=C["rule"], lw=0.6, alpha=0.7)
+    ax.set_axisbelow(True)
+    ax.tick_params(axis="x", labelsize=9.2)
+    fig.tight_layout()
+    save(fig, "deck_dem")
+
+
 def main() -> int:
     fig_framework()
     fig_measurement()
@@ -527,6 +733,10 @@ def main() -> int:
     fig_collapse()
     fig_polder()
     fig_warning()
+    fig_offers()
+    fig_twin_pipeline()
+    fig_gym_loop()
+    fig_dem()
     print(f"\nall figures in {OUT}")
     return 0
 

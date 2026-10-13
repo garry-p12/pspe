@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="756pt" height="273.6pt" viewBox="0 0 756 273.6" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-10-12T19:22:07.145427</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.9.4, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M -0 273.6 
+L 756 273.6 
+L 756 0 
+L -0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 259.763774 146.769231 
+L 496.236226 146.769231 
+Q 507.430189 146.769231 507.430189 136.135385 
+L 507.430189 51.064615 
+Q 507.430189 40.430769 496.236226 40.430769 
+L 259.763774 40.430769 
+Q 248.569811 40.430769 248.569811 51.064615 
+L 248.569811 136.135385 
+Q 248.569811 146.769231 259.763774 146.769231 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #d7efe6; stroke: #1f6b4f; stroke-width: 1.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 31.686792 139.458462 
+L 196.098113 139.458462 
+Q 205.89283 139.458462 205.89283 130.153846 
+L 205.89283 57.046154 
+Q 205.89283 47.741538 196.098113 47.741538 
+L 31.686792 47.741538 
+Q 21.892075 47.741538 21.892075 57.046154 
+L 21.892075 130.153846 
+Q 21.892075 139.458462 31.686792 139.458462 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #fbe6d0; stroke: #b0561a; stroke-width: 1.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 246.568602 65.686154 
+Q 225.830498 65.686154 206.657641 65.686154 
+" clip-path="url(#p8896b67d4d)" style="fill: none; stroke: #666666; stroke-width: 1.4; stroke-linecap: round"/>
+    <path d="M 211.457641 68.086154 
+L 206.657641 65.686154 
+L 211.457641 63.286154 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #666666; stroke: #666666; stroke-width: 1.4; stroke-linecap: round"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 205.095549 121.513846 
+Q 225.833653 121.513846 245.00651 121.513846 
+" clip-path="url(#p8896b67d4d)" style="fill: none; stroke: #666666; stroke-width: 1.4; stroke-linecap: round"/>
+    <path d="M 240.20651 119.113846 
+L 245.00651 121.513846 
+L 240.20651 123.913846 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #666666; stroke: #666666; stroke-width: 1.4; stroke-linecap: round"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 555.704151 102.24 
+L 725.01283 102.24 
+Q 733.408302 102.24 733.408302 94.264615 
+L 733.408302 56.381538 
+Q 733.408302 48.406154 725.01283 48.406154 
+L 555.704151 48.406154 
+Q 547.308679 48.406154 547.308679 56.381538 
+L 547.308679 94.264615 
+Q 547.308679 102.24 555.704151 102.24 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #e8f3ee; stroke: #1f6b4f; stroke-width: 1.4; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 555.704151 162.055385 
+L 725.01283 162.055385 
+Q 733.408302 162.055385 733.408302 154.08 
+L 733.408302 116.196923 
+Q 733.408302 108.221538 725.01283 108.221538 
+L 555.704151 108.221538 
+Q 547.308679 108.221538 547.308679 116.196923 
+L 547.308679 154.08 
+Q 547.308679 162.055385 555.704151 162.055385 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #f7e7e7; stroke: #a12a2a; stroke-width: 1.4; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 505.897202 83.25741 
+Q 524.91913 79.643386 542.513158 76.300652 
+" clip-path="url(#p8896b67d4d)" style="fill: none; stroke: #1f6b4f; stroke-width: 1.3; stroke-linecap: round"/>
+    <path d="M 537.349545 74.838767 
+L 542.513158 76.300652 
+L 538.245482 79.554411 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #1f6b4f; stroke: #1f6b4f; stroke-width: 1.3; stroke-linecap: round"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 505.702483 114.463463 
+Q 524.918824 124.503607 542.846955 133.870687 
+" clip-path="url(#p8896b67d4d)" style="fill: none; stroke: #a12a2a; stroke-width: 1.3; stroke-linecap: round"/>
+    <path d="M 539.704036 129.520737 
+L 542.846955 133.870687 
+L 537.481244 133.775052 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #a12a2a; stroke: #a12a2a; stroke-width: 1.3; stroke-linecap: round"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 31.686792 261.083077 
+L 248.569811 261.083077 
+Q 258.364528 261.083077 258.364528 251.778462 
+L 258.364528 198.609231 
+Q 258.364528 189.304615 248.569811 189.304615 
+L 31.686792 189.304615 
+Q 21.892075 189.304615 21.892075 198.609231 
+L 21.892075 251.778462 
+Q 21.892075 261.083077 31.686792 261.083077 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #e8dff3; stroke: #5b3f85; stroke-width: 1.4; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 371.003774 261.083077 
+L 587.886792 261.083077 
+Q 597.681509 261.083077 597.681509 251.778462 
+L 597.681509 198.609231 
+Q 597.681509 189.304615 587.886792 189.304615 
+L 371.003774 189.304615 
+Q 361.209057 189.304615 361.209057 198.609231 
+L 361.209057 251.778462 
+Q 361.209057 261.083077 371.003774 261.083077 
+z
+" clip-path="url(#p8896b67d4d)" style="fill: #e8dff3; stroke: #5b3f85; stroke-width: 1.4; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="fill: #1f6b4f; font: 700 11px 'DejaVu Sans'; text-anchor: middle" x="378" y="70.338462" transform="rotate(-0 378 70.338462)">The flood twin</text>
+   </g>
+   <g id="text_2">
+    <text style="fill: #222222; font: 8.8px 'DejaVu Sans'" transform="translate(327.472187 93.715156)">real terrain, real roads,</text>
+    <text style="fill: #222222; font: 8.8px 'DejaVu Sans'" transform="translate(358.114062 103.569231)">real river</text>
+   </g>
+   <g id="text_3">
+    <text style="fill: #b0561a; font: 700 10.4px 'DejaVu Sans'; text-anchor: middle" x="113.542642" y="74.990769" transform="rotate(-0 113.542642 74.990769)">Controller</text>
+   </g>
+   <g id="text_4">
+    <text style="fill: #222222; font: 8.8px 'DejaVu Sans'" transform="translate(85.502954 98.367463)">learned, or a</text>
+    <text style="fill: #222222; font: 8.8px 'DejaVu Sans'" transform="translate(89.093767 108.221538)">simple rule</text>
+   </g>
+   <g id="text_5">
+    <text style="fill: #666666; font: 8.8px 'DejaVu Sans'; text-anchor: middle" x="225.482264" y="57.710769" transform="rotate(-0 225.482264 57.710769)">what it sees</text>
+   </g>
+   <g id="text_6">
+    <text style="fill: #666666; font: 8.8px 'DejaVu Sans'; text-anchor: middle" x="225.482264" y="113.538462" transform="rotate(-0 225.482264 113.538462)">what it does</text>
+   </g>
+   <g id="text_7">
+    <text style="fill: #1f6b4f; font: 700 9px 'DejaVu Sans'; text-anchor: middle" x="640.358491" y="78.103666" transform="rotate(-0 640.358491 78.103666)">Outcome: less flooding</text>
+   </g>
+   <g id="text_8">
+    <text style="fill: #a12a2a; font: 700 9px 'DejaVu Sans'; text-anchor: middle" x="640.358491" y="137.954207" transform="rotate(-0 640.358491 137.954207)">Cost: fuel, or disruption</text>
+   </g>
+   <g id="text_9">
+    <text style="fill: #5b3f85; font: 700 9.6px 'DejaVu Sans'; text-anchor: middle" x="140.128302" y="209.243077" transform="rotate(-0 140.128302 209.243077)">Task 1 — Operate</text>
+   </g>
+   <g id="text_10">
+    <text style="fill: #222222; font: 8.4px 'DejaVu Sans'" transform="translate(91.049333 227.086145)">when to open the gate,</text>
+    <text style="fill: #222222; font: 8.4px 'DejaVu Sans'" transform="translate(93.201833 236.492308)">when to run the pump</text>
+   </g>
+   <g id="text_11">
+    <text style="fill: #5b3f85; font: 700 9.6px 'DejaVu Sans'; text-anchor: middle" x="479.445283" y="209.243077" transform="rotate(-0 479.445283 209.243077)">Task 2 — Evacuate</text>
+   </g>
+   <g id="text_12">
+    <text style="fill: #222222; font: 8.4px 'DejaVu Sans'" transform="translate(413.383877 227.086145)">which neighbourhoods to warn,</text>
+    <text style="fill: #222222; font: 8.4px 'DejaVu Sans'" transform="translate(458.865939 236.492308)">and when</text>
+   </g>
+   <g id="text_13">
+    <text style="fill: #666666; font: 8.8px 'DejaVu Sans'; text-anchor: middle" x="378" y="172.024615" transform="rotate(-0 378 172.024615)">two decisions the twin is asked to make</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p8896b67d4d">
+   <rect x="7.2" y="7.2" width="741.6" height="259.2"/>
+  </clipPath>
+ </defs>
+</svg>
