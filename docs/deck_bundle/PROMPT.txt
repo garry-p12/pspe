@@ -1,0 +1,53 @@
+Build a presentation from the attached material.
+
+WHAT YOU HAVE
+- OUTLINE.md — the full deck: 26 slides in six acts, then reserve slides
+  R1–R7, then a caption for every figure.
+- images/ — one image per slide. The filename carries the slide number, e.g.
+  slide-03-street-houses-flooded.jpg belongs to slide 3. Files beginning
+  "reserve-" belong to the reserve slides at the end. Slides with no matching
+  file are text-only and need no image.
+
+AUDIENCE
+Mixed. Most have no machine-learning background and will not read an equation.
+A minority are technical and will ask hard questions. Build for the first
+group; the reserve slides exist for the second.
+
+HOW TO USE THE OUTLINE
+Each slide has:
+- SAY — the spoken line. Put this on the slide as a short headline, or in the
+  speaker notes, or both. It is written to be said out loud; keep the wording.
+- SHOW — which image goes on that slide.
+- IF ASKED — backup detail for questions. NEVER put this on a slide. Speaker
+  notes only.
+
+DESIGN
+- Image-forward. Where a slide has an image, the image is the slide; text is a
+  headline plus at most two short lines. Several slides (1, 3, 9, 11, 13) should
+  be full-bleed image with a single line over or beside them.
+- No bullet walls. If a slide in the outline has four bullets, that is material
+  for the speaker notes, not four lines of 20pt text.
+- Do not add clip art, stock photography, icons or decorative gradients. Every
+  visual is already supplied and is either a measured figure or a screenshot of
+  the real system.
+- Readable at the back of a room: minimum 20pt body, 28pt+ headlines, high
+  contrast. The figures are vector-sharp; do not upscale the raster versions.
+- One consistent, restrained template throughout. Dark text on light ground.
+
+CONTENT RULES — these matter more than the design
+- Do NOT invent, round, or "clean up" any number. Every figure in images/ was
+  generated from measured data. If a number is not in OUTLINE.md or visible in
+  a figure, it does not go on a slide.
+- Do NOT add a slide claiming a result that is not in the outline. In
+  particular do not write a summary slide that says the method wins
+  everywhere — the outline deliberately includes results where it loses
+  (slides 20, 21, 24) and those slides stay.
+- Keep the honesty slides. Act VI is not optional padding.
+- Keep the figure captions (end of OUTLINE.md) in the speaker notes of their
+  slide. Do not print them on the slide.
+
+OUTPUT
+- Slides 1–26 in order, then reserve slides R1–R7 clearly marked as backup,
+  after the closing slide.
+- Speaker notes on every slide.
+- Editable format (PowerPoint or Google Slides), 16:9.
