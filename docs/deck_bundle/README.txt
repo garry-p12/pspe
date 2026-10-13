@@ -2,6 +2,9 @@ WHAT IS IN HERE
 
   OUTLINE.md   the deck: 26 slides in six acts, then reserve slides R1-R7,
                then a caption for every figure.
+  SPEAKER_NOTES.md
+               what to actually say, slide by slide, with timings that sum to
+               about 25 minutes. Read this one standing up.
   images/      one file per slide that has an image. The filename carries the
                slide number from OUTLINE.md. Slides not listed here are text
                only and need no image.

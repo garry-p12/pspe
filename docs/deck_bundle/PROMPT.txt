@@ -3,6 +3,8 @@ Build a presentation from the attached material.
 WHAT YOU HAVE
 - OUTLINE.md — the full deck: 26 slides in six acts, then reserve slides
   R1–R7, then a caption for every figure.
+- SPEAKER_NOTES.md — a spoken script, one entry per slide, with timings.
+  Paste each slide's entry into that slide's speaker-notes field.
 - images/ — one image per slide. The filename carries the slide number, e.g.
   slide-03-street-houses-flooded.jpg belongs to slide 3. Files beginning
   "reserve-" belong to the reserve slides at the end. Slides with no matching
@@ -59,5 +61,7 @@ CONTENT RULES — these matter more than the design
 OUTPUT
 - Slides 1–26 in order, then reserve slides R1–R7 clearly marked as backup,
   after the closing slide.
-- Speaker notes on every slide.
+- Speaker notes on every slide, taken from SPEAKER_NOTES.md. Keep the wording;
+  it is written to be spoken. Where a slide also has IF ASKED in OUTLINE.md,
+  append that to the same notes field under a line reading "IF ASKED".
 - Editable format (PowerPoint or Google Slides), 16:9.

@@ -14,6 +14,9 @@ SHOT="$ROOT/docs/images/portal-guide"
 rm -rf "$OUT"; mkdir -p "$OUT/images"
 
 cp "$ROOT/docs/DECK_POINTERS.md" "$OUT/OUTLINE.md"
+# Source of truth lives OUTSIDE the directory this script wipes, and is copied
+# in -- the same pattern as OUTLINE.md, and the reason PROMPT.txt was lost once.
+cp "$ROOT/docs/SPEAKER_NOTES.md" "$OUT/SPEAKER_NOTES.md"
 
 # slide number -> source file. Slides with no image are absent by design.
 copy() { cp "$2" "$OUT/images/$1"; }
@@ -51,6 +54,8 @@ Build a presentation from the attached material.
 WHAT YOU HAVE
 - OUTLINE.md — the full deck: 26 slides in six acts, then reserve slides
   R1–R7, then a caption for every figure.
+- SPEAKER_NOTES.md — a spoken script, one entry per slide, with timings.
+  Paste each slide's entry into that slide's speaker-notes field.
 - images/ — one image per slide. The filename carries the slide number, e.g.
   slide-03-street-houses-flooded.jpg belongs to slide 3. Files beginning
   "reserve-" belong to the reserve slides at the end. Slides with no matching
@@ -107,7 +112,9 @@ CONTENT RULES — these matter more than the design
 OUTPUT
 - Slides 1–26 in order, then reserve slides R1–R7 clearly marked as backup,
   after the closing slide.
-- Speaker notes on every slide.
+- Speaker notes on every slide, taken from SPEAKER_NOTES.md. Keep the wording;
+  it is written to be spoken. Where a slide also has IF ASKED in OUTLINE.md,
+  append that to the same notes field under a line reading "IF ASKED".
 - Editable format (PowerPoint or Google Slides), 16:9.
 PROMPTEOF
 
@@ -116,6 +123,9 @@ WHAT IS IN HERE
 
   OUTLINE.md   the deck: 26 slides in six acts, then reserve slides R1-R7,
                then a caption for every figure.
+  SPEAKER_NOTES.md
+               what to actually say, slide by slide, with timings that sum to
+               about 25 minutes. Read this one standing up.
   images/      one file per slide that has an image. The filename carries the
                slide number from OUTLINE.md. Slides not listed here are text
                only and need no image.
@@ -135,7 +145,7 @@ TXT
 # Fail loudly if the bundle is missing a part. The failure this prevents was
 # silent: a deleted PROMPT.txt still produced a bundle that looked fine.
 missing=0
-for f in OUTLINE.md PROMPT.txt README.txt; do
+for f in OUTLINE.md SPEAKER_NOTES.md PROMPT.txt README.txt; do
   [ -s "$OUT/$f" ] || { echo "MISSING $f" >&2; missing=1; }
 done
 [ "$(ls "$OUT/images" | wc -l | tr -d ' ')" -eq 20 ] || {
@@ -144,5 +154,5 @@ done
 }
 [ "$missing" -eq 0 ] || exit 1
 
-echo "staged $(ls "$OUT/images" | wc -l | tr -d ' ') images + OUTLINE.md + PROMPT.txt + README.txt"
+echo "staged $(ls "$OUT/images" | wc -l | tr -d ' ') images + OUTLINE.md + SPEAKER_NOTES.md + PROMPT.txt + README.txt"
 du -sh "$OUT"
