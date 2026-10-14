@@ -448,6 +448,9 @@ class ObserveRequest(BaseModel):
     north: float
     days: int = Field(7, ge=1, le=10)
     grid: int = Field(64, ge=16, le=128)
+    #: FIRMS product. Default is the near-real-time VIIRS feed, which is what
+    #: "burning now" needs; the archive product lags by weeks.
+    source: str = "VIIRS_SNPP_NRT"
 
 
 @router.post("/observe")
@@ -479,9 +482,13 @@ def observe(req: ObserveRequest) -> dict:
     t0 = time.time()
     end = date.today()
     start = end - timedelta(days=req.days - 1)
+    # FIRMS serves recent days from the near-real-time product; the default in
+    # FireSpec is standard processing, which lags. For a "burning now" tab the
+    # NRT feed is the right one. Passed at construction: FireSpec is frozen.
     spec = FireSpec(name="box", west=req.west, south=req.south,
                     east=req.east, north=req.north,
-                    start=start.isoformat(), days=req.days)
+                    start=start.isoformat(), days=req.days,
+                    source=req.source)
     try:
         from pspe.simulate.real.firms import fetch_fire
         rows = fetch_fire(spec)
@@ -489,9 +496,12 @@ def observe(req: ObserveRequest) -> dict:
     except Exception as exc:                                    # noqa: BLE001
         return {"ok": False, "reason": f"FIRMS request failed: {str(exc)[:160]}"}
 
-    frames = np.asarray(seq.frames, dtype=np.float32)
+    # `FireSequence.fire`, not `.frames` -- read from the dataclass rather than
+    # guessed. It also carries its own dates, so deriving them from the start
+    # date a second time is a second chance to be wrong.
+    frames = np.asarray(seq.fire, dtype=np.float32)
     seen = list(map(bool, seq.observed))
-    days = [(start + timedelta(days=i)).isoformat() for i in range(frames.shape[0])]
+    days = list(seq.dates)
     detections = [int(round(float(f.sum()))) for f in frames]
 
     live = [fire_png(np.clip(f, 0, 1)) for f in frames]

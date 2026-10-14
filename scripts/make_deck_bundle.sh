@@ -17,6 +17,8 @@ cp "$ROOT/docs/DECK_POINTERS.md" "$OUT/OUTLINE.md"
 # Source of truth lives OUTSIDE the directory this script wipes, and is copied
 # in -- the same pattern as OUTLINE.md, and the reason PROMPT.txt was lost once.
 cp "$ROOT/docs/SPEAKER_NOTES.md" "$OUT/SPEAKER_NOTES.md"
+cp "$ROOT/docs/DECK_WILDFIRE.md" "$OUT/WILDFIRE_ACT.md"
+cp "$ROOT/docs/DECK_REORDER_PROMPT.md" "$OUT/REORDER_PROMPT.md"
 
 # slide number -> source file. Slides with no image are absent by design.
 copy() { cp "$2" "$OUT/images/$1"; }
@@ -39,6 +41,10 @@ copy "slide-19-safety-violations.png"            "$FIG/deck_margin.png"
 copy "slide-20-heuristic-beats-learning.png"     "$FIG/deck_polder.png"
 copy "slide-21-why-our-planner-failed.png"       "$FIG/deck_collapse.png"
 copy "slide-22-only-three-behaviours.png"        "$FIG/deck_flood_frontier.png"
+copy "wildfire-W2-burning-now.jpg"               "$SHOT/32-fire-observe.jpg"
+copy "wildfire-W3-forecast-scored.jpg"           "$SHOT/30-fire-forecast.jpg"
+copy "wildfire-W5-where-crews-go.jpg"            "$SHOT/31-fire-plan.jpg"
+copy "wildfire-W6-vs-operational.png"            "$ROOT/docs/figures/paper/fig4_wildfire.png"
 copy "reserve-R1-null-floor.png"                 "$FIG/deck_null_floor.png"
 copy "reserve-R2-mixing-rule.png"                "$FIG/deck_mixing_rule.png"
 
@@ -124,8 +130,15 @@ WHAT IS IN HERE
   OUTLINE.md   the deck: 26 slides in six acts, then reserve slides R1-R7,
                then a caption for every figure.
   SPEAKER_NOTES.md
-               what to actually say, slide by slide, with timings that sum to
-               about 25 minutes. Read this one standing up.
+               what to actually say, slide by slide, with timings. Read this
+               one standing up.
+  WILDFIRE_ACT.md
+               the second application, eight slides, same format. Slots in
+               after the flood act.
+  REORDER_PROMPT.md
+               paste this into the slide tool together with everything else.
+               It says what order to build and what is wrong with the
+               current one.
   images/      one file per slide that has an image. The filename carries the
                slide number from OUTLINE.md. Slides not listed here are text
                only and need no image.
@@ -145,11 +158,12 @@ TXT
 # Fail loudly if the bundle is missing a part. The failure this prevents was
 # silent: a deleted PROMPT.txt still produced a bundle that looked fine.
 missing=0
-for f in OUTLINE.md SPEAKER_NOTES.md PROMPT.txt README.txt; do
+for f in OUTLINE.md SPEAKER_NOTES.md WILDFIRE_ACT.md REORDER_PROMPT.md \
+         PROMPT.txt README.txt; do
   [ -s "$OUT/$f" ] || { echo "MISSING $f" >&2; missing=1; }
 done
-[ "$(ls "$OUT/images" | wc -l | tr -d ' ')" -eq 20 ] || {
-  echo "expected 20 images, found $(ls "$OUT/images" | wc -l | tr -d ' ')" >&2
+[ "$(ls "$OUT/images" | wc -l | tr -d ' ')" -eq 24 ] || {
+  echo "expected 24 images, found $(ls "$OUT/images" | wc -l | tr -d ' ')" >&2
   missing=1
 }
 [ "$missing" -eq 0 ] || exit 1

@@ -3,8 +3,15 @@ WHAT IS IN HERE
   OUTLINE.md   the deck: 26 slides in six acts, then reserve slides R1-R7,
                then a caption for every figure.
   SPEAKER_NOTES.md
-               what to actually say, slide by slide, with timings that sum to
-               about 25 minutes. Read this one standing up.
+               what to actually say, slide by slide, with timings. Read this
+               one standing up.
+  WILDFIRE_ACT.md
+               the second application, eight slides, same format. Slots in
+               after the flood act.
+  REORDER_PROMPT.md
+               paste this into the slide tool together with everything else.
+               It says what order to build and what is wrong with the
+               current one.
   images/      one file per slide that has an image. The filename carries the
                slide number from OUTLINE.md. Slides not listed here are text
                only and need no image.
