@@ -623,6 +623,219 @@ def fig_flood_precondition() -> None:
     save(fig, "fig10_flood_precondition")
 
 
+# --------------------------------------------------------------------------- #
+def fig_matched_budget() -> None:
+    """The head-to-head the sample-efficiency claim has to be made as.
+
+    §3.4n, Vista job 1049073. Model-free baselines capped at the planner's OWN
+    real-sample count rather than the 38,400 they are customarily given; 20
+    seeds; every arm paired against the zero policy on its own initial
+    conditions. 20,000-resample bootstrap.
+
+    A ratio ("12.5x fewer transitions") is an input, not a result. This is the
+    result: what each method achieves at the same budget.
+    """
+    rdf = [("ours (probe + conformal)", 0.5008, 0.451, 0.556, 5.0),
+           ("Sauté RL",                 0.1073, 0.062, 0.156, 0.0),
+           ("PPO-Lagrangian",           0.0843, 0.046, 0.126, 0.0),
+           ("CPO",                      0.0405, 0.019, 0.064, 0.0),
+           ("primal-dual NPG",          0.0405, 0.019, 0.065, 0.0)]
+    dar = [("ours (probe + margin)", 0.0866, 0.077, 0.096, 0.5),
+           ("Sauté RL",              0.0066, -0.002, 0.016, 0.0),
+           ("CPO",                   0.0052, -0.001, 0.011, 0.0),
+           ("primal-dual NPG",       0.0052, -0.001, 0.011, 0.0),
+           ("PPO-Lagrangian",        0.0001, -0.009, 0.009, 0.0)]
+
+    fig, axes = plt.subplots(1, 2, figsize=(FULL, 1.95))
+    for ax, rows, title, xlim in (
+            (axes[0], rdf, r"(a) rdf, $\approx$8,300 real transitions each", (-0.03, 0.70)),
+            (axes[1], dar, r"(b) dar, $\approx$4,000 real transitions each", (-0.02, 0.118))):
+        ys = np.arange(len(rows))[::-1]
+        for y, (name, mu, lo, hi, viol) in zip(ys, rows):
+            ours = name.startswith("ours")
+            col = C["residual"] if ours else C["none"]
+            ax.plot([lo, hi], [y, y], color=col, lw=1.9 if ours else 1.2,
+                    solid_capstyle="round", zorder=2)
+            ax.plot([mu], [y], "o" if ours else "s", color=col,
+                    ms=4.0 if ours else 2.8, zorder=3)
+            ax.text(hi + 0.012 * (xlim[1] - xlim[0]), y, f"{viol:.1f}%",
+                    va="center", fontsize=6.0, color=C["ink"])
+        ax.axvline(0, color=C["model_error"], lw=0.8, ls="--", zorder=1)
+        ax.set_yticks(ys)
+        ax.set_yticklabels([r[0] for r in rows], fontsize=6.4)
+        ax.set_xlim(*xlim)
+        ax.set_xlabel("return over the zero policy (95% CI)")
+        ax.set_title(title, loc="left")
+        ax.grid(axis="x", color=C["rule"], lw=0.4)
+        ax.set_axisbelow(True)
+    fig.tight_layout(pad=0.3)
+    save(fig, "fig11_matched_budget")
+
+
+def fig_trigger_frontier() -> None:
+    """A one-degree-of-freedom controller has three reachable behaviours.
+
+    `baselines/run_evac_frontier.py`, 70 thresholds over [0.30, 0.99], 4 seeds
+    x 64 episodes each, on the Onion Creek egress table (§5.14x). Read from
+    data/deck/evac_frontier.json so re-running the sweep updates the figure.
+    """
+    src = ROOT / "data" / "deck" / "evac_frontier.json"
+    if not src.exists():
+        print("skip fig12: no data/deck/evac_frontier.json")
+        return
+    d = json.loads(src.read_text())
+    curve = sorted(d["curve"], key=lambda r: r[2])
+    cost = [r[2] for r in curve]
+    ret = [r[1] for r in curve]
+
+    fig, ax = plt.subplots(figsize=(COL, 1.9))
+    ax.plot(cost, ret, "o", color=C["none"], ms=2.4, zorder=2)
+    levels = sorted({round(r, 1) for r in ret}, reverse=True)
+    for lv in levels:
+        xs = [c for c, r in zip(cost, ret) if round(r, 1) == lv]
+        ax.plot([min(xs)], [lv], "o", color=C["residual"], ms=4.5, zorder=4)
+    span = max(ret) - min(ret)
+    ax.axvspan(6.51, 15.19, color=C["model_error"], alpha=0.10, zorder=1)
+    ax.annotate("", xy=(6.51, min(ret) - 0.17 * span),
+                xytext=(15.19, min(ret) - 0.17 * span),
+                arrowprops=dict(arrowstyle="<->", color=C["model_error"], lw=0.8))
+    ax.text(10.85, min(ret) - 0.13 * span, r"cost $\times 2.3$, outcome fixed",
+            ha="center", fontsize=6.2, color=C["model_error"])
+    ax.set_ylim(min(ret) - 0.24 * span, max(ret) + 0.10 * span)
+    ax.set_xlabel("disruption (people-intervals under order)")
+    ax.set_ylabel("episode return")
+    ax.grid(color=C["rule"], lw=0.4)
+    ax.set_axisbelow(True)
+    fig.tight_layout(pad=0.3)
+    save(fig, "fig12_trigger_frontier")
+
+
+def fig_saturation() -> None:
+    """Why a constrained planner can diverge while its dual is working.
+
+    One run of `HybridPlannerTrainer` on the polder environment (§5.14y), with
+    the saturation guard off (the package default) and on. Traces read from
+    data/deck/collapse_v{1,2}.json.
+    """
+    a = ROOT / "data" / "deck" / "collapse_v1.json"
+    b = ROOT / "data" / "deck" / "collapse_v2.json"
+    if not (a.exists() and b.exists()):
+        print("skip fig13: no collapse traces")
+        return
+    v1, v2 = json.loads(a.read_text()), json.loads(b.read_text())
+
+    def series(rows, key):
+        xs = [r["iteration"] for r in rows if r.get(key) is not None]
+        ys = [r[key] for r in rows if r.get(key) is not None]
+        return xs, ys
+
+    fig, axes = plt.subplots(1, 3, figsize=(FULL, 1.75))
+    panels = (("train/pre_tanh_mean_abs", r"$|\mu|$ before squashing", True,
+               "(a) the policy leaves the responsive region"),
+              ("train/episode_cost", "episode cost", False,
+               "(b) and pins at the action ceiling"),
+              ("lambda", r"dual multiplier $\lambda$", False,
+               "(c) while the dual winds up against it"))
+    for ax, (key, lab, logy, title) in zip(axes, panels):
+        for rows, col, name in ((v1, C["model_error"], "guard off"),
+                                (v2, C["residual"], "guard on")):
+            xs, ys = series(rows, key)
+            if ys:
+                ax.plot(xs, ys, color=col, lw=1.1, label=name)
+        if logy:
+            ax.set_yscale("log")
+            ax.axhline(3.0, color=C["ink"], lw=0.6, ls=":")
+        if key == "train/episode_cost":
+            ax.axhline(2.0, color=C["ink"], lw=0.6, ls="--")
+        ax.set_xlabel("iteration")
+        ax.set_ylabel(lab)
+        ax.set_title(title, loc="left", fontsize=7.2)
+        ax.grid(color=C["rule"], lw=0.4)
+        ax.set_axisbelow(True)
+    axes[0].legend(loc="lower right")
+    fig.tight_layout(pad=0.3)
+    save(fig, "fig13_saturation")
+
+
+def fig_warning_lead() -> None:
+    """Instrument availability is part of the hazard model, not a detail.
+
+    Lag between the upstream gauge's peak and the outlet's, on the six largest
+    floods in the outlet's record since the upstream gauge was built (§5.14z).
+    Measured from USGS instantaneous values by `service/app.py::warning`.
+    """
+    rows = [("2013-10-31", 3822.8, None), ("2015-10-30", 3454.7, None),
+            ("2019-05-04", 764.6, 285), ("2004-11-17", 535.2, 275),
+            ("2015-05-24", 427.6, 335), ("2007-01-13", 404.9, 20)]
+    fig, ax = plt.subplots(figsize=(COL, 1.85))
+    ys = np.arange(len(rows))[::-1]
+    for y, (date, q, lag) in zip(ys, rows):
+        if lag is None:
+            ax.barh(y, 470, color=C["model_error"], alpha=0.18, height=0.62, zorder=2)
+            ax.text(235, y, "no usable record", ha="center", va="center",
+                    fontsize=6.2, color=C["model_error"])
+        else:
+            col = C["episode"] if lag < 120 else C["residual"]
+            ax.barh(y, lag, color=col, height=0.62, zorder=2)
+            ax.text(lag + 10, y, f"{lag}", va="center", fontsize=6.2)
+    ax.axvline(120, color=C["ink"], lw=0.8, ls="--", zorder=3)
+    ax.set_ylim(-1.15, len(rows) - 0.4)
+    ax.text(126, -0.8, "lead required", fontsize=6.2, va="center")
+    ax.set_yticks(ys)
+    ax.set_yticklabels([f"{d[:4]}  {q:,.0f}" for d, q, _ in rows], fontsize=6.4)
+    ax.set_xlabel("gauge lead time (minutes)")
+    ax.set_xlim(0, 500)
+    ax.grid(axis="x", color=C["rule"], lw=0.4)
+    ax.set_axisbelow(True)
+    fig.tight_layout(pad=0.3)
+    save(fig, "fig14_warning_lead")
+
+
+def fig_polder_controllers() -> None:
+    """Feasibility is a precondition for ranking, not a column in the table.
+
+    Polder gate-and-pump control at a 2.0 pump-hour budget (§5.14y). Costs are
+    `episode_cost` of the final policy -- NOT the mean over training, which is
+    a different policy and was the statistic an earlier draft reported.
+    """
+    src = ROOT / "data" / "deck" / "polder_controllers.json"
+    if not src.exists():
+        print("skip fig15: no polder comparison")
+        return
+    look = {r["name"]: r for r in json.loads(src.read_text()) if "return" in r}
+    want = [("do nothing", "fixed"), ("gate only", "fixed"),
+            ("level deadband (incumbent)", "fixed"),
+            ("pump while sealed", "fixed"), ("pump flat out", "fixed"),
+            ("ppo_lagrangian", "rl"), ("cpo", "rl"), ("saute", "rl"),
+            ("primal_dual_npg", "rl"), ("hybrid planner", "ours")]
+    budget = 2.0
+    fig, ax = plt.subplots(figsize=(COL, 2.0))
+    off = {"gate only": (4, -8), "level deadband (incumbent)": (-4, 5),
+           "do nothing": (5, -3), "pump while sealed": (-4, 5),
+           "pump flat out": (-4, -9), "hybrid planner": (-4, 5),
+           "ppo_lagrangian": (4, -8), "cpo": (4, 3),
+           "primal_dual_npg": (4, 3), "saute": (4, -3)}
+    for n, kind in want:
+        if n not in look:
+            continue
+        r, c = look[n]["return"], look[n]["cost"]
+        ok = c <= budget + 1e-6
+        col = {"fixed": C["none"], "rl": C["episode"], "ours": C["residual"]}[kind]
+        ax.plot([c], [r], "o" if ok else "x", ms=4.2 if ok else 5.0,
+                color=col, mew=1.2, zorder=3)
+        ax.annotate(n.replace("_", "-"), (c, r), textcoords="offset points",
+                    xytext=off.get(n, (4, 4)), fontsize=5.8, color=col)
+    ax.axvline(budget, color=C["model_error"], lw=0.9, ls="--")
+    ax.axvspan(budget, 6.8, color=C["model_error"], alpha=0.06)
+    ax.set_xlim(-0.5, 6.8)
+    ax.set_xlabel("pump-hours spent")
+    ax.set_ylabel("episode return")
+    ax.grid(color=C["rule"], lw=0.4)
+    ax.set_axisbelow(True)
+    fig.tight_layout(pad=0.3)
+    save(fig, "fig15_polder_controllers")
+
+
 def main() -> None:
     paper_style()
     fig_calibration()
@@ -636,6 +849,11 @@ def main() -> None:
     fig_twin()
     fig_flood_elasticity()
     fig_flood_precondition()
+    fig_matched_budget()
+    fig_trigger_frontier()
+    fig_saturation()
+    fig_warning_lead()
+    fig_polder_controllers()
 
 
 if __name__ == "__main__":
