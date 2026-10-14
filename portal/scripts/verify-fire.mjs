@@ -31,6 +31,14 @@ ok("the wildfire page loads", /Wildfire planner/.test(t));
 ok("it offers real fire records to pick", /fire \d+/.test(t));
 ok("it says which half is live", /live and works anywhere|Observe.*live/i.test(t));
 
+// The point of the rewrite: no reader should meet a metric name they cannot
+// act on. These are the ones the panel used to print.
+const jargon = ["AUC-PR", "Average precision", "Critical success index",
+                "counterfactual", "population-weighted", "held-out"];
+const found = jargon.filter((w) => new RegExp(w, "i").test(t));
+ok("it uses no metric jargon a reader cannot act on",
+   found.length === 0, found.length ? `found: ${found.join(", ")}` : "");
+
 // --- forecast -------------------------------------------------------------
 await p.getByRole("button", { name: /Forecast this fire/ }).click().catch(() => {});
 for (let i = 0; i < 120; i++) {
@@ -38,11 +46,16 @@ for (let i = 0; i < 120; i++) {
   if (/Average precision/.test(t)) break;
   await p.waitForTimeout(1000);
 }
-ok("the forecast is scored, not just drawn", /Average precision/.test(t));
-ok("it reports misses as well as hits", /Missed/.test(t) && /False alarms/.test(t));
+// The claim, not the metric name. The panel used to say "Average precision
+// 0.368", which is a number a reader cannot act on; it now says how much of
+// tomorrow's fire it caught.
+ok("the forecast is checked against what happened",
+   /It got right/.test(t) && /caught \d+% of tomorrow/.test(t));
+ok("it reports what it missed and what it got wrong",
+   /It warned wrongly/.test(t) && /places that burned/.test(t));
 // The claim that would be easiest to leave out, and most flattering to omit.
-ok("it states that the forecaster is behind the field",
-   /behind the field/i.test(t));
+ok("it says plainly that this forecaster is not the best available",
+   /not as good/i.test(t) && /best\s+one anyone has built/i.test(t));
 
 // --- plan -----------------------------------------------------------------
 await p.getByRole("button", { name: "plan", exact: true }).click().catch(() => {});
@@ -53,12 +66,12 @@ for (let i = 0; i < 200; i++) {
   if (/Against spreading evenly/.test(t)) break;
   await p.waitForTimeout(1000);
 }
-ok("the plan is compared against spreading evenly, not only against nothing",
-   /Against spreading evenly/.test(t));
-ok("it says the counterfactual is unobservable",
-   /counterfactual cannot be observed/i.test(t));
+ok("the plan is compared against sending the same crews out evenly",
+   /Better than even cover/.test(t) && /same crews, chosen places/.test(t));
+ok("it says nobody can know what would really have happened",
+   /nobody can know what would really have happened/i.test(t));
 
-const m = t.match(/spent ([\d.]+)% of the patch · (within budget|OVER BUDGET)/);
+const m = t.match(/used ([\d.]+)% of the area · (inside the budget|OVER BUDGET)/);
 ok("it reports what the plan spent against its budget", !!m, m ? m[0] : "");
 
 console.log(bad ? `\n${bad} failed` : "\nall checks passed");

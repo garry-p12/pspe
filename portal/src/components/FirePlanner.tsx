@@ -223,23 +223,25 @@ export function FirePlanner() {
         <div className="border-b border-line px-5 py-4">
           <h1 className="text-[15px] font-semibold text-ink">Wildfire planner</h1>
           <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
-            What is burning, what burns next, and where to put the crews.{" "}
+            What is alight, where it spreads next, and where to send the crews.{" "}
             <span className="text-ink-mute">
-              Observe is live and works anywhere; Forecast and Plan run on real
-              held-out fire days.
+              Observe is live and works anywhere; Forecast and Plan replay real
+              fires the model was never trained on.
             </span>{" "}
             <Explain title="What is live here">
               <p>
-                <strong>Observe</strong> is live and works anywhere: NASA FIRMS
-                serves satellite fire detections for any box on Earth.
+                <strong>Observe</strong> is happening now. NASA satellites pass
+                over every part of the Earth and report what is alight; this
+                tab shows the last week of that, anywhere you point it.
               </p>
               <p>
-                <strong>Forecast</strong> and <strong>Plan</strong> run on
-                held-out records — real US fire days with real drivers and a
-                real trained model, on a day that has already happened. The
-                spread model needs eleven remote-sensing drivers, and those are
-                a prepared dataset rather than a live feed. Forecasting a live
-                box would mean inventing them.
+                <strong>Forecast</strong> and <strong>Plan</strong> use real
+                fires from the past. To predict where a fire goes, the model
+                needs to know the wind, the dryness, the vegetation and seven
+                other things about that exact place and day. Those are
+                collected and published after the fact, not streamed live — so
+                we run on days where they exist, rather than guessing them for
+                today.
               </p>
             </Explain>
           </p>
@@ -266,7 +268,7 @@ export function FirePlanner() {
               <Badge kind="record" />
             </div>
             <p className="anno mt-1">
-              held-out days, biggest next-day growth first
+              real fires the model has never seen · biggest tomorrow first
             </p>
             {/* Six seconds cold: the service parses the held-out split and
                 enough of the training split to recover the driver statistics.
@@ -287,7 +289,7 @@ export function FirePlanner() {
                   >
                     <span>fire {r.id}</span>
                     <span className="tnum">
-                      {r.burning_now_pct}% → {r.burned_next_pct}%
+                      grew {(r.burned_next_pct / Math.max(r.burning_now_pct, 0.01)).toFixed(1)}×
                     </span>
                   </button>
                 </li>
@@ -300,11 +302,11 @@ export function FirePlanner() {
         {tab === "forecast" && (
           <div className="border-b border-line px-5 py-4">
             <h3 className="text-[15px] font-semibold text-ink">
-              Where it goes tomorrow
+              Where will it be tomorrow?
             </h3>
             <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
-              The model sees today and the drivers, never tomorrow. Then we
-              score it against tomorrow.
+              The model is shown today and never tomorrow. Then we check it
+              against what actually happened the next day.
             </p>
             <button
               className="mt-3 w-full rounded-lg bg-ink px-4 py-3 text-[14px] font-medium
@@ -317,18 +319,33 @@ export function FirePlanner() {
 
             {fc?.ok && (
               <>
+                {/* Counts, not scores. "Average precision 0.368" tells a
+                    reader nothing they can act on; "found 99 of the 406
+                    places that burned" tells them exactly how much to trust
+                    the picture beside it. */}
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <Tile label="Found" value={`${fc.hit}`} sub="burning cells" />
-                  <Tile label="Missed" value={`${fc.missed}`} sub="burning cells" />
-                  <Tile label="False alarms" value={`${fc.false_alarm}`} sub="cells" />
                   <Tile
-                    label="Average precision"
-                    value={fc.average_precision == null ? "—" : fc.average_precision.toFixed(3)}
-                    sub="on this fire"
+                    label="It got right"
+                    value={`${fc.hit} of ${(fc.hit ?? 0) + (fc.missed ?? 0)}`}
+                    sub="places that burned"
+                  />
+                  <Tile
+                    label="It warned wrongly"
+                    value={`${fc.false_alarm}`}
+                    sub="places that did not burn"
                   />
                 </div>
-                <p className="anno mt-2 leading-relaxed">
-                  Burned for real {fc.burned_truth_pct}% · model said{" "}
+                <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">
+                  It caught{" "}
+                  <strong className="text-ink">
+                    {Math.round(100 * (fc.hit ?? 0) /
+                      Math.max((fc.hit ?? 0) + (fc.missed ?? 0), 1))}%
+                  </strong>{" "}
+                  of tomorrow&apos;s fire, and called{" "}
+                  {fc.false_alarm} places that stayed unburnt.
+                </p>
+                <p className="anno mt-1.5 leading-relaxed">
+                  {fc.burned_truth_pct}% of the map burned · the model expected{" "}
                   {fc.burned_forecast_pct}%
                 </p>
                 <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">
@@ -343,14 +360,16 @@ export function FirePlanner() {
             {skill?.ok && (
               <div className="mt-4 rounded-lg border border-line bg-bg-inset p-3">
                 <p className="text-[13px] font-medium text-ink">
-                  How good is this forecaster?
+                  How much should you trust it?
                 </p>
                 <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
-                  {skill.ours?.toFixed(4)} AUC-PR on the held-out split, against{" "}
-                  {skill.originating_baseline?.value} for the dataset&apos;s own
-                  baseline and {skill.state_of_the_art?.[1]?.value} for the
-                  current state of the art. <strong>We are behind the field.</strong>{" "}
-                  Forecast skill is an input to the plan, not the contribution.
+                  Somewhat. Across every fire in the test set it is{" "}
+                  <strong className="text-ink">better</strong> than the
+                  forecaster published with this data, and{" "}
+                  <strong className="text-ink">not as good</strong> as the best
+                  one anyone has built. We did not set out to win at
+                  forecasting: a better model here would make the plans better
+                  without changing anything else.
                 </p>
               </div>
             )}
@@ -362,14 +381,15 @@ export function FirePlanner() {
           <div className="border-b border-line px-5 py-4">
             <h3 className="text-[15px] font-semibold text-ink">Where the crews go</h3>
             <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
-              A fixed share of the patch can be treated each day. The decision
-              is where — and the comparison that matters is against spreading
-              the same crew-days evenly.
+              Crews can clear only so much ground in a day. The decision is
+              <em> where</em> — so the fair test is not “is it better than
+              doing nothing”, it is “is it better than sending the same crews
+              out evenly”.
             </p>
 
             <label htmlFor="fire-budget" className="mt-3 flex items-baseline justify-between">
-              <span className="eyebrow">Daily crew budget</span>
-              <span className="tnum text-[13px] text-ink">{budget}% of the patch</span>
+              <span className="eyebrow">What the crews can clear in a day</span>
+              <span className="tnum text-[13px] text-ink">{budget}% of the area</span>
             </label>
             <input id="fire-budget" type="range" min={1} max={10} step={1}
                    value={budget} onChange={(e) => setBudget(Number(e.target.value))}
@@ -383,7 +403,8 @@ export function FirePlanner() {
                    value={horizon} onChange={(e) => setHorizon(Number(e.target.value))}
                    className="mt-1 w-full" />
             <p className="anno mt-0.5">
-              at one day a greedy allocation is already optimal
+              planning one day ahead, the obvious choice is already the best
+              one — the gain shows up further out
             </p>
 
             <button
@@ -399,32 +420,37 @@ export function FirePlanner() {
               <>
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <Tile
-                    label="Against doing nothing"
+                    label="Less burns"
                     value={`−${plan.reduction_vs_none_pct}%`}
-                    sub="burned, population-weighted"
+                    sub="than leaving it alone"
                   />
                   <Tile
-                    label="Against spreading evenly"
+                    label="Better than even cover"
                     value={`−${plan.reduction_vs_uniform_pct}%`}
-                    sub="the comparison that counts"
+                    sub="same crews, chosen places"
                   />
                 </div>
-                <ul className="mt-3">
+                <p className="anno mt-3">
+                  how much burns, with “leave it alone” set to 100
+                </p>
+                <ul className="mt-1">
                   {([["do nothing", plan.burned.none],
-                     ["spread evenly", plan.burned.uniform],
-                     ["planned", plan.burned.planned]] as const).map(([k, v], i) => (
+                     ["crews spread evenly", plan.burned.uniform],
+                     ["crews sent where it counts", plan.burned.planned]] as const).map(([k, v], i) => (
                     <li key={k}
                         className="flex items-baseline justify-between border-b border-line-soft
                                    py-1.5 text-[13px] last:border-0">
                       <span className={i === 2 ? "font-medium text-ink" : "text-ink-mute"}>{k}</span>
-                      <span className="tnum text-ink">{v.toFixed(3)}</span>
+                      <span className="tnum text-ink">
+                        {(100 * v / Math.max(plan.burned!.none, 1e-9)).toFixed(0)}
+                      </span>
                     </li>
                   ))}
                 </ul>
                 <p className="anno mt-2">
-                  spent {(plan.spent_fraction! * 100).toFixed(1)}% of the patch ·{" "}
-                  {plan.within_budget ? "within budget" : "OVER BUDGET"} ·{" "}
-                  {plan.seconds}s
+                  used {(plan.spent_fraction! * 100).toFixed(1)}% of the area ·{" "}
+                  {plan.within_budget ? "inside the budget" : "OVER BUDGET"} ·{" "}
+                  worked out in {plan.seconds}s
                 </p>
                 <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">{plan.note}</p>
               </>
@@ -451,7 +477,7 @@ export function FirePlanner() {
                   <Badge kind="observed" />
                 </div>
                 <Raster png={rec?.burning_now_png} alt="fire today" />
-                <p className="anno mt-1">{rec?.burning_now_pct ?? "—"}% of the patch</p>
+                <p className="anno mt-1">{rec?.burning_now_pct ?? "—"}% of the map</p>
               </figure>
 
               <figure>
@@ -469,13 +495,13 @@ export function FirePlanner() {
                 <figure>
                   <div className="mb-1.5 flex items-baseline justify-between">
                     <figcaption className="text-[13px] font-medium text-ink">
-                      The model&apos;s guess
+                      What the model expected
                     </figcaption>
                     <Badge kind="projection" />
                   </div>
                   <Stack base={fc.truth_png} over={fc.forecast_png} alt="forecast over truth" />
                   <p className="anno mt-1">
-                    bright = forecast · faint = what burned
+                    strong colour = confident · faint = unsure · outline = what burned
                   </p>
                 </figure>
               )}
@@ -490,16 +516,16 @@ export function FirePlanner() {
                   </div>
                   <Stack base={rec?.burning_now_png} over={plan.treatment_png}
                          alt="treatment over fire" />
-                  <p className="anno mt-1">blue = treated · orange = burning now</p>
+                  <p className="anno mt-1">blue = cleared by crews · orange = alight today</p>
                 </figure>
               )}
             </div>
 
             {rec?.drivers && (
               <>
-                <h3 className="eyebrow mt-6">What the model is reading</h3>
+                <h3 className="eyebrow mt-6">What the model looks at</h3>
                 <p className="anno mt-1">
-                  four of the eleven drivers behind the forecast
+                  four of the eleven things it reads about this place and day
                 </p>
                 <div className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
                   {Object.entries(rec.drivers).map(([k, v]) => (

@@ -228,9 +228,9 @@ def records(limit: int = 24) -> dict:
              "grew": bool(burn[i] > prev[i].mean())}
             for i in order
         ],
-        "note": ("Held-out NDWS records: real US fire days with real drivers. "
-                 "Ranked by how much burns the next day, because a record "
-                 "where nothing burns cannot show a forecast working."),
+        "note": ("Real US fire days the model was never trained on. Biggest "
+                 "next-day growth first, because a fire that barely moves "
+                 "cannot show a forecast working or failing."),
     }
 
 
@@ -279,8 +279,8 @@ def record(req: RecordRequest) -> dict:
         "burns_next_pct": round(float(nxt.mean()) * 100, 2),
         "drivers": shown,
         "evidence": "record",
-        "note": ("A real fire day from the held-out split. Both masks are "
-                 "observed; nothing here is a model output."),
+        "note": ("A real fire, on a real day. Both pictures are what the "
+                 "satellites saw \u2014 nothing here is a prediction."),
     }
 
 
@@ -347,9 +347,11 @@ def forecast(req: RecordRequest) -> dict:
         "burned_forecast_pct": round(float(hard[valid].mean()) * 100, 2) if valid.any() else 0.0,
         "seconds": round(time.time() - t0, 2),
         "evidence": "projection",
-        "note": ("The model sees day t and the drivers, never day t+1. "
-                 "Critical success index, not accuracy: fire is about 1% of "
-                 "the grid, so predicting no fire everywhere scores 99%."),
+        "note": ("The model is shown today and never tomorrow. Fire covers "
+                 "about 1% of the map, so a forecast that said \u201cno fire "
+                 "anywhere\u201d would be right 99% of the time \u2014 which "
+                 "is why what it found and what it missed are counted "
+                 "separately here, instead of a single score."),
     }
 
 
@@ -426,11 +428,13 @@ def plan(req: PlanRequest) -> dict:
         "uniform_reduction_pct": pct(uniform),
         "seconds": round(time.time() - t0, 2),
         "evidence": "projection",
-        "note": ("Every number here is in-model: the burn is what the spread "
-                 "surrogate predicts under each plan. No record contains a "
-                 "fire where a break was cut on our instruction, so the "
-                 "counterfactual cannot be observed. Compare against the "
-                 "uniform row, not the do-nothing row."),
+        "note": ("These are estimates, not outcomes. No fire on record ever "
+                 "had a break cut because we said so, so nobody can know what "
+                 "would really have happened \u2014 the model is comparing "
+                 "plans against each other. Judge it against spreading the "
+                 "crews evenly, not against doing nothing: beating "
+                 "\u201cdo nothing\u201d only shows that treating fuel "
+                 "works at all."),
     }
 
 
@@ -502,10 +506,12 @@ def observe(req: ObserveRequest) -> dict:
         "blind_days": sum(1 for o in seen if not o),
         "seconds": round(time.time() - t0, 2),
         "evidence": "observed",
-        "note": ("VIIRS and MODIS active-fire detections. A day with no "
-                 "satellite coverage is marked unobserved rather than drawn "
-                 "as an empty fire, and each frame is the active front at "
-                 "overpass, not the cumulative burn scar."),
+        "note": ("What two NASA satellites saw as they passed overhead. A "
+                 "day they did not cover is marked \u201cno pass\u201d "
+                 "rather than drawn as an empty map \u2014 not looking and "
+                 "nothing burning are different things. Each picture is the "
+                 "fire burning at that moment, not the total area burned so "
+                 "far."),
     }
 
 
@@ -532,9 +538,9 @@ def skill() -> dict:
             {"name": "SwinUNETR, modular augmentation", "value": 0.3673},
             {"name": "mixed ensemble", "value": 0.3790},
         ],
-        "note": ("Above the dataset's originating baseline and BELOW the "
-                 "current state of the art. Forecast skill is an input to the "
-                 "planning result rather than a contribution: we did not set "
-                 "out to optimise it, and a better spread model would improve "
-                 "the plans without changing the argument."),
+        "note": ("Better than the forecaster published with this dataset, "
+                 "and not as good as the best one anyone has built. We did "
+                 "not set out to win at forecasting \u2014 a better spread "
+                 "model would make the plans better without changing "
+                 "anything we claim."),
     }
