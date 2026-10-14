@@ -10,6 +10,7 @@ export function Nav() {
   const path = usePathname();
   const { region, live } = useRegion();
   const inMethod = path.startsWith("/methodology");
+  const inFire = path.startsWith("/wildfire");
   /* The chrome belongs to the planner. `region` and `live` are written once,
      by the planner's gauge effect, and the provider sits above the router --
      so a click through to the Richmond archive carried "Austin, Texas" and a
@@ -25,10 +26,10 @@ export function Nav() {
             FP
           </span>
           <span className="text-[15px] font-semibold tracking-tight text-ink">
-            Floodplain Planner
+            {inFire ? "Wildfire Planner" : "Floodplain Planner"}
           </span>
         </Link>
-        {region && !subPage && (
+        {region && !subPage && !inFire && (
           <span className="hidden border-l border-line pl-5 text-[13px] text-ink-mute sm:inline">
             {region}
           </span>
@@ -37,7 +38,7 @@ export function Nav() {
           {/* What on this page is live, and how often. Only shown when
               something actually is: the Richmond study has no gauge feed and
               a LIVE badge over a replayed archive would be a lie. */}
-          {live && !inMethod && (
+          {live && !inMethod && !inFire && (
             <span className="hidden items-center gap-1.5 text-[12px] text-ink-faint md:flex">
               <span className="h-[7px] w-[7px] rounded-full bg-ink" aria-hidden />
               <span className="font-semibold text-ink">LIVE</span>
@@ -53,6 +54,17 @@ export function Nav() {
               ← How this works
             </Link>
           )}
+          {/* The two hazards are peers, so the link goes both ways rather
+              than treating flood as the product and fire as an annexe. */}
+          <Link
+            href={inFire ? "/" : "/wildfire"}
+            className={clsx(
+              "text-[13px] transition-colors",
+              inFire ? "text-accent" : "text-ink-faint hover:text-ink-mute",
+            )}
+          >
+            {inFire ? "← Flood" : "Wildfire"}
+          </Link>
           <Link
             href={inMethod ? "/" : "/methodology"}
             className={clsx(

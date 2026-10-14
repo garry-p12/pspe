@@ -62,10 +62,30 @@ class ObservationUnavailable(Exception):
     """
 
 
-app = FastAPI(title="PSPE flood service")
+app = FastAPI(title="PSPE hazard service")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+# The wildfire half, in its own module. It shares the rendering idea and
+# nothing else: a fire raster is a 64x64 prepared record, not a solved field
+# on fetched terrain, so keeping it here would have grown this file without
+# sharing any code. Imported late and tolerantly -- the flood service must
+# still start on a machine with no NDWS records and no FIRMS key.
+try:
+    from .fire import router as fire_router      # type: ignore[import-not-found]
+except ImportError:                               # running as a script, not a package
+    try:
+        from fire import router as fire_router    # type: ignore[no-redef]
+    except Exception as _exc:                     # noqa: BLE001
+        fire_router = None
+        print(f"fire routes unavailable: {_exc}")
+except Exception as _exc:                         # noqa: BLE001
+    fire_router = None
+    print(f"fire routes unavailable: {_exc}")
+
+if fire_router is not None:
+    app.include_router(fire_router)
 
 
 @app.exception_handler(ObservationUnavailable)
