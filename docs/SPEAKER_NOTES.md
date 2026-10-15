@@ -51,8 +51,15 @@ Slow down here. This is the emotional anchor of the talk and it is worth the
 silence.
 
 "This is Dixie Drive. Seventy-eight buildings. In the storm the model just ran,
-sixty of them have water above the floor level — not water in the garden, water
-in the living room. The worst house takes four point eight five metres."
+sixty of them have water above floor level — not over the ground outside, over
+the floor. The worst house takes four point eight five metres."
+
+**Say the caveat here, do not save it for questions.** "The ground at each
+house is surveyed lidar. The floor height above that ground is an assumption —
+seventeen centimetres, a concrete slab and its step — because nobody publishes
+floor heights for Austin. On the one place that does survey them, the spread
+runs from four centimetres to over three metres. The panel on screen says
+'floor assumed'. It is the weakest number on this slide and it is labelled."
 
 Pause. Then:
 

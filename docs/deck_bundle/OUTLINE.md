@@ -42,8 +42,15 @@ Images: `docs/figures/deck/*.{svg,pdf,png}` from
 - **SAY:** Sixty of its seventy-eight houses have water above the floor.
 - **ON SLIDE:**
   - A real street in south Austin, in a storm this creek has already seen
-  - Not water in the garden — water in the living room
+  - Water **over the floor**, not over the ground outside — floor assumed
+    0.17 m up, and the panel says so
   - The deepest house takes 4.85 m
+- **IF ASKED:** Ground at each structure is City of Austin lidar; the floor
+  height above it is an assumption, because nobody publishes it for Austin and
+  FEMA elevation certificates are not bulk-public. 0.17 m is a slab-on-grade
+  step. On 2,924 surveyed Lismore properties the median floor stood 1.95 m
+  above its own front gate — so this assumption is the weakest link on the
+  slide and the portal labels it rather than folding it into a depth.
 - **SHOW:** `16-street-solved.jpg`
 - *Let this sit. This is the slide people remember.*
 
