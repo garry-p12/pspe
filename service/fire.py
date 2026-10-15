@@ -448,9 +448,13 @@ class ObserveRequest(BaseModel):
     north: float
     days: int = Field(7, ge=1, le=10)
     grid: int = Field(64, ge=16, le=128)
-    #: FIRMS product. Default is the near-real-time VIIRS feed, which is what
-    #: "burning now" needs; the archive product lags by weeks.
+    #: FIRMS product. The near-real-time VIIRS feed answers "burning now";
+    #: the standard-processing archive reaches back years and is what a
+    #: historic fire needs. VIIRS starts in 2012, so anything older is MODIS.
     source: str = "VIIRS_SNPP_NRT"
+    #: Window start, YYYY-MM-DD. Empty means the last `days` days, which is
+    #: the live case. A date makes this a replay of a fire that happened.
+    start: str = ""
 
 
 @router.post("/observe")
@@ -480,8 +484,13 @@ def observe(req: ObserveRequest) -> dict:
     from datetime import date, timedelta
 
     t0 = time.time()
-    end = date.today()
-    start = end - timedelta(days=req.days - 1)
+    if req.start:
+        try:
+            start = date.fromisoformat(req.start)
+        except ValueError:
+            return {"ok": False, "reason": f"{req.start!r} is not a date"}
+    else:
+        start = date.today() - timedelta(days=req.days - 1)
     # FIRMS serves recent days from the near-real-time product; the default in
     # FireSpec is standard processing, which lags. For a "burning now" tab the
     # NRT feed is the right one. Passed at construction: FireSpec is frozen.
@@ -502,10 +511,39 @@ def observe(req: ObserveRequest) -> dict:
     frames = np.asarray(seq.fire, dtype=np.float32)
     seen = list(map(bool, seq.observed))
     days = list(seq.dates)
-    detections = [int(round(float(f.sum()))) for f in frames]
+    # COUNT the lit cells; do not sum the raster. `grid_sequence` saturates
+    # at three detections and divides by three, so one detection in a cell is
+    # 0.33 and a sum of them rounds to zero -- which reported a box that was
+    # alight as "0 cells" and, worse, as six days of missing coverage.
+    detections = [int((f > 0).sum()) for f in frames]
 
     live = [fire_png(np.clip(f, 0, 1)) for f in frames]
     any_fire = bool(frames.max() > 0)
+
+    # What a day with no detections actually means, which this feed cannot
+    # settle on its own. FIRMS serves DETECTIONS, not COVERAGE: `observed` is
+    # set only where a detection landed, so a quiet day and an unobserved day
+    # arrive as the same record. The distinction the firms module wants to
+    # preserve is real and only recoverable from context.
+    #
+    # If the box was alight at some point in the window, an empty day sits
+    # between fire and fire and a coverage gap is the likely reading. If
+    # nothing was alight all week, the honest statement is "no detections" --
+    # calling that "no satellite pass" over a box the satellite crosses twice
+    # a day would be inventing a blind spot to explain an absence.
+    # An empty day is plausibly a coverage gap only if it sits BETWEEN days
+    # with fire. Trailing zeros after a fire has burned out, or leading zeros
+    # before it started, are the fire being out -- calling those "no satellite
+    # pass" turned Bastrop's three days of cold ash into three days of blamed
+    # satellite, and Austin's quiet week into six.
+    lit = [i for i, f in enumerate(frames) if f.max() > 0]
+    if lit:
+        inner = range(lit[0] + 1, lit[-1])
+        gaps = sum(1 for i in inner if frames[i].max() <= 0)
+    else:
+        gaps = 0
+    quiet = sum(1 for f in frames if f.max() <= 0) - gaps
+    gap_meaning = "coverage" if gaps else "quiet"
     return {
         "ok": True,
         "grid": req.grid,
@@ -513,15 +551,25 @@ def observe(req: ObserveRequest) -> dict:
         "days": [{"date": d, "observed": o, "cells": c, "png": p}
                  for d, o, c, p in zip(days, seen, detections, live)],
         "any_fire": any_fire,
-        "blind_days": sum(1 for o in seen if not o),
+        "blind_days": gaps,
+        "quiet_days": quiet,
+        #: "coverage" -- alight either side, so an empty day most likely means
+        #: nobody looked. "quiet" -- nothing burned all week, so an empty day
+        #: means no detections and nothing further can be inferred.
+        "zero_days_mean": gap_meaning,
         "seconds": round(time.time() - t0, 2),
         "evidence": "observed",
-        "note": ("What two NASA satellites saw as they passed overhead. A "
-                 "day they did not cover is marked \u201cno pass\u201d "
-                 "rather than drawn as an empty map \u2014 not looking and "
-                 "nothing burning are different things. Each picture is the "
-                 "fire burning at that moment, not the total area burned so "
-                 "far."),
+        "live": not req.start,
+        "window": [start.isoformat(),
+                   (start + timedelta(days=req.days - 1)).isoformat()],
+        "note": ("What two NASA satellites saw as they passed overhead. Each "
+                 "picture is the fire burning at that moment, not the total "
+                 "area burned so far. Where the box was alight either side of "
+                 "an empty day, that day is marked \u201cno pass\u201d: not "
+                 "looking and nothing burning are different things. Where "
+                 "nothing was alight all week, an empty day means only that "
+                 "there were no detections \u2014 this feed reports fires, "
+                 "not coverage, so it cannot tell the two apart."),
     }
 
 

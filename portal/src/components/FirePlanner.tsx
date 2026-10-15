@@ -163,7 +163,14 @@ export function FirePlanner() {
         if (d?.ok) {
           setRows(d.records ?? []);
           if (d.records?.length) setPicked(d.records[0].id);
-        } else setFailed(d?.reason ?? d?.detail ?? "no records");
+        } else {
+          // The records drive Forecast and Plan only. Observe is a live
+          // satellite feed and needs nothing from them, so losing the records
+          // must not take the page down -- it did, and a machine without the
+          // dataset lost the half that still worked.
+          setFailed(d?.reason ?? d?.detail ?? "no records");
+          setTab("observe");
+        }
       })
       .catch(() => setFailed("the hazard service is not reachable"));
     fetch("/api/fire/skill").then((r) => r.json()).then(setSkill).catch(() => {});
@@ -202,18 +209,6 @@ export function FirePlanner() {
       .then((r) => r.json()).then(setPlan)
       .finally(() => setBusy(null));
   }, [picked, budget, horizon]);
-
-  if (failed) {
-    return (
-      <main className="mx-auto max-w-2xl px-5 py-16">
-        <h1 className="text-[22px] font-semibold text-ink">Wildfire planner</h1>
-        <div className="mt-4 rounded-lg border border-line bg-bg-inset p-4">
-          <p className="text-[13px] font-medium text-ink">Not available here</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">{failed}</p>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <div className="flex h-dvh flex-col lg:flex-row">
@@ -260,8 +255,24 @@ export function FirePlanner() {
           </div>
         </div>
 
+        {failed && tab !== "observe" && (
+          <div className="border-b border-line px-5 py-4">
+            <p className="text-[13px] font-medium text-ink">
+              Not available on this machine
+            </p>
+            <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">{failed}</p>
+            <button
+              onClick={() => setTab("observe")}
+              className="mt-3 w-full rounded-lg bg-ink px-4 py-2.5 text-[13px]
+                         font-medium text-bg transition-opacity hover:opacity-90"
+            >
+              Go to what is burning now
+            </button>
+          </div>
+        )}
+
         {/* record picker -------------------------------------------------- */}
-        {tab !== "observe" && (
+        {!failed && tab !== "observe" && (
           <div className="border-b border-line px-5 py-4">
             <div className="flex items-baseline justify-between">
               <h3 className="eyebrow">Pick a fire</h3>
@@ -299,7 +310,7 @@ export function FirePlanner() {
         )}
 
         {/* forecast ------------------------------------------------------- */}
-        {tab === "forecast" && (
+        {!failed && tab === "forecast" && (
           <div className="border-b border-line px-5 py-4">
             <h3 className="text-[15px] font-semibold text-ink">
               Where will it be tomorrow?
@@ -377,7 +388,7 @@ export function FirePlanner() {
         )}
 
         {/* plan ----------------------------------------------------------- */}
-        {tab === "plan" && (
+        {!failed && tab === "plan" && (
           <div className="border-b border-line px-5 py-4">
             <h3 className="text-[15px] font-semibold text-ink">Where the crews go</h3>
             <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
@@ -466,7 +477,7 @@ export function FirePlanner() {
 
       {/* ---- the rasters ------------------------------------------------- */}
       <main className="flex-1 overflow-y-auto bg-bg p-5">
-        {tab !== "observe" && (
+        {!failed && tab !== "observe" && (
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <figure>
@@ -560,6 +571,9 @@ interface ObserveReply {
   days?: ObserveDay[];
   any_fire?: boolean;
   blind_days?: number;
+  quiet_days?: number;
+  window?: string[];
+  live?: boolean;
   note?: string;
 }
 
@@ -580,12 +594,41 @@ function useObserve() {
   return r;
 }
 
-/** A few places that are usually burning somewhere in fire season. */
-const BOXES: { name: string; box: number[] }[] = [
-  { name: "Northern California", box: [-124.0, 38.5, -120.0, 41.5] },
-  { name: "Pacific Northwest", box: [-124.0, 42.0, -118.0, 46.5] },
-  { name: "Southern California", box: [-120.0, 33.0, -116.0, 35.5] },
-  { name: "Interior Alaska", box: [-152.0, 63.0, -144.0, 66.0] },
+/**
+ * Texas first, because the flood half of this portal is Austin and a hazard
+ * tool that changes continent between tabs is two tools.
+ *
+ * Three of these are replays of fires that happened, with their own dates and
+ * their own satellite: VIIRS only starts in 2012, so Bastrop in 2011 has to
+ * come from MODIS. The two without a date are live.
+ *
+ * Austin itself is on the list and will usually come back empty. That is the
+ * point rather than a gap: Austin is not burning today, and Bastrop — thirty
+ * kilometres east — produced the most destructive fire in the state's history.
+ */
+interface Region {
+  name: string;
+  sub: string;
+  box: number[];
+  start?: string;
+  days?: number;
+  source?: string;
+}
+
+const BOXES: Region[] = [
+  { name: "Austin, right now", sub: "the flood twin's own box, live",
+    box: [-98.1, 30.05, -97.4, 30.55] },
+  { name: "Bastrop, September 2011", sub: "30 km east · 1,600 homes lost",
+    box: [-97.45, 30.0, -97.05, 30.35],
+    start: "2011-09-04", days: 7, source: "MODIS_SP" },
+  { name: "Smokehouse Creek, February 2024",
+    sub: "Panhandle · largest in Texas history",
+    box: [-101.6, 35.4, -100.0, 36.4],
+    start: "2024-02-27", days: 7, source: "VIIRS_SNPP_SP" },
+  { name: "West Texas, right now", sub: "live",
+    box: [-104.5, 29.5, -101.0, 32.5] },
+  { name: "Northern California", sub: "live · for comparison",
+    box: [-124.0, 38.5, -120.0, 41.5] },
 ];
 
 function ObservePanel() {
@@ -594,11 +637,15 @@ function ObservePanel() {
   const [which, setWhich] = useState(0);
 
   const run = useCallback((i: number) => {
-    const b = BOXES[i].box;
+    const r = BOXES[i];
     setWhich(i); setBusy(true); setObserve(null);
     fetch("/api/fire/observe", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ west: b[0], south: b[1], east: b[2], north: b[3], days: 7 }),
+      body: JSON.stringify({
+        west: r.box[0], south: r.box[1], east: r.box[2], north: r.box[3],
+        days: r.days ?? 7,
+        ...(r.start ? { start: r.start, source: r.source } : {}),
+      }),
     })
       .then((x) => x.json()).then(setObserve)
       .catch(() => setObserve({ ok: false, reason: "the service is not reachable" }))
@@ -612,8 +659,8 @@ function ObservePanel() {
         <Badge kind="observed" />
       </div>
       <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">
-        NASA FIRMS satellite detections, last seven days. This half is live and
-        works anywhere on Earth.
+        NASA satellite detections. Live for anywhere on Earth, and able to
+        replay a fire that has already happened.
       </p>
 
       <ul className="mt-3">
@@ -623,10 +670,11 @@ function ObservePanel() {
               aria-pressed={which === i}
               onClick={() => run(i)}
               disabled={busy}
-              className="w-full rounded-md px-2 py-1.5 text-left text-[13px]
+              className="w-full rounded-md px-2 py-1.5 text-left
                          aria-pressed:bg-ink aria-pressed:text-bg disabled:opacity-40"
             >
-              {b.name}
+              <span className="block text-[13px]">{b.name}</span>
+              <span className="anno block aria-pressed:opacity-80">{b.sub}</span>
             </button>
           </li>
         ))}
@@ -649,24 +697,34 @@ function ObservePanel() {
                   className="flex items-baseline justify-between border-b border-line-soft
                              py-1.5 text-[13px] last:border-0">
                 <span className="text-ink">{d.date}</span>
-                <span className={d.observed ? "tnum text-ink-mute" : "text-bad"}>
-                  {d.observed ? `${d.cells} cells` : "not observed"}
+                <span className={d.cells > 0 ? "tnum text-ink-mute" : "text-ink-faint"}>
+                  {d.cells > 0 ? `${d.cells} cells` : "nothing alight"}
                 </span>
               </li>
             ))}
           </ul>
           {!!r.blind_days && (
             <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">
-              {r.blind_days} of {r.days?.length} days had no satellite coverage.
-              Those are marked unobserved rather than drawn as an empty fire —
-              &ldquo;we did not look&rdquo; and &ldquo;nothing burned&rdquo; are
-              different facts.
+              {r.blind_days} day{r.blind_days === 1 ? "" : "s"} with nothing
+              detected sit <em>between</em> days that were alight. A fire does
+              not stop and restart — those are days nobody looked, and they are
+              marked rather than drawn as an empty map.
+            </p>
+          )}
+          {!r.blind_days && !!r.quiet_days && (
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">
+              {r.quiet_days} of {r.days?.length} days show nothing alight, all
+              of them before or after the fire rather than during it. This feed
+              reports fires, not coverage, so an empty day on its own means
+              only &ldquo;no detections&rdquo;.
             </p>
           )}
           {!r.any_fire && (
             <p className="mt-2 text-[13px] leading-relaxed text-ink-mute">
-              Nothing detected in this box over the window. That is a real
-              answer, not an error.
+              Nothing alight in this box over the window. That is a real
+              answer, not an error — and for Austin it is the usual one.
+              Bastrop, thirty kilometres east, burned 1,600 homes in 2011.
+              A hazard you cannot see today is not a hazard you do not have.
             </p>
           )}
         </>
@@ -698,7 +756,7 @@ function ObserveMap() {
             <Raster png={d.png} alt={d.date} dim={!d.observed} />
             <figcaption className="anno mt-1">
               {d.date.slice(5)} ·{" "}
-              {d.observed ? `${d.cells}` : <span className="text-bad">no pass</span>}
+              {d.cells > 0 ? `${d.cells}` : <span className="text-ink-faint">quiet</span>}
             </figcaption>
           </figure>
         ))}
