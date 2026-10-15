@@ -574,6 +574,10 @@ interface ObserveReply {
   quiet_days?: number;
   window?: string[];
   live?: boolean;
+  km_across?: number;
+  km_tall?: number;
+  cell_km?: number;
+  burned_cells?: number;
   note?: string;
 }
 
@@ -744,19 +748,51 @@ function ObserveMap() {
       </div>
     );
   }
+  const peak = Math.max(...r.days.map((d) => d.cells), 1);
   return (
     <>
-      <h3 className="eyebrow">Seven days of detections</h3>
-      <p className="anno mt-1">
-        each frame is the active front at satellite overpass, not the burn scar
-      </p>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="eyebrow">Day by day, left to right</h3>
+        <p className="anno">
+          {r.km_across} × {r.km_tall} km · each square ≈ {r.cell_km} km
+        </p>
+      </div>
+
+      {/* A legend, because two colours doing two different jobs is the whole
+          point of the sequence and nothing on screen said which was which. */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-5 gap-y-1">
+        <span className="flex items-center gap-1.5 text-[12px] text-ink-mute">
+          <span className="inline-block h-3 w-3 rounded-[2px]"
+                style={{ background: "rgb(214,69,15)" }} />
+          alight at the satellite pass
+        </span>
+        <span className="flex items-center gap-1.5 text-[12px] text-ink-mute">
+          <span className="inline-block h-3 w-3 rounded-[2px]"
+                style={{ background: "rgba(122,110,102,0.35)" }} />
+          already burned
+        </span>
+        <span className="text-[12px] text-ink-mute">
+          {r.burned_cells} squares burned over the week
+        </span>
+      </div>
+
       <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {r.days.map((d) => (
           <figure key={d.date}>
-            <Raster png={d.png} alt={d.date} dim={!d.observed} />
-            <figcaption className="anno mt-1">
-              {d.date.slice(5)} ·{" "}
-              {d.cells > 0 ? `${d.cells}` : <span className="text-ink-faint">quiet</span>}
+            <Raster png={d.png} alt={d.date} />
+            <figcaption className="mt-1">
+              <span className="anno">{d.date.slice(5)}</span>
+              {/* A bar, so the run and the collapse are visible without
+                  reading seven numbers and holding them in your head. */}
+              <span className="mt-0.5 flex items-center gap-1.5">
+                <span className="h-[3px] flex-1 rounded-full bg-bg-inset">
+                  <span className="block h-full rounded-full bg-[rgb(214,69,15)]"
+                        style={{ width: `${(100 * d.cells) / peak}%` }} />
+                </span>
+                <span className="tnum text-[11px] text-ink-mute">
+                  {d.cells || "—"}
+                </span>
+              </span>
             </figcaption>
           </figure>
         ))}

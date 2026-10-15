@@ -58,13 +58,19 @@ GRID = 64
 # --------------------------------------------------------------------------- #
 # rendering
 # --------------------------------------------------------------------------- #
+def _km_across(west: float, east: float, lat: float) -> float:
+    """East-west extent in km at this latitude. Longitude degrees shorten."""
+    return (east - west) * 111.32 * float(np.cos(np.radians(lat)))
+
+
 def _png(rgba: np.ndarray) -> str:
     buf = io.BytesIO()
     Image.fromarray(rgba).save(buf, format="PNG", optimize=True)
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def fire_png(mask: np.ndarray, *, soft: bool = False) -> str:
+def fire_png(mask: np.ndarray, *, soft: bool = False,
+             prior: "np.ndarray | None" = None) -> str:
     """Fire as a base64 PNG. Hot where it burns, transparent where it does not.
 
     `soft` renders a probability field: the forecast is a probability per cell
@@ -87,10 +93,20 @@ def fire_png(mask: np.ndarray, *, soft: bool = False) -> str:
         # any ramp -- which drew observed fire as pale yellow, the colour a
         # ramp reserves for its hottest value. One flat vermilion instead.
         hot = x > 0.5
-        out[..., 0] = np.where(hot, 214, 0).astype(np.uint8)
-        out[..., 1] = np.where(hot, 69, 0).astype(np.uint8)
-        out[..., 2] = np.where(hot, 15, 0).astype(np.uint8)
-        out[..., 3] = np.where(hot, 240, 0).astype(np.uint8)
+        # Everything that has already burned, drawn underneath in ash. Without
+        # it each frame is a scatter of disconnected squares and a reader
+        # cannot see that the fire MOVED -- which is the only thing a sequence
+        # of frames is for. The scar is what the front leaves behind.
+        if prior is not None:
+            scar = (np.nan_to_num(prior) > 0) & ~hot
+            out[..., 0] = np.where(scar, 122, 0).astype(np.uint8)
+            out[..., 1] = np.where(scar, 110, 0).astype(np.uint8)
+            out[..., 2] = np.where(scar, 102, 0).astype(np.uint8)
+            out[..., 3] = np.where(scar, 90, 0).astype(np.uint8)
+        out[..., 0] = np.where(hot, 214, out[..., 0]).astype(np.uint8)
+        out[..., 1] = np.where(hot, 69, out[..., 1]).astype(np.uint8)
+        out[..., 2] = np.where(hot, 15, out[..., 2]).astype(np.uint8)
+        out[..., 3] = np.where(hot, 240, out[..., 3]).astype(np.uint8)
     return _png(out)
 
 
@@ -517,7 +533,13 @@ def observe(req: ObserveRequest) -> dict:
     # alight as "0 cells" and, worse, as six days of missing coverage.
     detections = [int((f > 0).sum()) for f in frames]
 
-    live = [fire_png(np.clip(f, 0, 1)) for f in frames]
+    # Each frame carries the scar of every day before it, so the sequence
+    # reads as one fire moving rather than seven unrelated scatters.
+    burned = np.zeros_like(frames[0])
+    live = []
+    for f in frames:
+        live.append(fire_png(np.clip(f, 0, 1), prior=burned.copy()))
+        burned = np.maximum(burned, f)
     any_fire = bool(frames.max() > 0)
 
     # What a day with no detections actually means, which this feed cannot
@@ -548,6 +570,14 @@ def observe(req: ObserveRequest) -> dict:
         "ok": True,
         "grid": req.grid,
         "bounds": [req.west, req.south, req.east, req.north],
+        # Scale, because a 64x64 raster of red squares is the same picture at
+        # any size and a reader cannot tell 15 km from 150.
+        "km_across": round(_km_across(req.west, req.east,
+                                      0.5 * (req.south + req.north)), 1),
+        "km_tall": round((req.north - req.south) * 111.32, 1),
+        "cell_km": round(_km_across(req.west, req.east,
+                                    0.5 * (req.south + req.north)) / req.grid, 2),
+        "burned_cells": int((burned > 0).sum()),
         "days": [{"date": d, "observed": o, "cells": c, "png": p}
                  for d, o, c, p in zip(days, seen, detections, live)],
         "any_fire": any_fire,
