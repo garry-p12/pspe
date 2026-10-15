@@ -724,6 +724,103 @@ def fig_dem():
     save(fig, "deck_dem")
 
 
+
+def fig_system():
+    """The architecture, for a slide rather than for a document.
+
+    `pspe_system` in make_thesis_figures.py places 56 pieces of text: an
+    equation, the implementation, and the measured score inside every stage
+    box. That is right for a figure a reader can stop at, and wrong for one
+    that is on screen for ninety seconds -- a viewer reads the biggest thing,
+    then one more, then looks back at the speaker.
+
+    So this version keeps the SHAPE and drops the content: four stages, three
+    measurement paths that return, one that does not. Two numbers in the whole
+    figure, because the figure's own claim is that the loop closes, and every
+    other number has a slide of its own.
+    """
+    fig, ax = plt.subplots(figsize=(11.6, 5.4))
+    ax.set_xlim(-0.05, 11.6); ax.set_ylim(0.02, 5.35); ax.axis("off")
+
+    # -- the world, along the top ------------------------------------------ #
+    ax.add_patch(FancyBboxPatch((0.25, 4.55), 11.1, 0.62,
+                                boxstyle="round,pad=0.02,rounding_size=0.08",
+                                fc=C["world"][0], ec=C["world"][1], lw=1.4))
+    ax.text(0.55, 4.86, "THE REAL WORLD", fontsize=11, fontweight="bold",
+            va="center", color=C["world"][1])
+    ax.text(3.15, 4.86, "satellites, river gauges, road networks",
+            fontsize=9.6, va="center", color=C["ink"])
+
+    # -- the four stages --------------------------------------------------- #
+    stages = [("PERCEIVE", "what was seen,\nand what was not", "perceive"),
+              ("SIMULATE", "push it\nforward", "simulate"),
+              ("PLAN", "choose, under\na budget", "plan"),
+              ("EXPLAIN", "say why, with\na guarantee", "explain")]
+    x = 0.45
+    for i, (title, body, key) in enumerate(stages):
+        fill, edge = C[key]
+        ax.add_patch(FancyBboxPatch((x, 2.75), 2.35, 1.35,
+                                    boxstyle="round,pad=0.03,rounding_size=0.12",
+                                    fc=fill, ec=edge, lw=1.7))
+        ax.text(x + 1.175, 3.86, title, ha="center", fontsize=11.5,
+                fontweight="bold", color=edge)
+        ax.text(x + 1.175, 3.25, body, ha="center", va="center",
+                fontsize=9.6, color=C["ink"])
+        if i < 3:
+            arrow(ax, (x + 2.35, 3.42), (x + 2.78, 3.42), lw=1.6)
+        x += 2.78
+
+    arrow(ax, (1.0, 4.55), (1.0, 4.12), color=C["world"][1], lw=1.5)
+    ax.text(1.15, 4.33, "observe", fontsize=9.0, color=C["world"][1])
+    arrow(ax, (9.3, 4.12), (9.3, 4.55), color=C["bad"], lw=1.5)
+    ax.text(9.45, 4.33, "act", fontsize=9.0, color=C["bad"])
+
+    # -- the paths that carry measurement BACK ----------------------------- #
+    backs = [(0.45, "Re-anchor", "replace the guess with\nwhat was actually seen",
+              "8× better forecast"),
+             (3.23, "Re-learn", "one step on the model\nfrom each observed day", ""),
+             (6.01, "Re-test", "run the policy on the\nreal system, not the model",
+              "carries the guarantee")]
+    for bx, title, body, gain in backs:
+        ax.add_patch(FancyBboxPatch((bx, 0.75), 2.35, 1.35,
+                                    boxstyle="round,pad=0.03,rounding_size=0.12",
+                                    fc="#e8f3ee", ec=C["good"], lw=1.6))
+        ax.text(bx + 1.175, 1.86, title, ha="center", fontsize=10.8,
+                fontweight="bold", color=C["good"])
+        ax.text(bx + 1.175, 1.33, body, ha="center", va="center",
+                fontsize=9.0, color=C["ink"])
+        if gain:
+            ax.text(bx + 1.175, 0.93, gain, ha="center", fontsize=9.2,
+                    fontweight="bold", color=C["good"])
+        ax.annotate("", xy=(bx + 1.6, 2.72), xytext=(bx + 1.175, 2.12),
+                    arrowprops=dict(arrowstyle="-|>", color=C["good"], lw=1.6,
+                                    connectionstyle="arc3,rad=0.22"))
+    # One spine from the world into all three paths, with a head on it. Drawn
+    # as a bare line ending at a box edge it read as a stray rule rather than
+    # as "this is where the measurement comes from".
+    ax.plot([0.12, 0.12], [4.55, 0.50], color=C["good"], lw=1.5, zorder=0)
+    ax.plot([0.12, 8.36], [0.50, 0.50], color=C["good"], lw=1.5, zorder=0)
+    for bx in (1.625, 4.405, 7.185):
+        arrow(ax, (bx, 0.50), (bx, 0.72), color=C["good"], lw=1.5)
+
+
+    # -- and the one that does not ----------------------------------------- #
+    ax.add_patch(FancyBboxPatch((8.95, 0.75), 2.4, 1.35,
+                                boxstyle="round,pad=0.03,rounding_size=0.12",
+                                fc="#fbeeee", ec=C["bad"], lw=1.6, ls="--"))
+    ax.text(10.15, 1.86, "What does not close", ha="center", fontsize=10.8,
+            fontweight="bold", color=C["bad"])
+    ax.text(10.15, 1.25, "nobody recorded a fire\nwhere a break was cut\n"
+                         "because we said so",
+            ha="center", va="center", fontsize=9.0, color=C["ink"])
+
+    ax.text(0.12, 0.14, "Green: the measurement comes back, and we check against it.    "
+                        "Red dashes: it cannot, and we say so.",
+            fontsize=9.2, color=C["muted"])
+    fig.tight_layout(pad=0.2)
+    save(fig, "deck_system")
+
+
 def main() -> int:
     fig_framework()
     fig_measurement()
@@ -739,6 +836,7 @@ def main() -> int:
     fig_twin_pipeline()
     fig_gym_loop()
     fig_dem()
+    fig_system()
     print(f"\nall figures in {OUT}")
     return 0
 

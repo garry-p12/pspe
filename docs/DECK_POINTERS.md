@@ -75,7 +75,7 @@ Images: `docs/figures/deck/*.{svg,pdf,png}` from
   - Three paths carry real measurement back into the loop
   - Probe the real system · re-anchor to observation · score on the decision
   - One path does not close, and we mark it as such
-- **SHOW:** `pspe_system`
+- **SHOW:** `deck_system`
 - **IF ASKED:** The dashed path is intervention-outcome feedback — no
   observational record contains a counterfactual where we cut a firebreak on
   our instruction. That boundary is the honest scope of the twin claim.
@@ -317,6 +317,12 @@ Images: `docs/figures/deck/*.{svg,pdf,png}` from
 ## Figure captions
 
 For a paper, or to read aloud. The images carry no caption of their own.
+
+**`deck_system`** — The four stages, the three paths that carry real
+measurement back into them, and the one that cannot. The dashed path is
+intervention-outcome feedback: no observational record contains a case where
+an intervention was taken on the system's instruction, so that path is
+model-based and is marked rather than drawn as if it closed.
 
 **`deck_offers`** — What the method provides: (a) the same result from
 substantially less real-world interaction; (b) a violation rate stated in

@@ -26,7 +26,7 @@ copy() { cp "$2" "$OUT/images/$1"; }
 copy "slide-01-title-portal-overview.jpg"        "$SHOT/01-forecast-open.jpg"
 copy "slide-03-street-houses-flooded.jpg"        "$SHOT/16-street-solved.jpg"
 copy "slide-04-silent-failures.png"              "$FIG/deck_measurement.png"
-copy "slide-05-system-architecture.png"          "$ROOT/docs/figures/pspe_system.png"
+copy "slide-05-system-architecture.png"          "$FIG/deck_system.png"
 copy "slide-06-what-it-offers.png"               "$FIG/deck_offers.png"
 copy "slide-07-the-estimator.png"                "$FIG/deck_framework.png"
 copy "slide-10-how-the-twin-works.png"           "$FIG/deck_twin_pipeline.png"
