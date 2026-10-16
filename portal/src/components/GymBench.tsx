@@ -85,62 +85,112 @@ function spendWords(r: Rung, limit: number): string {
     : "just over";
 }
 
-function Ladder({ env }: { env: Env }) {
-  const worst = Math.min(...env.ladder.map((r) => r.return));
-  const affordable = env.ladder.filter((r) => r.feasible === r.of);
-  const best = affordable.length
-    ? affordable.reduce((a, b) => (b.return > a.return ? b : a))
-    : null;
-
+/**
+ * One group of approaches, best first, under a heading that says whether you
+ * could pay for them.
+ *
+ * The split is the page. Sorting everything into one list by score buries the
+ * finding -- that on three of these four the best-scoring approach is one
+ * nobody can afford -- in an ordering the reader has to reverse-engineer.
+ * Two headed groups state it.
+ */
+function Group({
+  rows, limit, title, note, best, worst,
+}: {
+  rows: Rung[]; limit: number; title: string; note: string;
+  best: string | null; worst: number;
+}) {
+  if (!rows.length) return null;
   return (
     <div className="mt-3.5">
-      <ul className="space-y-[3px]">
-        {env.ladder.map((r) => {
-          const ok = r.feasible === r.of;
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink">
+          {title}
+        </h3>
+        <p className="text-[11.5px] text-ink-faint">{note}</p>
+      </div>
+
+      <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_42px_minmax(50px,0.7fr)_112px]
+                      items-center gap-x-3 border-b border-line pb-1
+                      text-[10.5px] uppercase tracking-wide text-ink-faint">
+        <span>what you do</span>
+        <span className="text-right">damage</span>
+        <span aria-hidden />
+        <span className="text-right">what it spent</span>
+      </div>
+
+      <ul>
+        {rows.map((r) => {
           const pct = Math.round((r.return / worst) * 100);
-          const isBest = best?.key === r.key;
+          const isBest = best === r.key;
+          const ok = r.feasible === r.of;
           return (
             <li
               key={r.key}
               className={clsx(
-                "grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_auto] items-center gap-3 rounded px-2 py-1.5",
-                isBest && "bg-accent-soft",
+                "grid grid-cols-[minmax(0,1fr)_42px_minmax(50px,0.7fr)_112px] items-center",
+                "gap-x-3 border-b border-line-soft py-1.5 last:border-0",
               )}
             >
               <span className={clsx("truncate text-[12.5px]", isBest ? "font-semibold text-ink" : "text-ink-mute")}>
+                {isBest && <span className="mr-1 text-ink" aria-hidden>▸</span>}
                 {r.plain}
-                {isBest && (
-                  <span className="ml-2 hidden text-[11px] font-normal text-ink-mute sm:inline">
-                    best you can afford
-                  </span>
-                )}
               </span>
-
-              <span className="flex items-center gap-2">
-                <span className="h-2 flex-1 rounded-sm bg-bg-inset" aria-hidden>
-                  <span
-                    className={clsx("block h-2 rounded-sm", ok ? "bg-sev-mid" : "bg-bad/40")}
-                    style={{ width: `${Math.max(pct, 2)}%` }}
-                  />
-                </span>
-                <span className="w-9 shrink-0 text-right font-mono text-[11.5px] tabular-nums text-ink-faint">
-                  {pct}%
-                </span>
+              <span className="text-right font-mono text-[12px] tabular-nums text-ink">
+                {pct}%
               </span>
-
+              <span className="h-2 rounded-sm bg-bg-inset" aria-hidden>
+                <span
+                  className={clsx("block h-2 rounded-sm", ok ? "bg-sev-mid" : "bg-bad/40")}
+                  style={{ width: `${Math.max(pct, 2)}%` }}
+                />
+              </span>
               <span
                 className={clsx(
-                  "w-[108px] shrink-0 text-right text-[11.5px]",
+                  "text-right text-[11.5px]",
                   ok ? "text-ink-faint" : "font-semibold text-bad",
                 )}
               >
-                {spendWords(r, env.cost_limit)}
+                {spendWords(r, limit)}
               </span>
             </li>
           );
         })}
       </ul>
     </div>
+  );
+}
+
+function Ladder({ env }: { env: Env }) {
+  const worst = Math.min(...env.ladder.map((r) => r.return));
+  const byBest = (a: Rung, b: Rung) => b.return - a.return;
+  const afford = env.ladder.filter((r) => r.feasible === r.of).sort(byBest);
+  const cannot = env.ladder.filter((r) => r.feasible !== r.of).sort(byBest);
+  const best = afford.length ? afford[0].key : null;
+
+  // What the budget is costing you, in the page's own unit. Only the BEST of
+  // the unaffordable rows is compared: the heading used to read "scores
+  // better, but costs more than you have", which was false for two of the
+  // evacuation rows -- they cost more AND score exactly what doing nothing
+  // scores. The group is defined by its price, so the heading says price and
+  // the note says what the best of them would buy.
+  const gap = cannot.length && afford.length
+    ? Math.round((afford[0].return - cannot[0].return) / worst * 100)
+    : 0;
+
+  return (
+    <>
+      <Group
+        rows={afford} limit={env.cost_limit} best={best} worst={worst}
+        title="What you can afford"
+        note={afford.length > 1 ? "best first" : ""}
+      />
+      <Group
+        rows={cannot} limit={env.cost_limit} best={null} worst={worst}
+        title="Costs more than you have"
+        note={gap > 0 ? `the best of these would cut ${gap}% more damage` : ""}
+      />
+    </>
   );
 }
 

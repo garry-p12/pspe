@@ -86,9 +86,10 @@ def environments(probe: bool = False) -> "dict[str, Any]":
             "could not afford to use."
         ),
         "plain_how_to_read": (
-            "Each row is a way of deciding. The bar is how bad the outcome "
-            "was, next to doing nothing. The last column is what it spent "
-            "against what it was allowed."
+            "Each row is a way of deciding. Damage is measured against doing "
+            "nothing, so 100% is what happens if nobody acts and lower is "
+            "better. The approaches are split by whether you could actually "
+            "pay for them."
         ),
         # The sentences a visitor needs before reading any number below.
         "headline": (
