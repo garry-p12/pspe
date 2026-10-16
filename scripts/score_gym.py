@@ -201,7 +201,12 @@ def check(results) -> int:
 
     bad = 0
     for env_id, row in results.items():
-        recorded = BY_ID[env_id].scores
+        spec = BY_ID[env_id]
+        if spec.cost_limit != row["limit"]:
+            print(f"FAIL {env_id}: catalog records a budget of "
+                  f"{spec.cost_limit} but the environment's is {row['limit']}")
+            bad += 1
+        recorded = spec.scores
         if not recorded:
             print(f"FAIL {env_id}: catalog records no scores")
             bad += 1

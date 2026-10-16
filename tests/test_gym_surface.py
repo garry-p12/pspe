@@ -69,6 +69,42 @@ def test_the_catalog_describes_every_registered_id_and_nothing_else():
             assert s["of"] > 0 and 0 <= s["feasible"] <= s["of"]
 
 
+#: Words that mean something only to somebody who works on this repository.
+#: The portal has readers who do not, and the `plain_*` fields exist so the
+#: page can be honest without being unreadable -- a check that stops them
+#: silently reverting to the register of the paper, which is how the first
+#: version of that page got written.
+JARGON = ("incumbent", "feasible", "infeasible", "episode", "policy",
+          "return", "gymnasium", "cost_limit", "pump-hours", "surrogate",
+          "baseline", "budget-edge", "lagrangian", "u-net", "ndws")
+
+
+def test_every_environment_is_also_described_without_jargon():
+    for spec in SPECS:
+        for field in ("plain_title", "plain_decision", "plain_score",
+                      "plain_budget", "plain_status", "plain_caveat"):
+            text = getattr(spec, field)
+            assert text.strip(), f"{spec.env_id} has no {field}"
+            lowered = text.lower()
+            for word in JARGON:
+                assert word not in lowered, (
+                    f"{spec.env_id}.{field} uses {word!r}, which the portal's "
+                    f"readers have no reason to know")
+        for rung in spec.ladder:
+            assert rung.get("plain", "").strip(), (
+                f"{spec.env_id} ladder rung {rung['key']!r} has no plain name")
+            assert "`" not in rung["plain"], (
+                f"{spec.env_id} ladder rung {rung['key']!r} names a method")
+
+
+@pytest.mark.parametrize("env_id", list(INCUMBENTS))
+def test_the_catalog_budget_matches_the_environment(env_id):
+    """The portal turns a spend into "all of it" or "34x over" from this."""
+    env = _make(env_id)
+    assert BY_ID[env_id].cost_limit == pytest.approx(env.unwrapped.task.cost_limit)
+    env.close()
+
+
 @pytest.mark.parametrize("env_id", list(INCUMBENTS))
 def test_check_env_passes(env_id):
     env = _make(env_id)

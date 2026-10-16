@@ -78,6 +78,18 @@ def environments(probe: bool = False) -> "dict[str, Any]":
         row["incumbent_method"] = INCUMBENT[row["id"]]
     return {
         "environments": rows,
+        # The page shows these two; the technical pair below is for anything
+        # reading this API rather than the portal.
+        "plain_headline": (
+            "Nothing we have trained beats a simple rule on any of these four. "
+            "And on most of them the approach with the best score is one you "
+            "could not afford to use."
+        ),
+        "plain_how_to_read": (
+            "Each row is a way of deciding. The bar is how bad the outcome "
+            "was, next to doing nothing. The last column is what it spent "
+            "against what it was allowed."
+        ),
         # The sentences a visitor needs before reading any number below.
         "headline": (
             "No environment here has been beaten by a learned policy, and the "
