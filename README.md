@@ -31,6 +31,43 @@ All on a periodic 64×64 grid with an RK4 integrator, in PyTorch — so the
 ground-truth solver is itself differentiable and its `rhs` doubles as the
 physics residual for the surrogate. One definition, no drift.
 
+### Hazard environments
+
+Four decisions from the two hazard twins, behind `gymnasium.make`. Cost is on
+`info["cost"]` per step and the budget is the episode sum, the convention
+Safety-Gymnasium and OmniSafe use.
+
+```python
+import gymnasium as gym
+from pspe.envs import register_all, catalog
+register_all()                      # all four ids
+env = gym.make("FloodOperate-v0")   # or FloodOperateFine-v0, FloodEvacuate-v0, Firebreak-v0
+```
+
+| id | decision | dynamics | budget | best policy known inside it |
+|---|---|---|---|---|
+| `FloodOperate-v0` | gate and pump, 12 × 30 min | solved shallow-water | 2.0 pump-hours | `budget_edge_action`, −19.90 |
+| `FloodOperateFine-v0` | the same at 60 m cells | solved shallow-water | 2.0 pump-hours | `budget_edge_action`, −23.30 |
+| `FloodEvacuate-v0` | order 8 zones out, 48 slots | solved + real routing | 32 town-intervals | doing nothing, −4862.7 |
+| `Firebreak-v0` | place breaks, 3 crew-days | **learned U-Net** | 0.03 of the patch | `greedy_action`, −31.08 |
+
+**No learned policy has beaten any of these.** Two further things that a table
+of returns would hide, and which is why `pspe/envs/catalog.py` carries the full
+ladder of policies measured on each environment rather than a single row:
+
+- The bar is the strongest **feasible** policy, not the baseline each
+  environment originally named. Three of those named baselines were weak enough
+  that a random policy outscored them, which reads as a result and is an
+  artefact — on both flood presets a two-parameter constant that spends exactly
+  the budget beats the named deadband, random, and all four learned arms in the
+  finished comparison table.
+- The best policy on *reward* is usually one you may not run. On
+  `FloodOperate-v0` it spends 3.4 pump-hours against a limit of 2.0.
+
+`python3 scripts/score_gym.py --ladder --check` re-measures all 25 ladder rungs
+and exits nonzero if any number in the catalog has stopped being true. The
+portal serves the same catalog at `/gym`.
+
 ---
 
 ## Quick start

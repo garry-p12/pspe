@@ -11,6 +11,7 @@ export function Nav() {
   const { region, live } = useRegion();
   const inMethod = path.startsWith("/methodology");
   const inFire = path.startsWith("/wildfire");
+  const inGym = path.startsWith("/gym");
   /* The chrome belongs to the planner. `region` and `live` are written once,
      by the planner's gauge effect, and the provider sits above the router --
      so a click through to the Richmond archive carried "Austin, Texas" and a
@@ -26,10 +27,10 @@ export function Nav() {
             FP
           </span>
           <span className="text-[15px] font-semibold tracking-tight text-ink">
-            {inFire ? "Wildfire Planner" : "Floodplain Planner"}
+            {inGym ? "Simulation Gym" : inFire ? "Wildfire Planner" : "Floodplain Planner"}
           </span>
         </Link>
-        {region && !subPage && !inFire && (
+        {region && !subPage && !inFire && !inGym && (
           <span className="hidden border-l border-line pl-5 text-[13px] text-ink-mute sm:inline">
             {region}
           </span>
@@ -38,7 +39,7 @@ export function Nav() {
           {/* What on this page is live, and how often. Only shown when
               something actually is: the Richmond study has no gauge feed and
               a LIVE badge over a replayed archive would be a lie. */}
-          {live && !inMethod && !inFire && (
+          {live && !inMethod && !inFire && !inGym && (
             <span className="hidden items-center gap-1.5 text-[12px] text-ink-faint md:flex">
               <span className="h-[7px] w-[7px] rounded-full bg-ink" aria-hidden />
               <span className="font-semibold text-ink">LIVE</span>
@@ -64,6 +65,17 @@ export function Nav() {
             )}
           >
             {inFire ? "← Flood" : "Wildfire"}
+          </Link>
+          {/* The gym is the research surface for both hazards, so it sits
+              beside "How this works" rather than inside either planner. */}
+          <Link
+            href={inGym ? "/" : "/gym"}
+            className={clsx(
+              "text-[13px] transition-colors",
+              inGym ? "text-accent" : "text-ink-faint hover:text-ink-mute",
+            )}
+          >
+            {inGym ? "← Planner" : "Environments"}
           </Link>
           <Link
             href={inMethod ? "/" : "/methodology"}
