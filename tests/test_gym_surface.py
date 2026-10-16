@@ -20,15 +20,15 @@ gymnasium = pytest.importorskip("gymnasium")
 
 from pspe.envs import BY_ID, SPECS, catalog, register_all      # noqa: E402
 
-#: Which incumbent each environment exposes, and whether it reads the
-#: observation. Kept beside `scripts/score_gym.py`'s copy deliberately: if the
-#: two disagree, one of them is describing an environment that no longer
-#: exists.
+#: The strongest FEASIBLE policy known on each environment. `score_gym.py` and
+#: `service/gym_routes.py` hold the same mapping and a test below asserts all
+#: three agree, because the thing most likely to rot here is one of them naming
+#: a baseline the others have moved past.
 INCUMBENTS = {
-    "FloodOperate-v0": "baseline_action",
-    "FloodOperateFine-v0": "baseline_action",
-    "FloodEvacuate-v0": "trigger_action",
-    "Firebreak-v0": "uniform_action",
+    "FloodOperate-v0": "budget_edge_action",
+    "FloodOperateFine-v0": "budget_edge_action",
+    "FloodEvacuate-v0": "never_action",
+    "Firebreak-v0": "greedy_action",
 }
 
 #: Cheap to construct. The other two want data on disk.
@@ -120,9 +120,112 @@ def test_the_incumbent_exists_and_produces_a_legal_action(env_id):
     name = INCUMBENTS[env_id]
     fn = getattr(inner, name)
     obs, _ = env.reset(seed=0)
-    action = fn() if name == "uniform_action" else fn(obs)
+    # Every baseline takes an observation whether or not it reads one, so a
+    # harness can call them all the same way.
+    action = fn(obs)
     assert env.action_space.contains(np.asarray(action, dtype=np.float32)), \
         f"{env_id}.{name} produced an action outside the action space"
+    env.close()
+
+
+@pytest.mark.parametrize("env_id", list(INCUMBENTS))
+def test_the_incumbent_is_feasible_in_every_episode(env_id):
+    """The point of naming an incumbent: it has to be a policy you may run.
+
+    Three of these environments previously named a baseline that a table of
+    returns ranked BELOW a random policy, which reads as "random beats the
+    heuristic" and was an artefact of a weak baseline. The replacement rule is
+    that the bar is the strongest policy that stays inside the budget, so the
+    bar being feasible is the property worth a test.
+
+    `FloodEvacuate-v0`'s entry is doing nothing, because on that environment
+    nothing known is both feasible and better than doing nothing.
+    """
+    env = _make(env_id)
+    inner = env.unwrapped
+    fn = getattr(inner, INCUMBENTS[env_id])
+    for seed in range(3):
+        obs, _ = env.reset(seed=seed)
+        total = 0.0
+        while True:
+            obs, _r, _te, truncated, info = env.step(fn(obs))
+            total += info["cost"]
+            if truncated:
+                break
+        assert total <= inner.task.cost_limit, (
+            f"{env_id}.{INCUMBENTS[env_id]} spent {total:.4f} of a "
+            f"{inner.task.cost_limit} budget on seed {seed}")
+    env.close()
+
+
+def test_the_three_incumbent_tables_agree():
+    """This file, the scorer and the service must name the same policies."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root))
+    from service.gym_routes import INCUMBENT as served          # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location(
+        "_score_gym", root / "scripts" / "score_gym.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    assert served == INCUMBENTS, "service/gym_routes.py disagrees"
+    assert mod.INCUMBENT == INCUMBENTS, "scripts/score_gym.py disagrees"
+    # Every ladder rung must have a policy behind it, or it is a number nobody
+    # can reproduce.
+    for env_id, rungs in mod.LADDER_POLICIES.items():
+        recorded = {r["key"] for r in BY_ID[env_id].ladder}
+        assert recorded - {"random"} == set(rungs), (
+            f"{env_id}: catalog ladder {sorted(recorded)} vs scorer "
+            f"{sorted(rungs)}")
+
+
+def test_the_evacuation_trigger_collapses_to_two_policies():
+    """The trigger has one degree of freedom and expresses two behaviours.
+
+    At 0.70 and above it scores exactly what never ordering scores, because
+    the signal never crosses it. At 0.55 it scores exactly what ordering
+    everyone immediately scores. That is why the frontier of this family is a
+    step function and why its best feasible point was doing nothing.
+
+    The seed is chosen rather than fixed, because a third of episodes here
+    score 0.0 for every policy -- only 3 of the 6 ensemble members ever put a
+    zone over 0.10 m -- and on one of those the collapse is unobservable
+    instead of absent. The test asserts both: that a seed with signal exists,
+    and that a seed without signal exists.
+    """
+    env = _make("FloodEvacuate-v0")
+    inner = env.unwrapped
+    always = lambda _o: np.ones(env.action_space.shape, dtype=np.float32)  # noqa: E731
+
+    def total(policy, seed):
+        obs, _ = env.reset(seed=seed)
+        ret = 0.0
+        while True:
+            obs, reward, _te, truncated, _i = env.step(policy(obs))
+            ret += reward
+            if truncated:
+                return ret
+
+    live = dead = None
+    for seed in range(12):
+        if total(inner.never_action, seed) != total(always, seed):
+            live = seed if live is None else live
+        else:
+            dead = seed if dead is None else dead
+    assert live is not None, "no seed in 0..11 separates ordering from not"
+    assert dead is not None, (
+        "every seed carried reward signal -- the ensemble used to have 3 dry "
+        "members of 6, so either the table changed or this test is stale")
+
+    never, order_all = total(inner.never_action, live), total(always, live)
+    assert total(lambda o: inner.trigger_action(o, 0.90), live) == pytest.approx(never)
+    assert total(lambda o: inner.trigger_action(o, 0.70), live) == pytest.approx(never)
+    assert total(lambda o: inner.trigger_action(o, 0.55), live) == pytest.approx(order_all)
     env.close()
 
 

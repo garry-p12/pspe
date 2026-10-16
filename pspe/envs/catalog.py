@@ -2,32 +2,48 @@
 
 Four environments carry a `gymnasium.make` id. This module is the one place
 that says, for each of them, what the reward and the cost actually measure,
-what the incumbent is, and -- the part a benchmark table usually omits --
-where anything we trained currently stands against that incumbent.
+which policies have been run on it, and where anything learned currently
+stands. `/gym` in the service renders these words rather than paraphrasing
+them more kindly, and `scripts/score_gym.py --check` fails if any number here
+stops being true.
 
-Two findings run through all four entries and are the reason this file exists
-instead of a README table.
+Each entry carries a `ladder`: every policy measured on that environment, with
+its return, its spend, and the number of episodes whose summed cost cleared the
+limit. The ladder, not the summary, is the artefact -- four findings came out
+of building it and none of them is visible in a table of returns.
 
-**No entry reports a win.** Two have a published negative result, one has a
-saturation failure with a documented cause, and one has no learned policy at
-all. That is a gym with an API and four open problems.
+**A weak incumbent invents a result.** Three of the four environments named a
+baseline that a reward-only table ranked BELOW a random policy, which reads as
+"random beats the heuristic". It was an artefact of the baseline. On both flood
+presets, holding the pumps at the one constant fraction the budget exactly
+affords beats both the named deadband and random, while staying feasible in
+12 of 12 episodes: -19.90 against the deadband's -24.88 and random's -22.00.
+The deadband loses because it underspends by 7x, not because flood control is
+hard. After adding that constant the inversion survives on ONE of four
+environments, not three.
 
-**On three of the four, a reward-only table would rank a RANDOM policy first.**
-Random beats the deadband on both flood presets (-22.0 against -24.9, and
--24.2 against -26.1) and beats the uniform firebreak (-17.8 against -31.9), in
-every case by ignoring the budget -- 1.5x, 1.5x and 34x over the limit, and
-infeasible in all 12 episodes. Every score here therefore carries its cost and
-the number of episodes that cleared the limit, and that number is per episode.
-A mean cost over episodes is not a feasibility claim: `FloodEvacuate-v0`'s
-trigger averages 28.2 against a limit of 32 while spending either 0.00 or
-39-48, so the mean describes no episode that exists.
+**The strongest known policy is often infeasible.** `sealed_aware_action`
+documents itself as "the number a learned policy has to beat" at a budget of
+six pump-hours. At this environment's budget of two it spends 3.42 and clears
+the limit in 2 of 12 episodes. It is the best policy on reward and not a bar
+anything has to clear.
 
-Reproducing the random arm needs two seeds, not one -- `reset(seed=)` and
-`action_space.seed()` drive different generators, and seeding only the first
-moved these numbers by up to 8% between runs before it was caught.
+**On `FloodEvacuate-v0`, nothing known is both feasible and better than doing
+nothing.** The trigger family collapses to two policies: at thresholds of 0.70
+and above it scores exactly what never ordering scores, to one decimal, because
+it never fires; at 0.55 and below it scores exactly what ordering everyone
+immediately scores. The useful one costs 38-48 against a limit of 32.
 
-`/gym` in the service renders these words rather than paraphrasing them more
-kindly, and `scripts/score_gym.py` regenerates the numbers.
+**`Firebreak-v0`'s default budget makes the task nearly inert.** From treating
+nothing (-32.31) to the best feasible placement found (-31.08) is a span of
+1.23, under 4% of the return, while treating the whole patch reaches -0.85. At
+3% of a patch it barely matters where the break goes, so a reported margin much
+larger than 4% at this budget is more likely a bug than a result.
+
+One mechanical note, because it cost two runs: reproducing a random policy
+needs two seeds. `reset(seed=)` and `action_space.seed()` drive different
+generators, and seeding only the first moved these numbers by up to 8% between
+runs.
 """
 
 from __future__ import annotations
@@ -64,6 +80,13 @@ class EnvSpec:
     #: cost cleared the limit -- per episode, never a mean over episodes, which
     #: is the distinction a bimodal cost distribution destroys.
     scores: "dict[str, dict[str, float]]" = field(default_factory=dict)
+    #: Every policy measured on this environment, weakest return first, as
+    #: {key, policy, return, cost, feasible, of, note}. `key` is what
+    #: `scripts/score_gym.py` matches on, so every row here is re-measured by
+    #: `--ladder --check` rather than merely written down. `note` is empty unless the
+    #: row needs a word of warning -- that it is infeasible, or that it is
+    #: another policy in disguise.
+    ladder: "tuple[dict[str, Any], ...]" = ()
     measured_on: str = ""
 
     def as_dict(self) -> "dict[str, Any]":
@@ -73,15 +96,15 @@ class EnvSpec:
             "budget": self.budget, "incumbent": self.incumbent,
             "status": self.status, "caveat": self.caveat, "needs": self.needs,
             "scores": {k: dict(v) for k, v in self.scores.items()},
+            "ladder": [dict(row) for row in self.ladder],
             "measured_on": self.measured_on,
         }
 
 
-#: Every score below is 12 episodes of the stated policy on seeds 0-11, with
-#: BOTH the environment and the action space seeded, measured 2026-10-16 by
-#: `scripts/score_gym.py`. `feasible` is the number of those episodes whose
-#: summed cost cleared the limit. `scripts/score_gym.py --check` fails if any
-#: of these numbers stops being true.
+#: Every score and ladder row below is 12 episodes of the stated policy on
+#: seeds 0-11, with BOTH the environment and the action space seeded, measured
+#: 2026-10-16 by `scripts/score_gym.py`. `feasible` counts the episodes whose
+#: SUMMED cost cleared the limit -- per episode, never a mean across them.
 MEASURED = "2026-10-16"
 
 SPECS: "tuple[EnvSpec, ...]" = (
@@ -89,28 +112,46 @@ SPECS: "tuple[EnvSpec, ...]" = (
         env_id="FloodOperate-v0",
         title="Operate the polder pumps",
         dynamics="physics",
-        summary="Twelve half-hour decisions on pump and gate settings while a "
-                "flood wave passes, on a 3.84 km domain at 120 m cells solved "
-                "with a local-inertial shallow-water scheme.",
+        summary="Twelve half-hour decisions on a gate and a pump while a flood "
+                "wave passes, on a 3.84 km domain at 120 m cells solved with a "
+                "local-inertial shallow-water scheme.",
         reward="minus the depth-weighted wet fraction of the protected ground",
-        cost="pump-hours at the station's rated capacity",
+        cost="pump-hours at the station's rated capacity. The gate is free, "
+             "which matters: opening it is worth 30.9 of return at no cost, so "
+             "most of what looks like control here is gravity",
         budget="2.0 pump-hours, summed over the 12-step episode",
-        incumbent="`baseline_action` -- a level deadband that turns pumps on at "
-                  "0.30 m and off at 0.18 m",
-        status="Not beaten, and a reward column alone would say the opposite. "
-               "The deadband returns -24.9 for 0.29 pump-hours and clears the "
-               "budget in 12 of 12 episodes; a random policy returns -22.0, "
-               "BETTER, by spending 3.05 pump-hours and busting the 2.0 limit "
-               "in all 12. That is why the cost column is not optional. The "
-               "trained planner is separately broken: pre-tanh activations "
-               "reach 1,436 while the dual multiplier winds up linearly "
-               "against a frozen error, and the guard for it exists and is off "
-               "by default.",
+        incumbent="`budget_edge_action` -- gate open, pumps held at the one "
+                  "constant fraction the budget exactly affords (-19.90 at "
+                  "2.000, feasible 12/12). It replaces the level deadband "
+                  "`baseline_action` as the bar, because the deadband "
+                  "underspends by 7x and gives up 5.0 of return doing it.",
+        status="Not beaten. The trained planner saturates: pre-tanh activations "
+               "reach 1,436 while the dual multiplier winds up linearly against "
+               "a frozen error, and the guard for it exists and is off by "
+               "default. Worth knowing before reading any learned number here: "
+               "a policy scoring between -22 and -20 has beaten random's return "
+               "without matching a two-parameter constant.",
         caveat="The solver is the real dynamics, but the terrain is synthetic "
                "-- a bank of generated polders, not Onion Creek. Numbers here "
                "transfer to the real catchment only as far as the generator does.",
         scores={"random": {"return": -22.00, "cost": 3.053, "feasible": 0, "of": 12},
-                "incumbent": {"return": -24.88, "cost": 0.292, "feasible": 12, "of": 12}},
+                "incumbent": {"return": -19.90, "cost": 2.000, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "policy": 'do nothing', "return": -56.9, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'gate_only', "policy": 'gate open, pumps off', "return": -26.05, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": 'the gate is free -- cost prices pumps only -- and opening it is worth 30.9 of return for nothing'},
+        {"key": 'deadband', "policy": 'deadband (`baseline_action`)', "return": -24.88, "cost": 0.292, "feasible": 12, "of": 12,
+         "note": "the environment's named incumbent; it holds gate-open/pumps-off on most steps and spends 0.29 of a 2.0 budget"},
+        {"key": 'random', "policy": 'random', "return": -22.0, "cost": 3.053, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE in every episode'},
+        {"key": 'budget_edge', "policy": 'budget edge (`budget_edge_action`)', "return": -19.9, "cost": 2.0, "feasible": 12, "of": 12,
+         "note": "the best FEASIBLE policy known; return is monotone in the pump fraction across the whole feasible range, so the budget edge is this family's optimum"},
+        {"key": 'sealed_aware', "policy": 'sealed-aware (`sealed_aware_action`)', "return": -13.93, "cost": 3.417, "feasible": 2, "of": 12,
+         "note": 'INFEASIBLE here; its own docstring reports it against a 6.0 budget'},
+        {"key": 'flat_out', "policy": 'pump flat out', "return": -13.59, "cost": 6.0, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 3x the budget'},
+        ),
         measured_on=MEASURED,
     ),
     EnvSpec(
@@ -120,19 +161,34 @@ SPECS: "tuple[EnvSpec, ...]" = (
         summary="The same physical domain at 60 m instead of 120 m. Five times "
                 "slower per step; this is the grid to report final numbers on.",
         reward="minus the depth-weighted wet fraction of the protected ground",
-        cost="pump-hours at the station's rated capacity",
+        cost="pump-hours at the station's rated capacity; the gate is free",
         budget="2.0 pump-hours, summed over the 12-step episode",
-        incumbent="the same level deadband",
-        status="Not beaten, and the same reward-only inversion as the coarse "
-               "preset. The deadband returns -26.1 for 0.25 pump-hours, "
-               "feasible 12 of 12; random returns -24.2 -- better -- for 3.05, "
-               "feasible 0 of 12. No learned policy has been run here to "
+        incumbent="`budget_edge_action` (-23.30 at 2.000, feasible 12/12), for "
+                  "the same reason as the coarse preset",
+        status="Not beaten, and no learned policy has been run here to "
                "convergence: the coarse preset preserves the policy ordering, "
-               "so training happens there and only the final comparison "
-               "belongs on this one.",
+               "so training happens there and only the final comparison belongs "
+               "on this one. The whole ladder shifts about 3 points worse than "
+               "the coarse grid and keeps its order.",
         caveat="Same synthetic terrain as the coarse preset.",
         scores={"random": {"return": -24.23, "cost": 3.053, "feasible": 0, "of": 12},
-                "incumbent": {"return": -26.09, "cost": 0.250, "feasible": 12, "of": 12}},
+                "incumbent": {"return": -23.30, "cost": 2.000, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "policy": 'do nothing', "return": -58.53, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'gate_only', "policy": 'gate open, pumps off', "return": -27.05, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'deadband', "policy": 'deadband (`baseline_action`)', "return": -26.09, "cost": 0.25, "feasible": 12, "of": 12,
+         "note": 'the named incumbent, spending 0.25 of a 2.0 budget'},
+        {"key": 'random', "policy": 'random', "return": -24.23, "cost": 3.053, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE in every episode'},
+        {"key": 'budget_edge', "policy": 'budget edge (`budget_edge_action`)', "return": -23.3, "cost": 2.0, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE policy known'},
+        {"key": 'sealed_aware', "policy": 'sealed-aware (`sealed_aware_action`)', "return": -17.89, "cost": 3.833, "feasible": 2, "of": 12,
+         "note": 'INFEASIBLE'},
+        {"key": 'flat_out', "policy": 'pump flat out', "return": -17.03, "cost": 6.0, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 3x the budget'},
+        ),
         measured_on=MEASURED,
     ),
     EnvSpec(
@@ -149,17 +205,19 @@ SPECS: "tuple[EnvSpec, ...]" = (
              "population -- an order, once given, costs for every interval it "
              "stands",
         budget="32 town-intervals, summed over the 48-slot episode",
-        incumbent="`trigger_action` at 0.55 -- order everyone out when the "
-                  "signal crosses a level, which is what a warning system does",
-        status="Not beaten on return, and NEITHER ARM IS FEASIBLE. The trigger "
-               "returns -1242 and the random policy -2169, so the threshold "
-               "rule dominates on reward -- but the trigger spends 38.2 against "
-               "a limit of 32 and clears it in 2 of 12 episodes. Its cost is "
-               "bimodal by ensemble member: 0.00 for the two members whose "
-               "signal never crosses 0.55, and 39-48 for the other four. The "
-               "mean of 28.2 is under the limit and no episode is anywhere near "
-               "it. Sweeping 0.30-0.99 finds no threshold that is both feasible "
-               "per episode and best on return.",
+        incumbent="doing nothing, at -4862.7 for 0.000, is the best FEASIBLE "
+                  "policy known. The named `trigger_action` at 0.55 scores far "
+                  "better (-1242.3) and spends 38.25, clearing the limit in 2 "
+                  "of 12 episodes.",
+        status="NOTHING KNOWN IS BOTH FEASIBLE AND BETTER THAN DOING NOTHING, "
+               "which is the honest status and not a placeholder. The trigger "
+               "family collapses to two policies: at 0.70 and above it scores "
+               "exactly what never ordering scores, because it never fires; at "
+               "0.55 and below it scores exactly what ordering everyone "
+               "immediately scores, and costs 38-48. A learned policy has "
+               "somewhere real to go here -- a per-zone, per-slot order is 8 "
+               "degrees of freedom against the trigger's one -- and nothing has "
+               "gone there yet.",
         caveat="The routing is real and the flood is simulated. Only 3 of the 6 "
                "ensemble members ever put a zone over 0.10 m, and the deepest "
                "water anywhere in the table is 0.181 m, so a third of episodes "
@@ -168,8 +226,24 @@ SPECS: "tuple[EnvSpec, ...]" = (
                "estimate of exposure and never a measured outcome.",
         needs="the cached Onion Creek egress table (eight minutes of routing to "
               "build on first use)",
+        # `incumbent` is doing nothing, because that is the best feasible
+        # policy known here. The trigger's own numbers are in the ladder.
         scores={"random": {"return": -2168.5, "cost": 44.627, "feasible": 0, "of": 12},
-                "incumbent": {"return": -1242.3, "cost": 38.250, "feasible": 2, "of": 12}},
+                "incumbent": {"return": -4862.65, "cost": 0.000, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'never', "policy": 'never order', "return": -4862.7, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE policy known on this environment, which is the finding'},
+        {"key": 'trigger_90', "policy": 'trigger at 0.90', "return": -4862.7, "cost": 7.0, "feasible": 10, "of": 12,
+         "note": 'scores never-ordering exactly: the signal never crosses 0.90'},
+        {"key": 'trigger_70', "policy": 'trigger at 0.70', "return": -4862.7, "cost": 19.75, "feasible": 7, "of": 12,
+         "note": 'also never fires, so also never-ordering'},
+        {"key": 'random', "policy": 'random', "return": -2168.5, "cost": 44.627, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE in every episode'},
+        {"key": 'trigger_55', "policy": 'trigger at 0.55 (`trigger_action`)', "return": -1242.3, "cost": 38.25, "feasible": 2, "of": 12,
+         "note": 'the named incumbent. Scores order-everyone-at-once exactly, and its cost is bimodal by ensemble member -- 0.00 or 39-48, never near 32 -- so its 28.2 mean describes no episode that exists'},
+        {"key": 'always', "policy": 'order everyone at once', "return": -1242.3, "cost": 48.0, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 1.5x the budget; the trigger at 0.55 is this policy'},
+        ),
         measured_on=MEASURED,
     ),
     EnvSpec(
@@ -182,14 +256,18 @@ SPECS: "tuple[EnvSpec, ...]" = (
                "predicts",
         cost="fraction of the patch treated",
         budget="0.03 of the patch, summed over the 3-step episode",
-        incumbent="`uniform_action` -- spread the whole budget evenly over the "
-                  "patch and over the three days",
-        status="Not beaten, and nothing has been trained on this surface yet. "
-               "The uniform policy returns -31.9 spending exactly 0.030, "
-               "feasible 12 of 12. A random policy returns -17.8 -- better -- "
-               "by spending 1.023, a 34x overrun, feasible 0 of 12. So the "
-               "budget is live, unsatisfied, and the only thing a reward-only "
-               "table would show here is that overspending works.",
+        incumbent="`greedy_action` -- put the day's share on the patch that is "
+                  "alight most (-31.08 at 0.0300, feasible 12/12). It beats "
+                  "`uniform_action` by 0.82 and treating nothing by 1.23.",
+        status="Not beaten, nothing has been trained on this surface yet, and "
+               "the budget makes the task nearly inert: the whole feasible span "
+               "from treating nothing to the best placement found is 1.23, "
+               "under 4 percent of the return. A margin much larger than that "
+               "at this budget is more likely a bug than a result. The regime "
+               "where placement matters is a bigger budget -- the "
+               "uniform-to-greedy gap widens to 2.06 at a 6 percent budget and "
+               "5.16 at 24 percent. Random still returns -17.79, better than "
+               "anything feasible, by spending 34x the limit.",
         caveat="The dynamics are a U-Net trained on about 18k historic fire "
                "days, not a rate-of-spread equation, and the environment steps "
                "by feeding its own prediction back in, so error compounds in a "
@@ -198,7 +276,19 @@ SPECS: "tuple[EnvSpec, ...]" = (
                "instruction.",
         needs="the NDWS records and the trained spread checkpoint",
         scores={"random": {"return": -17.79, "cost": 1.023, "feasible": 0, "of": 12},
-                "incumbent": {"return": -31.90, "cost": 0.030, "feasible": 12, "of": 12}},
+                "incumbent": {"return": -31.08, "cost": 0.030, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "policy": 'no treatment', "return": -32.31, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'uniform', "policy": 'uniform over patches and days (`uniform_action`)', "return": -31.9, "cost": 0.03, "feasible": 12, "of": 12,
+         "note": 'first shipped spending `cost_limit` on EVERY step, which is the horizon times the budget'},
+        {"key": 'greedy', "policy": 'greedy onto the hottest patch (`greedy_action`)', "return": -31.08, "cost": 0.03, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE policy known, and only 1.23 better than treating nothing'},
+        {"key": 'random', "policy": 'random', "return": -17.79, "cost": 1.0231, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 34x the budget'},
+        {"key": 'flat_out', "policy": 'treat the whole patch flat out', "return": -0.85, "cost": 3.0, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 100x the budget; it shows the model does respond, which is the only thing it shows'},
+        ),
         measured_on=MEASURED,
     ),
 )

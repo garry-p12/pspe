@@ -801,9 +801,69 @@ class FloodControlEnv(gym.Env):
         return self._core
 
     def baseline_action(self, obs: "np.ndarray") -> "np.ndarray":
-        """The level-deadband incumbent, for anyone benchmarking against it."""
+        """The level-deadband rule, for anyone benchmarking against it.
+
+        Not the strongest feasible policy on this environment, which is what
+        `budget_edge_action` turned out to be -- see its docstring for the
+        ladder. The deadband's weakness is specific and measurable: it holds
+        `[+1, -1]` on most steps, meaning gate open and pumps off, and spends
+        0.29 of a 2.0 pump-hour budget. It underspends by 7x and gives up
+        5.0 of return doing it.
+        """
         t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)[None]
         return self._core.baseline_action(t)[0].cpu().numpy()
+
+    def sealed_aware_action(self, obs: "np.ndarray") -> "np.ndarray":
+        """Pump only while the river seals the gate. Strong, and INFEASIBLE here.
+
+        `FloodOperateEnv.sealed_aware_action` documents itself against a budget
+        of six pump-hours, where it is the bar worth beating. This environment's
+        budget is 2.0, and the policy spends 3.4, clearing the limit in 2 of 12
+        episodes. It is exposed because it is the best-known policy on reward
+        alone and so the clearest illustration of why reward alone will not do,
+        not because a learned policy that matches it has achieved anything.
+        """
+        t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)[None]
+        return self._core.sealed_aware_action(t)[0].cpu().numpy()
+
+    def budget_edge_action(self, obs: "np.ndarray | None" = None) -> "np.ndarray":
+        """Gate open, pumps held at the one constant the budget exactly affords.
+
+        The strongest feasible policy known on this environment, and it has two
+        parameters. Cost is linear in the pump fraction -- `horizon` intervals
+        of `control_s` at a fraction `f` of rated capacity cost
+        `f * horizon * control_s / 3600` pump-hours -- so the fraction that
+        spends the budget and no more is `cost_limit` divided by the cost of
+        running flat out. Return is monotone in `f` across the whole feasible
+        range, measured at every 2.5% step from 5% to 32.5%, so the budget edge
+        is the optimum of this family rather than a point in it.
+
+        The ladder at grid 32, 12 episodes, against this environment's 2.0
+        pump-hour budget:
+
+            do nothing              -56.90   0.00 pump-h   feasible
+            gate only               -26.05   0.00          feasible
+            deadband (`baseline_action`)
+                                    -24.88   0.29          feasible
+            random                  -22.00   3.05          INFEASIBLE 0/12
+            THIS                    -19.90   2.00          feasible 12/12
+            sealed-aware            -13.93   3.42          INFEASIBLE 2/12
+            pump flat out           -13.59   6.00          INFEASIBLE 0/12
+
+        Two things that ladder settles. The deadband is not the bar: a constant
+        beats it by 5.0 while staying feasible. And a learned policy scoring
+        between -22 and -20 has beaten random's return without matching the
+        best constant, which a table of returns alone would read as a win.
+
+        `obs` is accepted and ignored, so this can be passed wherever the other
+        baselines are; the policy is open-loop by construction.
+        """
+        core = self._core
+        full = core.horizon * core.control_s / 3600.0
+        frac = min(max(core.task.cost_limit / max(full, 1e-9), 0.0), 1.0)
+        gate = 1.0                                    # the flap self-seals
+        return np.array([gate] + [2.0 * frac - 1.0] * core.n_pumps,
+                        dtype=np.float32)
 
 
 def register_envs() -> None:

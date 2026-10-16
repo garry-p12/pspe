@@ -27,14 +27,77 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-#: The incumbent each environment exposes. A learned policy that does not beat
-#: the named method here has not shown anything.
+#: The strongest FEASIBLE policy known on each environment -- the bar a
+#: learned policy has to clear to have shown anything. These are not the
+#: baselines each environment originally named; three of those were weak
+#: enough that a reward-only table ranked a random policy above them, which
+#: reads as a result and is an artefact. `pspe/envs/catalog.py` carries the
+#: full ladder, the displaced baselines included.
+#:
+#: `FloodEvacuate-v0`'s entry is doing nothing, because on that environment
+#: nothing known is both feasible and better than doing nothing.
 INCUMBENT = {
-    "FloodOperate-v0": "baseline_action",
-    "FloodOperateFine-v0": "baseline_action",
-    "FloodEvacuate-v0": "trigger_action",
-    "Firebreak-v0": "uniform_action",
+    "FloodOperate-v0": "budget_edge_action",
+    "FloodOperateFine-v0": "budget_edge_action",
+    "FloodEvacuate-v0": "never_action",
+    "Firebreak-v0": "greedy_action",
 }
+
+#: Every policy in the catalog's ladder, keyed the same way, so `--ladder
+#: --check` re-measures the whole table rather than taking it on trust. A
+#: value is either the name of a method on the environment, a float meaning
+#: "hold this on every action dimension", an explicit per-dimension action, or
+#: a (method, kwargs) pair.
+LADDER_POLICIES = {
+    "FloodOperate-v0": {
+        "nothing": -1.0,
+        "gate_only": [1.0, -1.0],
+        "deadband": "baseline_action",
+        "budget_edge": "budget_edge_action",
+        "sealed_aware": "sealed_aware_action",
+        "flat_out": 1.0,
+    },
+    "FloodEvacuate-v0": {
+        "never": "never_action",
+        "trigger_90": ("trigger_action", {"threshold": 0.90}),
+        "trigger_70": ("trigger_action", {"threshold": 0.70}),
+        "trigger_55": ("trigger_action", {"threshold": 0.55}),
+        "always": 1.0,
+    },
+    "Firebreak-v0": {
+        "nothing": -1.0,
+        "uniform": "uniform_action",
+        "greedy": "greedy_action",
+        "flat_out": 1.0,
+    },
+}
+# The two flood presets share a ladder: same policies, same action layout.
+LADDER_POLICIES["FloodOperateFine-v0"] = LADDER_POLICIES["FloodOperate-v0"]
+
+
+def _policy(env, inner, spec):
+    """Turn a ladder entry into a callable taking an observation."""
+    import numpy as np
+
+    if isinstance(spec, str):
+        return getattr(inner, spec)
+    if isinstance(spec, tuple):
+        name, kwargs = spec
+        fn = getattr(inner, name)
+        return lambda obs, fn=fn, kwargs=kwargs: fn(obs, **kwargs)
+    if isinstance(spec, (int, float)):
+        const = np.full(env.action_space.shape, float(spec), dtype=np.float32)
+    else:
+        const = np.asarray(spec, dtype=np.float32)
+        if const.shape != env.action_space.shape:
+            # A flood ladder entry is [gate, pump]; an environment with more
+            # than one pump needs the pump setting repeated, not broadcast by
+            # accident into the wrong slot.
+            const = np.concatenate(
+                [const[:1], np.full(env.action_space.shape[0] - 1, const[-1],
+                                    dtype=np.float32)])
+    return lambda _obs, c=const: c
+
 
 #: How far a measured number may move before `--check` calls it drift. Returns
 #: are O(10) to O(1000) across these environments, so the return tolerance is
@@ -79,7 +142,8 @@ def score(env, policy, seeds, limit) -> "dict[str, float]":
             "steps": rolls[0][3]}
 
 
-def measure(env_ids, seeds) -> "dict[str, dict]":
+def measure(env_ids, seeds, ladder: bool = False) -> "dict[str, dict]":
+    import numpy as np
     import gymnasium as gym
 
     from pspe.envs import register_all
@@ -90,16 +154,21 @@ def measure(env_ids, seeds) -> "dict[str, dict]":
         name = INCUMBENT[env_id]
         env = gym.make(env_id)
         inner = env.unwrapped
-        fn = getattr(inner, name)
-        # `uniform_action` needs no observation: the budget is the whole input.
-        incumbent = ((lambda _obs, fn=fn: fn()) if name == "uniform_action"
-                     else (lambda obs, fn=fn: fn(obs)))
+        # Every baseline takes an observation and returns an action, whether
+        # or not it reads the observation, so no special-casing here.
+        incumbent = getattr(inner, name)
         limit = float(inner.task.cost_limit)
-        out[env_id] = {
+        row = {
             "incumbent": name, "limit": limit,
             "random": score(env, lambda _o: env.action_space.sample(), seeds, limit),
             "incumbent_scores": score(env, incumbent, seeds, limit),
         }
+        if ladder:
+            rungs = {"random": row["random"]}
+            for key, spec in LADDER_POLICIES.get(env_id, {}).items():
+                rungs[key] = score(env, _policy(env, inner, spec), seeds, limit)
+            row["ladder"] = rungs
+        out[env_id] = row
         env.close()
     return out
 
@@ -111,6 +180,17 @@ def report(results) -> None:
         for label, s in (("random", r), (row["incumbent"], i)):
             print(f"  {label:<16} return {s['return']:+10.2f} +- {s['return_sd']:7.2f}"
                   f"   cost {s['cost']:8.3f}   feasible {s['feasible']:3d}/{s['of']}")
+        # The two arms above are also ladder rungs; print each number once.
+        already = {("random", round(r["return"], 2)),
+                   (row["incumbent"], round(i["return"], 2))}
+        for label, s in sorted(row.get("ladder", {}).items(),
+                               key=lambda kv: kv[1]["return"]):
+            if label == "random" or round(s["return"], 2) == round(i["return"], 2) \
+                    and round(s["cost"], 4) == round(i["cost"], 4):
+                continue
+            flag = "" if s["feasible"] == s["of"] else "   INFEASIBLE"
+            print(f"  {label:<16} return {s['return']:+10.2f} +- {s['return_sd']:7.2f}"
+                  f"   cost {s['cost']:8.3f}   feasible {s['feasible']:3d}/{s['of']}{flag}")
         if i["return"] < r["return"] and i["feasible"] > r["feasible"]:
             print("  -> reward alone ranks RANDOM first; it is infeasible")
 
@@ -142,6 +222,33 @@ def check(results) -> int:
                 print(f"FAIL {env_id} {key}: feasible {measured['feasible']}/"
                       f"{measured['of']} vs catalog {want['feasible']}/{want['of']}")
                 bad += 1
+
+        measured_ladder = row.get("ladder")
+        if measured_ladder is None:
+            continue
+        recorded_rungs = {r["key"]: r for r in BY_ID[env_id].ladder}
+        # Every rung the catalog prints has to be one this script can produce,
+        # and the other way round. A ladder row with no policy behind it is a
+        # number nobody can reproduce.
+        for key in sorted(set(recorded_rungs) ^ set(measured_ladder)):
+            side = "catalog only" if key in recorded_rungs else "measured only"
+            print(f"FAIL {env_id} ladder rung {key!r}: {side}")
+            bad += 1
+        for key in sorted(set(recorded_rungs) & set(measured_ladder)):
+            want, got = recorded_rungs[key], measured_ladder[key]
+            if abs(got["return"] - want["return"]) > RET_TOL * max(abs(want["return"]), 1e-9):
+                print(f"FAIL {env_id} ladder {key}: return {got['return']:.2f} "
+                      f"vs catalog {want['return']:.2f}")
+                bad += 1
+            if abs(got["cost"] - want["cost"]) > COST_TOL:
+                print(f"FAIL {env_id} ladder {key}: cost {got['cost']:.4f} "
+                      f"vs catalog {want['cost']:.4f}")
+                bad += 1
+            if got["feasible"] != want["feasible"]:
+                print(f"FAIL {env_id} ladder {key}: feasible {got['feasible']}/"
+                      f"{got['of']} vs catalog {want['feasible']}/{want['of']}")
+                bad += 1
+
     print(f"\n{'catalog matches the environments' if not bad else f'{bad} mismatch(es)'}")
     return 1 if bad else 0
 
@@ -155,6 +262,10 @@ def main() -> int:
                          "numbers are 12; --check only means anything at 12.")
     ap.add_argument("--check", action="store_true",
                     help="compare against the catalog and exit nonzero on drift")
+    ap.add_argument("--ladder", action="store_true",
+                    help="also score every policy in the catalog's ladder. "
+                         "With --check this verifies the whole table, which is "
+                         "where three of this gym's four findings came from.")
     ap.add_argument("--json", type=str, default="",
                     help="also write the measurements here")
     args = ap.parse_args()
@@ -171,7 +282,8 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
-    results = measure(env_ids, list(range(args.seeds)))
+    results = measure(env_ids, list(range(args.seeds)),
+                      ladder=args.ladder)
     report(results)
     if args.json:
         Path(args.json).write_text(json.dumps(results, indent=1))

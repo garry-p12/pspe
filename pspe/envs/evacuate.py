@@ -534,6 +534,31 @@ class EvacuateControlEnv(gym.Env):
     def core(self) -> "FloodEvacuateEnv":
         return self._core
 
+    def never_action(self, obs: "np.ndarray | None" = None) -> "np.ndarray":
+        """Order nobody out. The best FEASIBLE policy known on this environment.
+
+        Exposed because that is true and not because it is useful. Measured
+        over 12 episodes against the 32-town-interval budget:
+
+            never order              -4862.7    0.00   feasible 12/12
+            trigger at 0.90          -4862.7    7.00   feasible 10/12
+            trigger at 0.70          -4862.7   19.75   feasible  7/12
+            random                   -2168.5   44.63   feasible  0/12
+            trigger at 0.55          -1242.3   38.25   feasible  2/12
+            order everyone at once   -1242.3   48.00   feasible  0/12
+
+        The trigger family has one degree of freedom on one global signal, and
+        on this ensemble it expresses exactly two behaviours: at 0.70 and above
+        it scores never-ordering to the decimal because it never fires, and at
+        0.55 and below it scores ordering-everyone-immediately to the decimal.
+        The useful behaviour costs 38 to 48 against a limit of 32.
+
+        So nothing known here is both feasible and better than doing nothing,
+        and a learned policy has somewhere real to go: the action is per zone
+        and per slot, eight degrees of freedom against the trigger's one.
+        """
+        return np.full(self._core.K, -1.0, dtype=np.float32)
+
     def trigger_action(self, obs: "np.ndarray",
                        threshold: float = 0.55) -> "np.ndarray":
         """The incumbent: order everyone when the signal crosses `threshold`.

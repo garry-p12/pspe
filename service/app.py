@@ -103,6 +103,25 @@ except Exception as _exc:                           # noqa: BLE001
 if shadow_router is not None:
     app.include_router(shadow_router)
 
+# The gym surface: what can be `gymnasium.make`'d, and where each one stands
+# against its incumbent. Optional in the same way the two above are -- it
+# imports gymnasium, which a deployment that only serves the flood portal does
+# not need.
+try:
+    from .gym_routes import router as gym_router   # type: ignore[import-not-found]
+except ImportError:
+    try:
+        from gym_routes import router as gym_router  # type: ignore[no-redef]
+    except Exception as _exc:                        # noqa: BLE001
+        gym_router = None
+        print(f"gym routes unavailable: {_exc}")
+except Exception as _exc:                            # noqa: BLE001
+    gym_router = None
+    print(f"gym routes unavailable: {_exc}")
+
+if gym_router is not None:
+    app.include_router(gym_router)
+
 
 @app.exception_handler(ObservationUnavailable)
 async def _observation_unavailable(request: Request,
