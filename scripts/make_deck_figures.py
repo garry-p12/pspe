@@ -701,7 +701,19 @@ def fig_gym_loop():
 
 
 def fig_dem():
-    """One number, two elevation datasets: the same storm, 54% more flood."""
+    """One number, two elevation datasets: the same storm, 54% more flood.
+
+    MEASURED ON THE ORIGINAL 12.5 km BOX, and the label on the figure says so.
+    The study box was later widened to 14.6 km so that the outlet gauge falls
+    inside the grid and can mark the model, which changes both absolute areas.
+    Swapping in a new bare-earth number while leaving the surface-model one
+    from the old box would compare two different domains and report the
+    difference as an elevation effect.
+
+    The claim here is the RATIO and its mechanism, both of which are
+    properties of the elevation products rather than of the box, so the
+    figure stands as a record of that comparison on the domain it was run on.
+    """
     fig, ax = plt.subplots(figsize=(6.6, 3.0))
     labels = ["Surface model\n(default)", "Bare-earth model\n(correct)"]
     vals = [28.84, 18.71]
@@ -714,6 +726,9 @@ def fig_dem():
     ax.text(0.5, 27.3, "54% more flood,\nfrom the elevation data alone",
             ha="center", fontsize=9.4, fontweight="bold")
     ax.set_ylabel("area flooded by the same storm", fontsize=9.2)
+    ax.text(0.5, -0.22, "measured on the original 12.5 km study box",
+            transform=ax.transAxes, ha="center", fontsize=8.0,
+            color=C["muted"])
     ax.set_ylim(0, 33)
     ax.set_title("Trees and rooftops are not ground", fontsize=10.4,
                  fontweight="bold", loc="left")
