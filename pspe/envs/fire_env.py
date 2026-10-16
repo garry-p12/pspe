@@ -33,10 +33,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from gymnasium import spaces
 
 from pspe.simulate.real.ndws import DRIVER_FEATURES
 
@@ -169,3 +171,126 @@ class FireEnv:
         p = self.predict(self.x[idx].to(self.device)).cpu()
         valid = self.next_valid[idx]
         return p[valid].numpy(), (self.next_mask[idx][valid] > 0.5).numpy().astype(np.float32)
+
+
+class FirebreakEnv(gym.Env):
+    """Single-instance Gymnasium view of firebreak placement.
+
+    `FireEnv` is batched and all-torch, which suits this repository's planner
+    and nothing outside it. This is the `gymnasium.make` view: one fire at a
+    time, numpy in and numpy out, with the `info["cost"]` convention the
+    safe-RL baselines and OmniSafe both read.
+
+    **Reward** is minus the population-weighted burned fraction the spread
+    model predicts. **Cost** is the fraction of the patch treated, and the
+    budget is a crew-day limit.
+
+    Two things a user of this environment has to know, and they are the same
+    two the portal states:
+
+    * **The dynamics are a learned model, not physics.** There is no
+      rate-of-spread equation anywhere in it. A U-Net trained on ~18k historic
+      fire days predicts tomorrow's mask from today's plus eleven drivers, and
+      the environment steps by feeding its own prediction back in. Errors
+      compound in a way a conservation law would not allow.
+    * **The counterfactual is unobservable.** No fire on record had a break
+      cut on our instruction, so every reward here is what the model expects
+      and not what happened. Beating `uniform_action` is the meaningful
+      comparison; beating no-treatment only shows the treatment model does
+      something, which it does by construction.
+    """
+
+    metadata = {"render_modes": []}
+
+    def __init__(self, surrogate: nn.Module, data: "dict[str, np.ndarray]", *,
+                 budget: float = 0.03, horizon: int = 3, grid: int = 64,
+                 patches: int = 4, device: "torch.device | str" = "cpu",
+                 seed: "int | None" = None) -> None:
+        super().__init__()
+        self.device = torch.device(device)
+        self._generator = torch.Generator().manual_seed(0 if seed is None else seed)
+        self._core = FireEnv(surrogate, data,
+                             FireTask(cost_limit=budget),
+                             grid=grid, patches=patches, horizon=horizon,
+                             device=self.device)
+        c, h, w = self._core.obs_shape
+        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(c, h, w),
+                                            dtype=np.float32)
+        self.action_space = spaces.Box(-1.0, 1.0,
+                                       shape=(self._core.action_dim,),
+                                       dtype=np.float32)
+        self.episode_cost = 0.0
+
+    def reset(self, *, seed: "int | None" = None,
+              options: "dict | None" = None) -> "tuple[np.ndarray, dict]":
+        super().reset(seed=seed)
+        if seed is not None:
+            self._generator = torch.Generator().manual_seed(seed)
+        state = self._core.reset(batch=1, generator=self._generator)
+        self.episode_cost = 0.0
+        return state[0].detach().cpu().numpy().astype(np.float32), {"cost": 0.0}
+
+    def step(self, action: "np.ndarray"
+             ) -> "tuple[np.ndarray, float, bool, bool, dict]":
+        act = torch.as_tensor(action, dtype=torch.float32,
+                              device=self.device).view(1, -1).clamp(-1.0, 1.0)
+        with torch.no_grad():
+            state, reward, cost, done = self._core.step(act)
+        self.episode_cost += float(cost[0])
+        info = {"cost": float(cost[0]),
+                "episode_cost": self.episode_cost,
+                "cost_limit": self._core.task.cost_limit}
+        obs = state[0].detach().cpu().numpy().astype(np.float32)
+        # A crew-day horizon is a time limit, not an absorbing state.
+        return obs, float(reward[0]), False, bool(done), info
+
+    @property
+    def task(self) -> FireTask:
+        return self._core.task
+
+    @property
+    def core(self) -> "FireEnv":
+        return self._core
+
+    def uniform_action(self) -> "np.ndarray":
+        """Spread the budget evenly. The comparison that actually matters.
+
+        `cost_limit` is the budget for the whole episode -- `safe_rl.py` winds
+        its multiplier on `episode_cost - cost_limit`, a sum over steps -- so a
+        uniform policy that treats `cost_limit` of the patch on *every* step
+        spends `horizon` times the budget. Divide by the horizon or the
+        incumbent is infeasible, and an infeasible incumbent is not a baseline,
+        it is a policy that was allowed to cheat.
+        """
+        k = self._core.action_dim
+        share = self._core.task.cost_limit / max(self._core.horizon, 1)
+        u = torch.full((1, k), share)
+        return FireEnv.action_for(u)[0].cpu().numpy()
+
+
+def register_envs() -> None:
+    """Make `gymnasium.make("Firebreak-v0")` work.
+
+    The entry point loads the held-out NDWS records and the trained spread
+    model through `service.fire`, which caches both -- so constructing this is
+    cheap after the first call and raises a named error, rather than silently
+    producing a useless environment, when the dataset is absent.
+    """
+    from gymnasium.envs.registration import register, registry
+
+    if "Firebreak-v0" in registry:
+        return
+    register(id="Firebreak-v0", entry_point="pspe.envs.fire_env:_make_default",
+             max_episode_steps=None)
+
+
+def _make_default(budget: float = 0.03, horizon: int = 3, **kw) -> FirebreakEnv:
+    """Entry point for `gymnasium.make`, on the held-out NDWS records."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from service.fire import _model, _records          # noqa: PLC0415
+
+    return FirebreakEnv(_model(), _records(), budget=budget,
+                        horizon=horizon, **kw)

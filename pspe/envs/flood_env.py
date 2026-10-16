@@ -750,11 +750,14 @@ class FloodControlEnv(gym.Env):
               options: "dict[str, Any] | None" = None
               ) -> "tuple[np.ndarray, dict[str, Any]]":
         # `super().reset(seed=seed)` seeds `self.np_random`, which is what
-        # `action_space.sample()` draws from and what Gymnasium's own
-        # `check_env` verifies. Without it the env looks seeded -- episodes
-        # reproduce, because the torch generator below is doing that work --
-        # while the action space stays on a global stream, so a random policy
-        # is not reproducible from the seed the caller gave.
+        # Gymnasium's `check_env` verifies and what any sampling the env does
+        # itself must draw from. It does NOT seed `action_space.sample()`:
+        # Gymnasium gives the action space its own generator, reached through
+        # `action_space.seed(n)`, precisely so restarting an episode does not
+        # silently reset a caller's exploration stream. Reproducing a random
+        # policy therefore takes both seeds -- the one here and that one --
+        # which `test_the_action_space_is_seeded_the_way_gymnasium_says_it_is`
+        # pins down and `scripts/score_gym.py` relies on.
         super().reset(seed=seed)
         if seed is not None:
             self._generator = torch.Generator().manual_seed(seed)

@@ -55,8 +55,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import gymnasium as gym
 import numpy as np
 import torch
+from gymnasium import spaces
 
 from ..plan import routes
 
@@ -429,3 +431,165 @@ class FloodEvacuateEnv:
             "under_order_frac": (self.under_order * self.pop[None]).sum(dim=1)
             / max(self.pop_total, 1e-6),
         }
+
+
+class EvacuateControlEnv(gym.Env):
+    """Single-instance Gymnasium view of the evacuation decision.
+
+    `FloodEvacuateEnv` speaks the batched all-torch protocol this repository's
+    planner and `baselines/safe_rl.py` consume. That is the right shape for a
+    trainer that wants sixteen worlds at once and the wrong shape for anything
+    outside: an outside algorithm expects `gymnasium.make`, one episode at a
+    time, numpy in and numpy out.
+
+    This is that view, mirroring `FloodControlEnv` deliberately -- same
+    `info["cost"]` convention, which is what the safe-RL baselines read and
+    what Safety-Gymnasium and OmniSafe emit, so an OmniSafe install drops in
+    unchanged.
+
+    **Reward** is minus the people-intervals spent under water, scaled.
+    **Cost** is people-intervals under evacuation order, normalised by the
+    town -- the disruption a city pays and the credibility it spends. Neither
+    is in money.
+
+    What this does NOT make true: nothing has beaten a one-number trigger here
+    (`FloodEvacuateEnv.trigger_action`), and that family reaches only three
+    distinct outcomes across its whole range, so the achievable gap is small
+    and discontinuous. This is an environment with a published API, not a
+    benchmark with a published result.
+
+    The egress table is the expensive part and is built once by the caller --
+    `baselines.evac.table.load()` caches about eight minutes of real
+    time-dependent routing -- so constructing this is cheap and an episode
+    costs microseconds while the geometry stays real.
+    """
+
+    metadata = {"render_modes": []}
+
+    def __init__(self, table: EgressTable, *,
+                 budget: float = 32.0,
+                 reward_scale: float = 1.0,
+                 device: "torch.device | str" = "cpu",
+                 seed: "int | None" = None) -> None:
+        super().__init__()
+        self.device = torch.device(device)
+        self._generator = torch.Generator().manual_seed(0 if seed is None else seed)
+        self._core = FloodEvacuateEnv(
+            table, EvacuateTask(cost_limit=budget, reward_scale=reward_scale),
+            device=self.device)
+        c, h, w = self._core.obs_shape
+        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(c, h, w),
+                                            dtype=np.float32)
+        self.action_space = spaces.Box(-1.0, 1.0,
+                                       shape=(self._core.action_dim,),
+                                       dtype=np.float32)
+        self.zones = int(table.zones)
+        self.population = [float(p) for p in table.population]
+        self.episode_cost = 0.0
+
+    # -- gymnasium API ------------------------------------------------------ #
+    def reset(self, *, seed: "int | None" = None,
+              options: "dict | None" = None) -> "tuple[np.ndarray, dict]":
+        # Seeds `self.np_random`, which is what Gymnasium's `check_env`
+        # verifies. It does NOT seed `action_space.sample()` -- the action
+        # space keeps its own generator, seeded by `action_space.seed(n)` -- so
+        # reproducing a random policy here takes both seeds. See the note in
+        # `FloodControlEnv.reset`.
+        super().reset(seed=seed)
+        if seed is not None:
+            self._generator = torch.Generator().manual_seed(seed)
+        state = self._core.reset(batch=1, generator=self._generator)
+        self.episode_cost = 0.0
+        return state[0].detach().cpu().numpy().astype(np.float32), {"cost": 0.0}
+
+    def step(self, action: "np.ndarray"
+             ) -> "tuple[np.ndarray, float, bool, bool, dict]":
+        act = torch.as_tensor(action, dtype=torch.float32,
+                              device=self.device).view(1, -1).clamp(-1.0, 1.0)
+        with torch.no_grad():
+            state, reward, cost, done = self._core.step(act)
+        self.episode_cost += float(cost[0])
+        info = {
+            "cost": float(cost[0]),
+            "episode_cost": self.episode_cost,
+            "cost_limit": self._core.task.cost_limit,
+        }
+        if done:
+            st = self._core.episode_stats()
+            for k, v in st.items():
+                info[k] = float(v[0]) if hasattr(v, "shape") else float(v)
+        obs = state[0].detach().cpu().numpy().astype(np.float32)
+        # `terminated` stays False: the episode ends on the control horizon,
+        # a time limit rather than an absorbing state. Calling it termination
+        # tells a bootstrapping critic the value beyond the horizon is zero,
+        # which is false -- the people are still there.
+        return obs, float(reward[0]), False, bool(done), info
+
+    # -- what a benchmark needs to compare against -------------------------- #
+    @property
+    def task(self) -> EvacuateTask:
+        return self._core.task
+
+    @property
+    def core(self) -> "FloodEvacuateEnv":
+        return self._core
+
+    def trigger_action(self, obs: "np.ndarray",
+                       threshold: float = 0.55) -> "np.ndarray":
+        """The incumbent: order everyone when the signal crosses `threshold`.
+
+        0.55 is the best member of the family at a budget of 32 from the sweep
+        in `baselines/run_evac_frontier.py`, and the word that used to sit here
+        -- "feasible" -- was wrong. Measured per episode on 2026-10-16 at this
+        threshold, the cost is bimodal by ensemble member:
+
+            member 0  cost  0.00      the signal never crosses 0.55
+            member 1  cost  0.00
+            member 2  cost 39.00      every one of these busts the 32 limit
+            member 3  cost 47.00
+            member 4  cost 48.00
+            member 5  cost 48.00
+
+        The mean is 28.22, under the limit, and **no episode spends anything
+        near it**. The trigger is feasible in 96 of 256 episodes and those are
+        exactly the ones where it does nothing. A mean over a bimodal cost
+        distribution is not an episode-level feasibility claim -- the same
+        mistake as reporting `cost_mean_over_run` beside a final policy's
+        return, and `run_evac_frontier` corrected that one in its own docstring
+        while its baseline cost axis kept doing it.
+
+        No threshold in 0.30-0.99 is both feasible per episode and best on
+        return: below 0.60 the return is the best available (-1630) and the
+        limit is cleared in at most 5 of 32 episodes; at and above 0.70 the
+        limit is usually cleared and the return is 3x worse (-4991).
+        """
+        t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)[None]
+        return self._core.trigger_action(t, threshold)[0].cpu().numpy()
+
+
+def register_envs() -> None:
+    """Make `gymnasium.make("FloodEvacuate-v0")` work.
+
+    The egress table is eight minutes of real routing, so it is NOT built here
+    -- the entry point loads the cached one through `baselines.evac.table`,
+    which builds it on a miss and reuses it thereafter. An environment whose
+    constructor silently costs eight minutes is not one anybody will call
+    twice.
+
+    Idempotent: importing this module twice in one process is normal and a
+    duplicate registration raises rather than passing.
+    """
+    from gymnasium.envs.registration import register, registry
+
+    if "FloodEvacuate-v0" in registry:
+        return
+    register(id="FloodEvacuate-v0",
+             entry_point="pspe.envs.evacuate:_make_default",
+             max_episode_steps=None)
+
+
+def _make_default(budget: float = 32.0, **kw) -> EvacuateControlEnv:
+    """Entry point for `gymnasium.make`, with the Onion Creek egress table."""
+    from baselines.evac import table as _t
+
+    return EvacuateControlEnv(_t.load(), budget=budget, **kw)
