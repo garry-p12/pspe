@@ -30,6 +30,23 @@ export async function POST(req: Request) {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(110000),
     });
+    if (r.status === 404) {
+      // The service is up and answering, it just has no /gym. That means a
+      // process started before `service/gym_routes.py` existed, which is the
+      // normal case after pulling this change -- the router is wired at import
+      // time, so a running uvicorn never picks it up. Say that, rather than
+      // forwarding the service's bare {"detail":"Not Found"} to the page.
+      return NextResponse.json(
+        {
+          error: "gym_routes_missing",
+          detail:
+            "The service is running but has no /gym routes, so it was started " +
+            "before they existed. Restart it to pick them up: " +
+            "python3 -m uvicorn service.app:app --port 8000",
+        },
+        { status: 502 },
+      );
+    }
     if (!r.ok) {
       const t = await r.text();
       return NextResponse.json(
