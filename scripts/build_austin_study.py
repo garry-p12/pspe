@@ -47,8 +47,29 @@ from pathlib import Path
 # Onion Creek: the reach that flooded in October 2013 and on Halloween 2015,
 # and the one with a mapped floodplain to be scored against. Downtown is more
 # recognisable and has more buildings, but nothing to check the answer with.
+#
+# ## Why the east edge is at -97.6678 and not -97.690
+#
+# The box used to end at -97.690, which put USGS 08159000 at US Hwy 183 --
+# the outlet gauge -- 0.13 km PAST the east edge, and 08158827 at Twin Creeks
+# 0.11 km before the west one. Both instruments sat just outside the grid, so
+# neither could grade the model: there was no solved cell at either of them.
+# That is the whole reason the system could only ever be called a
+# shadow-capable API rather than a digital shadow.
+#
+# The upstream gauge cannot grade it in any case -- its discharge is what
+# DRIVES the solve, so comparing the model to it is circular. The outlet gauge
+# is different: it sits downstream of twelve kilometres of routing, so the
+# stage there is a genuine prediction that the record can mark.
+#
+# -97.6678 puts that gauge 2 km inside the interior rather than on the edge.
+# The distinction matters because the east boundary is free-outflow: a cell AT
+# the boundary carries whatever the outflow condition produces, not a routed
+# stage. Two kilometres in, it is solved.
+#
+# The cost is a box 14.6 km wide instead of 12.5, about 17% more cells.
 DEFAULT = {
-    "west": -97.820, "south": 30.110, "east": -97.690, "north": 30.210,
+    "west": -97.820, "south": 30.110, "east": -97.6678, "north": 30.210,
     "name": "Onion Creek, Austin, Texas", "dx": 40,
     "driver": "rain", "rain_mm_h": 50, "storm_hours": 6, "run_hours": 18,
     # Nine instantaneous depth fields across the run, so the strip under the

@@ -87,6 +87,22 @@ except Exception as _exc:                         # noqa: BLE001
 if fire_router is not None:
     app.include_router(fire_router)
 
+# The shadow endpoint: the model marked by a gauge it was not told about.
+try:
+    from .shadow import router as shadow_router   # type: ignore[import-not-found]
+except ImportError:
+    try:
+        from shadow import router as shadow_router  # type: ignore[no-redef]
+    except Exception as _exc:                       # noqa: BLE001
+        shadow_router = None
+        print(f"shadow routes unavailable: {_exc}")
+except Exception as _exc:                           # noqa: BLE001
+    shadow_router = None
+    print(f"shadow routes unavailable: {_exc}")
+
+if shadow_router is not None:
+    app.include_router(shadow_router)
+
 
 @app.exception_handler(ObservationUnavailable)
 async def _observation_unavailable(request: Request,
