@@ -305,8 +305,42 @@ def _control_spec(env_id: str) -> "list[dict[str, Any]]":
     if env_id == "Firebreak-v0":
         return [{"name": "Crews", "options": [
             {"label": "stand down", "action": None, "policy": "nothing"},
-            {"label": "spread evenly", "action": None, "policy": "uniform"},
-            {"label": "where it burns", "action": None, "policy": "greedy"}],
+            {"label": "spread evenly", "action": None, "policy": "uniform_action"},
+            {"label": "where it burns", "action": None, "policy": "greedy_action"}],
+            "default": 1}]
+    if env_id == "FireDispatch-v0":
+        return [{"name": "Crews", "options": [
+            {"label": "stand down", "action": None, "policy": "nothing"},
+            {"label": "split evenly", "action": None, "policy": "even_action"},
+            {"label": "the biggest fire", "action": None, "policy": "biggest_fire_action"},
+            {"label": "where the people are", "action": None,
+             "policy": "most_people_action"}], "default": 2}]
+    if env_id == "FloodBuyout-v0":
+        return [{"name": "Buy here", "options": [
+            {"label": "none", "action": [-1.0]},
+            {"label": "a quarter", "action": [-0.5]},
+            {"label": "half", "action": [0.0]},
+            {"label": "all of them", "action": [1.0]}], "default": 0}]
+    if env_id == "FloodCrossing-v0":
+        return [{"name": "Barricade", "options": [
+            {"label": "up, road open", "action": [-1.0]},
+            {"label": "down, road closed", "action": [1.0]}], "default": 0}]
+    if env_id == "CMDPToy-v0":
+        # The action IS the number, so the options are the number. 0.40 is
+        # the right answer and it is offered plainly -- hiding it would make a
+        # guessing game out of the one environment whose point is that the
+        # answer is known.
+        return [{"name": "Dial", "options": [
+            {"label": "0.00", "action": [0.0]},
+            {"label": "0.20", "action": [0.2]},
+            {"label": "0.40 (the answer)", "action": [0.4]},
+            {"label": "0.80", "action": [0.8]}], "default": 0}]
+    if env_id.startswith("PDEControl-"):
+        return [{"name": "Dials", "options": [
+            {"label": "leave alone", "action": None, "policy": "zero_action"},
+            {"label": "gentle", "action": None, "policy": "proportional:0.3"},
+            {"label": "firm", "action": None, "policy": "proportional:0.6"},
+            {"label": "hard", "action": None, "policy": "proportional:1.0"}],
             "default": 1}]
     return []
 
@@ -401,6 +435,101 @@ def _scene(env_id: str, inner, obs: "np.ndarray") -> "dict[str, Any]":
                        "marker": "burning"},
             "water_unit": "", "water_scale": 1.0,
         }
+    if env_id == "FireDispatch-v0":
+        # Four fires, laid out as four quadrants, because a dispatcher sees
+        # all the incidents at once and that is the whole decision.
+        fires = obs[:-1]
+        n = fires.shape[-1]
+        half = n // 2
+        import numpy as _np
+        tile = _np.zeros((n, n), dtype="float32")
+        for i, f in enumerate(fires[:4]):
+            r, c = (i // 2) * half, (i % 2) * half
+            tile[r:r + half, c:c + half] = f[::2, ::2][:half, :half]
+        pop = inner.core._fire.pop
+        people = inner.core._state[:, pop].mean(dim=0).cpu().numpy()
+        return {
+            "ground": down(people), "water": down(tile, "max"),
+            "protect": down((people > people.mean()).astype("float32")),
+            "marker": down(tile, "max"),
+            "legend": {"ground": "people", "water": "fire, four at once",
+                       "marker": "burning"},
+            "water_unit": "", "water_scale": 1.0,
+        }
+    if env_id == "FloodBuyout-v0":
+        core = inner.core
+        depth = (core.last_depth[0].cpu().numpy() if core.last_depth is not None
+                 else np.zeros_like(obs[0]))
+        return {
+            "ground": down(obs[0]), "water": down(depth, "max"),
+            "protect": down(obs[1]), "marker": down(obs[2]),
+            "legend": {"ground": "ground", "water": "water",
+                       "marker": "houses"},
+            "water_unit": "m", "water_scale": 4.0,
+        }
+    if env_id == "FloodCrossing-v0":
+        # The real ground around this crossing, from the cached 3DEP tile the
+        # depth library was solved on. Schematic would have been easier and
+        # would have been the only drawing on this page that stands for
+        # nothing.
+        from pspe.envs.crossings import HALF_DEG, crossing_sites  # noqa: PLC0415
+        from pspe.simulate.real.anywhere import build_domain      # noqa: PLC0415
+
+        name = inner.names[inner.site]
+        lat, lon = next((la, lo) for n, la, lo in crossing_sites() if n == name)
+        dom = build_domain(lon - HALF_DEG, lat - HALF_DEG, lon + HALF_DEG,
+                           lat + HALF_DEG, dx=30.0, name=name, source="auto")
+        z = dom.z.astype("float32")
+        z = z - z.min()
+        h, w = z.shape
+        half = min(h, w) // 3
+        r0, c0 = h // 2 - half, w // 2 - half
+        patch = z[r0:r0 + 2 * half, c0:c0 + 2 * half]
+        now = float(inner.curve[min(inner.t, inner.slots - 1)])
+        # Water sits where the ground is below the crossing's depth, which is
+        # what "the road is under N metres" means on this terrain.
+        low = patch.min()
+        water = np.clip((low + now) - patch, 0.0, None)
+        road = (patch <= low + 0.5).astype("float32")
+        return {
+            "ground": down(patch), "water": down(water, "max"),
+            "protect": down(road), "marker": down(road),
+            "legend": {"ground": "ground around the crossing",
+                       "water": "water", "marker": "the dip in the road"},
+            "water_unit": "m", "water_scale": 2.0,
+        }
+    if env_id == "CMDPToy-v0":
+        # One number against the known answer. There is no field to draw --
+        # the observation is a constant -- so the drawing is the comparison:
+        # your dial on the left, the optimum on the right.
+        import numpy as _np
+        n = 16
+        grid = _np.zeros((n, n), dtype="float32")
+        chosen = float(getattr(inner, "_last_action", 0.0))
+        grid[:, : n // 2] = max(chosen, 0.0)
+        grid[:, n // 2:] = inner.optimal_action
+        mark = _np.zeros((n, n), dtype="float32")
+        mark[:, n // 2:] = 1.0
+        return {
+            "ground": down(grid), "water": down(_np.zeros((n, n), "float32")),
+            "protect": down(_np.zeros((n, n), "float32")), "marker": down(mark),
+            "legend": {"ground": "the dial you set", "water": "",
+                       "marker": "the right answer"},
+            "water_unit": "", "water_scale": 1.0,
+        }
+    if env_id.startswith("PDEControl-"):
+        task = inner.task
+        field = obs[task.tracked_channel]
+        over = np.clip(field - task.u_max, 0.0, None)
+        basis = inner._basis.basis.sum(dim=0).cpu().numpy()
+        return {
+            "ground": down(field - field.min()), "water": down(over, "max"),
+            "protect": down((basis > 0.3 * basis.max()).astype("float32")),
+            "marker": down((basis > 0.3 * basis.max()).astype("float32")),
+            "legend": {"ground": "the field", "water": "above the ceiling",
+                       "marker": "where the dials reach"},
+            "water_unit": "", "water_scale": float(max(over.max(), 0.2)),
+        }
     return {}
 
 
@@ -411,12 +540,17 @@ def _stats(env_id: str, inner, sess) -> "list[dict[str, Any]]":
     horizon = sess["horizon"]
     unit = {"FloodOperate-v0": "pump-hours", "FloodOperateFine-v0": "pump-hours",
             "FloodEvacuate-v0": "town-intervals",
-            "Firebreak-v0": "of the patch", "FloodDefend-v0": "dollars"}[env_id]
+            "Firebreak-v0": "of the patch", "FloodDefend-v0": "dollars",
+            "FireDispatch-v0": "of a patch", "FloodBuyout-v0": "houses",
+            "FloodCrossing-v0": "closed half-hours",
+            "CMDPToy-v0": "units"}.get(env_id, "units of effort")
     spent_text = (f"${spent:,.0f} of ${limit:,.0f}" if unit == "dollars"
                   else f"{spent:,.3g} of {limit:,.3g} {unit}")
     step_word = {"FloodOperate-v0": "Half hour", "FloodOperateFine-v0": "Half hour",
                  "FloodEvacuate-v0": "Half hour", "Firebreak-v0": "Crew day",
-                 "FloodDefend-v0": "Stretch"}[env_id]
+                 "FloodDefend-v0": "Stretch", "FireDispatch-v0": "Crew day",
+                 "FloodBuyout-v0": "Block", "FloodCrossing-v0": "Half hour",
+                 "CMDPToy-v0": "Step"}.get(env_id, "Turn")
     return [
         {"label": "time", "value": f"{step_word} {min(sess['t'] + 1, horizon)} of {horizon}"},
         {"label": "spent", "value": spent_text,
@@ -506,7 +640,12 @@ def play_start(req: PlayStart) -> "dict[str, Any]":
     env.action_space.seed(req.seed)
     obs, _ = env.reset(seed=req.seed)
     inner = env.unwrapped
-    horizon = getattr(inner.core, "horizon", None) or getattr(inner.core, "K", 12)
+    horizon = (getattr(inner, "slots", None)
+               or getattr(getattr(inner, "core", inner), "horizon", None)
+               or getattr(getattr(inner, "core", inner), "K", None)
+               or getattr(inner, "_core", inner) and
+               getattr(getattr(inner, "_core", inner), "horizon", None)
+               or 12)
     sess = {"id": uuid.uuid4().hex[:16], "env": env, "env_id": req.env_id,
             "obs": obs, "t": 0, "spent": 0.0, "return": 0.0, "damage": 0,
             "horizon": int(horizon), "touched": time.time()}
@@ -538,13 +677,24 @@ def play_step(req: PlayStep) -> "dict[str, Any]":
             parts.extend(opt["action"])
 
     def action_now() -> "np.ndarray":
+        """Whatever the chosen options mean, as an action.
+
+        A policy option names a method on the environment, optionally with one
+        parameter after a colon -- `proportional:0.6` is the proportional
+        controller at gain 0.6. The page never computes an action itself; it
+        posts labels and this resolves them, so the two cannot disagree about
+        what "firm" means.
+        """
+        if policy is None:
+            return np.asarray(parts, dtype=np.float32)
         if policy == "nothing":
             return np.full(env.action_space.shape, -1.0, dtype=np.float32)
-        if policy == "uniform":
-            return np.asarray(inner.uniform_action(sess["obs"]), dtype=np.float32)
-        if policy == "greedy":
-            return np.asarray(inner.greedy_action(sess["obs"]), dtype=np.float32)
-        return np.asarray(parts, dtype=np.float32)
+        name, _, arg = policy.partition(":")
+        fn = getattr(inner, name, None) or getattr(inner, name + "_action", None)
+        if fn is None:
+            raise HTTPException(500, f"{sess['env_id']} has no {name!r}")
+        out = fn(sess["obs"], float(arg)) if arg else fn(sess["obs"])
+        return np.asarray(out, dtype=np.float32)
 
     done = False
     for _ in range(sess["horizon"] if req.to_end else 1):

@@ -99,6 +99,7 @@ class CMDPToyEnv(gym.Env):
         if seed is not None:
             self._generator = torch.Generator().manual_seed(seed)
         state = self._core.reset(batch=1, generator=self._generator)
+        self._last_action = 0.0
         self.episode_cost = 0.0
         return state[0].detach().cpu().numpy().astype(np.float32), {"cost": 0.0}
 
@@ -106,6 +107,9 @@ class CMDPToyEnv(gym.Env):
              ) -> "tuple[np.ndarray, float, bool, bool, dict]":
         act = torch.as_tensor(action, dtype=torch.float32,
                               device=self.device).view(1, -1).clamp(-1.0, 1.0)
+        # Kept so a viewer can draw the dial that was set against the known
+        # answer; there is no field in the observation to draw instead.
+        self._last_action = float(act[0, 0])
         with torch.no_grad():
             state, reward, cost, done = self._core.step(act)
         self.episode_cost += float(cost[0])

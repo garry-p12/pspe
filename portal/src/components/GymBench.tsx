@@ -59,6 +59,20 @@ const post = async (url: string, body: unknown) => {
 
 const START_YAW = -0.42;
 
+/** The decision list, grouped. Twelve flat cards is a wall; four short
+ *  groups is a menu, and the grouping is the real distinction between them --
+ *  what is being decided about, and whether a conservation law or a neural
+ *  network says what happens next. */
+const GROUPS: { title: string; ids: string[] }[] = [
+  { title: "Start here", ids: ["CMDPToy-v0"] },
+  { title: "Floods", ids: ["FloodOperate-v0", "FloodOperateFine-v0",
+                           "FloodEvacuate-v0", "FloodDefend-v0",
+                           "FloodBuyout-v0", "FloodCrossing-v0"] },
+  { title: "Fires", ids: ["Firebreak-v0", "FireDispatch-v0"] },
+  { title: "Control testbeds", ids: ["PDEControl-dar-v0", "PDEControl-swe-v0",
+                                     "PDEControl-rdf-v0"] },
+];
+
 function Stats({ stats }: { stats: Stat[] }) {
   return (
     <div className="flex flex-wrap gap-2.5">
@@ -340,31 +354,44 @@ export function GymBench() {
           <h2 className="text-[10.5px] font-semibold uppercase tracking-wide text-ink">
             Decision
           </h2>
-          <ul className="mt-1.5 space-y-1.5">
-            {list?.environments.map((e) => (
-              <li key={e.id}>
-                <button
-                  type="button" onClick={() => setEnvId(e.id)}
-                  aria-current={e.id === envId ? "true" : undefined}
-                  className={clsx(
-                    "flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left",
-                    e.id === envId
-                      ? "border-ink bg-ink text-bg"
-                      : "border-line bg-bg hover:bg-bg-raised",
-                  )}
-                >
-                  <span className={clsx("text-[13px] font-medium",
-                                        e.id === envId ? "text-bg" : "text-ink")}>
-                    {e.plain.title}
-                  </span>
-                  <span className={clsx("shrink-0 text-[10.5px]",
-                                        e.id === envId ? "text-bg/70" : "text-ink-faint")}>
-                    {e.plain.dynamics}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {GROUPS.map((g) => {
+            const rows = g.ids
+              .map((id) => list?.environments.find((e) => e.id === id))
+              .filter(Boolean) as EnvRow[];
+            if (!rows.length) return null;
+            return (
+              <div key={g.title} className="mt-2.5 first:mt-1.5">
+                <p className="mb-1 text-[10px] uppercase tracking-wide text-ink-faint">
+                  {g.title}
+                </p>
+                <ul className="space-y-1">
+                  {rows.map((e) => (
+                    <li key={e.id}>
+                      <button
+                        type="button" onClick={() => setEnvId(e.id)}
+                        aria-current={e.id === envId ? "true" : undefined}
+                        className={clsx(
+                          "flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left",
+                          e.id === envId
+                            ? "border-ink bg-ink text-bg"
+                            : "border-line bg-bg hover:bg-bg-raised",
+                        )}
+                      >
+                        <span className={clsx("text-[12.5px] font-medium leading-snug",
+                                              e.id === envId ? "text-bg" : "text-ink")}>
+                          {e.plain.title}
+                        </span>
+                        <span className={clsx("shrink-0 text-[10px]",
+                                              e.id === envId ? "text-bg/70" : "text-ink-faint")}>
+                          {e.plain.dynamics === "really simulated" ? "simulated" : "model"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
 
           {env && <Ladder env={env} result={play?.result ?? null} />}
 
