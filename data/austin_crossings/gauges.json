@@ -1,0 +1,732 @@
+{
+  "sites": [
+    {
+      "site": "08154700",
+      "name": "Bull Ck at Loop 360 nr Austin, TX",
+      "lat": 30.37214825,
+      "lon": -97.7847301
+    },
+    {
+      "site": "08155200",
+      "name": "Barton Ck at SH 71 nr Oak Hill, TX",
+      "lat": 30.29631587,
+      "lon": -97.925565
+    },
+    {
+      "site": "08155240",
+      "name": "Barton Ck at Lost Ck Blvd nr Austin, TX",
+      "lat": 30.27409788,
+      "lon": -97.84475235
+    },
+    {
+      "site": "08155300",
+      "name": "Barton Ck at Loop 360, Austin, TX",
+      "lat": 30.24465306,
+      "lon": -97.8022283
+    },
+    {
+      "site": "08155400",
+      "name": "Barton Ck abv Barton Spgs at Austin, TX",
+      "lat": 30.26354168,
+      "lon": -97.772228
+    },
+    {
+      "site": "08155541",
+      "name": "W Bouldin Ck at Oltorf Rd, Austin, TX",
+      "lat": 30.24666667,
+      "lon": -97.7691667
+    },
+    {
+      "site": "08156675",
+      "name": "Shoal Ck at Silverway Dr, Austin, TX",
+      "lat": 30.35416667,
+      "lon": -97.7388889
+    },
+    {
+      "site": "08156800",
+      "name": "Shoal Ck at W 12th St, Austin, TX",
+      "lat": 30.276598,
+      "lon": -97.7503052
+    },
+    {
+      "site": "08156910",
+      "name": "Waller Ck at Koenig Lane, Austin, TX",
+      "lat": 30.32277778,
+      "lon": -97.7227778
+    },
+    {
+      "site": "08157540",
+      "name": "Waller Ck at Red River St, Austin, TX",
+      "lat": 30.27162778,
+      "lon": -97.7355583
+    },
+    {
+      "site": "08157560",
+      "name": "Waller Ck at E 1st St, Austin, TX",
+      "lat": 30.26194167,
+      "lon": -97.7397
+    },
+    {
+      "site": "08158000",
+      "name": "Colorado Rv at Austin, TX",
+      "lat": 30.24613889,
+      "lon": -97.6800556
+    },
+    {
+      "site": "08158030",
+      "name": "Boggy Ck at Manor Rd, Austin, TX",
+      "lat": 30.2861111,
+      "lon": -97.7086111
+    },
+    {
+      "site": "08158035",
+      "name": "Boggy Ck at Webberville Rd, Austin, TX",
+      "lat": 30.26305556,
+      "lon": -97.7125
+    },
+    {
+      "site": "08158045",
+      "name": "Ft Br Boggy Ck at Manor Rd, Austin, TX",
+      "lat": 30.30055556,
+      "lon": -97.6855556
+    },
+    {
+      "site": "08158200",
+      "name": "Walnut Ck at Dessau Rd, Austin, TX",
+      "lat": 30.375205,
+      "lon": -97.6605601
+    },
+    {
+      "site": "08158380",
+      "name": "Little Walnut Ck at Georgian Dr, Austin, TX",
+      "lat": 30.3543736,
+      "lon": -97.6980818
+    },
+    {
+      "site": "08158600",
+      "name": "Walnut Ck at Webberville Rd, Austin, TX",
+      "lat": 30.2832642,
+      "lon": -97.655003
+    },
+    {
+      "site": "08158810",
+      "name": "Bear Ck bl FM 1826 nr Driftwood, TX",
+      "lat": 30.15548749,
+      "lon": -97.9400076
+    },
+    {
+      "site": "08158813",
+      "name": "Bear Ck at Spillar Ranch Rd nr Manchaca, TX",
+      "lat": 30.1636611,
+      "lon": -97.9070194
+    },
+    {
+      "site": "08158823",
+      "name": "Div of Little Bear Ck at Wenzel nr Manchaca, TX",
+      "lat": 30.1251,
+      "lon": -97.905711
+    },
+    {
+      "site": "08158824",
+      "name": "Little Bear Ck at Wenzel nr Manchaca, TX",
+      "lat": 30.125833,
+      "lon": -97.903889
+    },
+    {
+      "site": "08158827",
+      "name": "Onion Ck at Twin Creeks Rd nr Manchaca, TX",
+      "lat": 30.12632345,
+      "lon": -97.8211161
+    },
+    {
+      "site": "08158840",
+      "name": "Slaughter Ck at FM 1826 nr Austin, TX",
+      "lat": 30.20909967,
+      "lon": -97.90336492
+    },
+    {
+      "site": "08158860",
+      "name": "Slaughter Ck at FM 2304 nr Austin, TX",
+      "lat": 30.1621554,
+      "lon": -97.8322279
+    },
+    {
+      "site": "08158922",
+      "name": "Williamson Ck at Brush Cntry Blvd, Oak Hill, TX",
+      "lat": 30.2263215,
+      "lon": -97.8414188
+    },
+    {
+      "site": "08158927",
+      "name": "Kincheon Br at William Cannon Blvd, Austin, TX",
+      "lat": 30.2124722,
+      "lon": -97.8288611
+    },
+    {
+      "site": "08158930",
+      "name": "Williamson Ck at Manchaca Rd, Austin, TX",
+      "lat": 30.22132179,
+      "lon": -97.7936396
+    },
+    {
+      "site": "08158970",
+      "name": "Williamson Ck at Jimmy Clay Rd, Austin, TX",
+      "lat": 30.189378,
+      "lon": -97.732504
+    },
+    {
+      "site": "08159000",
+      "name": "Onion Ck at US Hwy 183, Austin, TX",
+      "lat": 30.17798987,
+      "lon": -97.6886138
+    },
+    {
+      "site": "08159105",
+      "name": "Eastern Trib to Dry Ck nr Del Valle, TX",
+      "lat": 30.17647778,
+      "lon": -97.5869167
+    },
+    {
+      "site": "08159110",
+      "name": "Western Trib to Gilleland Ck nr Manor, TX",
+      "lat": 30.38349444,
+      "lon": -97.6020611
+    },
+    {
+      "site": "08159250",
+      "name": "Maha Ck at Von Quintus Rd nr Del Valle, TX",
+      "lat": 30.09453056,
+      "lon": -97.6593222
+    }
+  ],
+  "latest": [
+    {
+      "site": "08154700",
+      "name": "Bull Ck at Loop 360 nr Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.12",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08154700",
+      "name": "Bull Ck at Loop 360 nr Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.33",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08155200",
+      "name": "Barton Ck at SH 71 nr Oak Hill, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.58",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08155200",
+      "name": "Barton Ck at SH 71 nr Oak Hill, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.89",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08155240",
+      "name": "Barton Ck at Lost Ck Blvd nr Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.54",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08155240",
+      "name": "Barton Ck at Lost Ck Blvd nr Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.51",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08155300",
+      "name": "Barton Ck at Loop 360, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08155300",
+      "name": "Barton Ck at Loop 360, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.69",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08155400",
+      "name": "Barton Ck abv Barton Spgs at Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08155400",
+      "name": "Barton Ck abv Barton Spgs at Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.37",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08155541",
+      "name": "W Bouldin Ck at Oltorf Rd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.23",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08155541",
+      "name": "W Bouldin Ck at Oltorf Rd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.53",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08156675",
+      "name": "Shoal Ck at Silverway Dr, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08156675",
+      "name": "Shoal Ck at Silverway Dr, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.04",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08156800",
+      "name": "Shoal Ck at W 12th St, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.02",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08156800",
+      "name": "Shoal Ck at W 12th St, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.60",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08156910",
+      "name": "Waller Ck at Koenig Lane, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.02",
+      "at": "2026-10-16T23:25:00.000-05:00"
+    },
+    {
+      "site": "08156910",
+      "name": "Waller Ck at Koenig Lane, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "0.73",
+      "at": "2026-10-16T23:25:00.000-05:00"
+    },
+    {
+      "site": "08157540",
+      "name": "Waller Ck at Red River St, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "9.42",
+      "at": "2026-10-16T22:35:00.000-05:00"
+    },
+    {
+      "site": "08157540",
+      "name": "Waller Ck at Red River St, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "3.41",
+      "at": "2026-10-16T22:35:00.000-05:00"
+    },
+    {
+      "site": "08157560",
+      "name": "Waller Ck at E 1st St, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "10.1",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08157560",
+      "name": "Waller Ck at E 1st St, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "4.52",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08158000",
+      "name": "Colorado Rv at Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "488",
+      "at": "2026-10-16T22:50:00.000-05:00"
+    },
+    {
+      "site": "08158000",
+      "name": "Colorado Rv at Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "14.05",
+      "at": "2026-10-16T22:50:00.000-05:00"
+    },
+    {
+      "site": "08158030",
+      "name": "Boggy Ck at Manor Rd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158030",
+      "name": "Boggy Ck at Manor Rd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "0.98",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158035",
+      "name": "Boggy Ck at Webberville Rd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.29",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08158035",
+      "name": "Boggy Ck at Webberville Rd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "0.65",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08158045",
+      "name": "Ft Br Boggy Ck at Manor Rd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "20.5",
+      "at": "2026-10-01T19:10:00.000-05:00"
+    },
+    {
+      "site": "08158045",
+      "name": "Ft Br Boggy Ck at Manor Rd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.25",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158200",
+      "name": "Walnut Ck at Dessau Rd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.03",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158200",
+      "name": "Walnut Ck at Dessau Rd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "5.71",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158380",
+      "name": "Little Walnut Ck at Georgian Dr, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.62",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158380",
+      "name": "Little Walnut Ck at Georgian Dr, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "0.38",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158600",
+      "name": "Walnut Ck at Webberville Rd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.23",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08158600",
+      "name": "Walnut Ck at Webberville Rd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "4.00",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08158810",
+      "name": "Bear Ck bl FM 1826 nr Driftwood, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158810",
+      "name": "Bear Ck bl FM 1826 nr Driftwood, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "2.51",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158813",
+      "name": "Bear Ck at Spillar Ranch Rd nr Manchaca, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:10:00.000-05:00"
+    },
+    {
+      "site": "08158813",
+      "name": "Bear Ck at Spillar Ranch Rd nr Manchaca, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "0.22",
+      "at": "2026-10-16T23:10:00.000-05:00"
+    },
+    {
+      "site": "08158823",
+      "name": "Div of Little Bear Ck at Wenzel nr Manchaca, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08158823",
+      "name": "Div of Little Bear Ck at Wenzel nr Manchaca, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "52.09",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08158824",
+      "name": "Little Bear Ck at Wenzel nr Manchaca, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T22:45:00.000-05:00"
+    },
+    {
+      "site": "08158824",
+      "name": "Little Bear Ck at Wenzel nr Manchaca, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "49.08",
+      "at": "2026-10-16T22:45:00.000-05:00"
+    },
+    {
+      "site": "08158827",
+      "name": "Onion Ck at Twin Creeks Rd nr Manchaca, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.91",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08158827",
+      "name": "Onion Ck at Twin Creeks Rd nr Manchaca, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "3.67",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08158840",
+      "name": "Slaughter Ck at FM 1826 nr Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158840",
+      "name": "Slaughter Ck at FM 1826 nr Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "3.27",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158860",
+      "name": "Slaughter Ck at FM 2304 nr Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:05:00.000-05:00"
+    },
+    {
+      "site": "08158860",
+      "name": "Slaughter Ck at FM 2304 nr Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "-0.20",
+      "at": "2026-10-16T23:05:00.000-05:00"
+    },
+    {
+      "site": "08158922",
+      "name": "Williamson Ck at Brush Cntry Blvd, Oak Hill, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08158922",
+      "name": "Williamson Ck at Brush Cntry Blvd, Oak Hill, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.62",
+      "at": "2026-10-16T23:00:00.000-05:00"
+    },
+    {
+      "site": "08158927",
+      "name": "Kincheon Br at William Cannon Blvd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:25:00.000-05:00"
+    },
+    {
+      "site": "08158927",
+      "name": "Kincheon Br at William Cannon Blvd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "-0.30",
+      "at": "2026-10-16T23:25:00.000-05:00"
+    },
+    {
+      "site": "08158930",
+      "name": "Williamson Ck at Manchaca Rd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:25:00.000-05:00"
+    },
+    {
+      "site": "08158930",
+      "name": "Williamson Ck at Manchaca Rd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "1.90",
+      "at": "2026-10-16T23:25:00.000-05:00"
+    },
+    {
+      "site": "08158970",
+      "name": "Williamson Ck at Jimmy Clay Rd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08158970",
+      "name": "Williamson Ck at Jimmy Clay Rd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "5.05",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08159000",
+      "name": "Onion Ck at US Hwy 183, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "1.42",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08159000",
+      "name": "Onion Ck at US Hwy 183, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "4.58",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08159105",
+      "name": "Eastern Trib to Dry Ck nr Del Valle, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:25:00.000-05:00"
+    },
+    {
+      "site": "08159105",
+      "name": "Eastern Trib to Dry Ck nr Del Valle, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "10.21",
+      "at": "2026-10-16T23:25:00.000-05:00"
+    },
+    {
+      "site": "08159110",
+      "name": "Western Trib to Gilleland Ck nr Manor, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.12",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08159110",
+      "name": "Western Trib to Gilleland Ck nr Manor, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "8.12",
+      "at": "2026-10-16T23:20:00.000-05:00"
+    },
+    {
+      "site": "08159250",
+      "name": "Maha Ck at Von Quintus Rd nr Del Valle, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    },
+    {
+      "site": "08159250",
+      "name": "Maha Ck at Von Quintus Rd nr Del Valle, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "5.73",
+      "at": "2026-10-16T23:30:00.000-05:00"
+    }
+  ]
+}

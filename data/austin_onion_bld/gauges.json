@@ -1,0 +1,28 @@
+{
+  "sites": [
+    {
+      "site": "08158970",
+      "name": "Williamson Ck at Jimmy Clay Rd, Austin, TX",
+      "lat": 30.189378,
+      "lon": -97.732504
+    }
+  ],
+  "latest": [
+    {
+      "site": "08158970",
+      "name": "Williamson Ck at Jimmy Clay Rd, Austin, TX",
+      "variable": "Streamflow",
+      "unit": "ft3/s",
+      "value": "0.00",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    },
+    {
+      "site": "08158970",
+      "name": "Williamson Ck at Jimmy Clay Rd, Austin, TX",
+      "variable": "Gage height",
+      "unit": "ft",
+      "value": "5.05",
+      "at": "2026-10-16T23:15:00.000-05:00"
+    }
+  ]
+}

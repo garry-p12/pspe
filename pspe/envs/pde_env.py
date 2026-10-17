@@ -122,6 +122,7 @@ class PDEControlEnv(gym.Env):
     ) -> None:
         super().__init__()
         self.device = torch.device(device)
+        self._testbed_name = testbed
         self._testbed = make_testbed(testbed, grid=grid, device=self.device)
         self._task = task or make_task(testbed)
         self._basis = GaussianActuatorBasis(n_actuators, grid, device=self.device,
@@ -178,6 +179,85 @@ class PDEControlEnv(gym.Env):
     @property
     def core(self) -> BatchedFieldEnv:
         return self._core
+
+    # -- baselines ---------------------------------------------------------- #
+    def zero_action(self, obs: "np.ndarray | None" = None) -> "np.ndarray":
+        """Actuate nothing. The floor every other number is read against."""
+        return np.zeros(self.action_space.shape, dtype=np.float32)
+
+    def proportional_action(self, obs: "np.ndarray",
+                            gain: "float | None" = None) -> "np.ndarray":
+        """Push each actuator against the error under it. The incumbent.
+
+        A least-squares projection of the tracking error onto each Gaussian --
+        `<b_k, e> / <b_k, b_k>` -- negated, so an actuator over ground that is
+        above target pushes down. It is the controller anybody writes first on
+        a tracking problem, it reads only the observation, and it has no model
+        of the dynamics and no notion of the budget, which is exactly why it is
+        worth beating rather than a strawman.
+        """
+        task = self._task
+        field = torch.as_tensor(obs, dtype=torch.float32,
+                                device=self.device)[task.tracked_channel]
+        err = field - task.target_value
+        b = self._basis.basis                                   # (K, H, W)
+        num = (b * err[None]).sum(dim=(-2, -1))
+        den = (b * b).sum(dim=(-2, -1)).clamp(min=1e-8)
+        g = PROPORTIONAL_GAIN.get(self._testbed_name, 1.0) if gain is None else gain
+        amp = -g * (num / den) / max(task.actuator_amplitude, 1e-8)
+        return amp.clamp(-1.0, 1.0).cpu().numpy().astype(np.float32)
+
+
+#: The largest proportional gain that stays inside each testbed's budget,
+#: found by sweeping. Set by measurement, not taste: at gain 1.0 the
+#: controller beats doing nothing on all three testbeds AND violates the
+#: budget on all three, so shipping it unscaled would have left "do nothing"
+#: as the best feasible policy on three new environments -- the weak-incumbent
+#: error this project has already published once.
+PROPORTIONAL_GAIN = {"dar": 0.4, "swe": 0.3, "rdf": 0.3}
+
+#: `swe` is the exception and it is worth stating. Its cost carries a
+#: state-driven exposure term, so on some episodes the budget is exceeded
+#: whatever the actuators do -- gain 0.0 clears it in only 11 of 12 episodes.
+#: The constraint there is not fully controllable, which is a property of the
+#: testbed and not of any policy, and `task.py` already notes that swe "went a
+#: whole project without anyone noticing its margin".
+
+#: The three testbeds, with the grid each is calibrated at. `task.py` sets a
+#: separate `cost_limit` and actuator amplitude per testbed; those calibrations
+#: are what make the constraint bind, so they are not parameters to vary here.
+PDE_TESTBEDS = ("dar", "swe", "rdf")
+
+
+def register_envs() -> None:
+    """Make `gymnasium.make("PDEControl-dar-v0")` and friends work.
+
+    These are the three PDE problems the transfer matrix runs on, and the
+    environment behind them has been a complete `gymnasium.Env` for months --
+    it simply had no id. Registering costs nothing and takes the gym from one
+    hazard family to two kinds of problem: a field to track, and a hazard to
+    decide about.
+    """
+    from gymnasium.envs.registration import register, registry
+
+    for name in PDE_TESTBEDS:
+        env_id = f"PDEControl-{name}-v0"
+        if env_id in registry:
+            continue
+        register(id=env_id, entry_point="pspe.envs.pde_env:_make_default",
+                 kwargs={"testbed": name}, max_episode_steps=None)
+
+
+def _make_default(testbed: str = "dar", grid: int = 32, horizon: int = 8,
+                  **kw) -> "PDEControlEnv":
+    """Entry point for `gymnasium.make`.
+
+    Grid 32 and horizon 8 rather than the research default of 64 and 16: this
+    is the id a stranger calls first, and an environment whose first step takes
+    a minute is one nobody runs twice. `make_env` still builds the research
+    configuration.
+    """
+    return PDEControlEnv(testbed=testbed, grid=grid, horizon=horizon, **kw)
 
 
 def make_env(

@@ -419,6 +419,352 @@ SPECS: "tuple[EnvSpec, ...]" = (
         ),
         measured_on=MEASURED,
     ),
+    EnvSpec(
+        env_id="CMDPToy-v0",
+        cost_limit=0.4,
+        title="The one with a known answer",
+        plain_title="The one with a known answer",
+        plain_decision="Pick a single number. Reward rises to a peak, cost "
+                       "rises with it, and the best choice you are allowed is "
+                       "worked out on paper rather than searched for.",
+        plain_score="how far short of the best possible you end up",
+        plain_budget="0.4 units of cost in the one step",
+        plain_status="The right answer is 0.400 and this is the only place in "
+                     "the gym where that sentence can be written. Check your "
+                     "method here before trusting it anywhere else.",
+        plain_caveat="It is deliberately trivial -- one step, one number, a "
+                     "blank picture -- so that anything that goes wrong is "
+                     "your method and not the problem.",
+        dynamics="physics",
+        summary="A one-step constrained bandit. Reward peaks at 0.8, cost is "
+                "linear, so the constrained optimum is min(peak, limit) = 0.4 "
+                "and the Lagrange multiplier there is 0.8. Both are exposed on "
+                "the environment.",
+        reward="minus the squared distance from the reward peak",
+        cost="linear in the action",
+        budget="0.4, in the single step",
+        incumbent="`optimal_action_vector` -- the closed-form constrained "
+                  "optimum itself (-0.160, feasible 12/12). Not a heuristic: "
+                  "it is the answer.",
+        status="SOLVED, by construction, and that is the point. This is a "
+               "correctness oracle rather than an open problem: an algorithm "
+               "that does not converge to 0.400 here is broken, and the "
+               "closed form in `baselines/toy_cmdp.py` is what caught two real "
+               "bugs in this repository's own reimplemented baselines. It is "
+               "the first id anybody should call.",
+        caveat="Trivial on purpose. A constant observation field, one action "
+               "dimension, one step -- so a failure here cannot be blamed on "
+               "the problem being hard.",
+        scores={"random": {"return": -0.812, "cost": 0.3144, "feasible": 8, "of": 12},
+                "incumbent": {"return": -0.16, "cost": 0.4, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "plain": 'do nothing', "policy": 'zero action', "return": -0.64, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": 'feasible and worthless, which is the shape of every weak baseline in this gym'},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -0.812, "cost": 0.3144, "feasible": 8, "of": 12,
+         "note": 'INFEASIBLE in 4 of 12 episodes'},
+        {"key": 'optimal', "plain": 'the answer, worked out on paper', "policy": 'the closed-form optimum (`optimal_action_vector`)', "return": -0.16, "cost": 0.4, "feasible": 12, "of": 12,
+         "note": 'min(peak, limit) = 0.400, with multiplier 0.800. Nothing can beat it and anything that fails to reach it is broken'},
+        ),
+        measured_on=MEASURED,
+    ),
+    EnvSpec(
+        env_id="PDEControl-dar-v0",
+        cost_limit=0.936,
+        title="Steer the field (diffusion, advection and reaction)",
+        plain_title="Steer the field (diffusion, advection and reaction)",
+        plain_decision="Nine dials on a square of simulated fluid, sixteen "
+                       "turns, trying to hold the whole surface at its target "
+                       "value without using more effort than you are allowed.",
+        plain_score="how far the surface drifts from where it should be",
+        plain_budget="0.936 units of effort over the whole run",
+        plain_status='Pushing each dial against the error under it is the best anyone has managed, and only just.',
+        plain_caveat='A made-up fluid on a square, not a place. It is here to test control methods, not to say anything about floods.',
+        dynamics="physics",
+        summary='Steer a spreading, drifting, reacting field back to its target with nine actuators, sixteen steps on a 32x32 periodic grid, against a differentiable RK4 truth solver.',
+        reward="minus the squared tracking error plus an effort penalty",
+        cost="exposure above a ceiling, plus any overspend on the actuators",
+        budget="0.936 over the sixteen-step run",
+        incumbent="`proportional_action` -- each actuator pushed against the "
+                  "error beneath it, at the largest gain that stays inside the "
+                  "budget",
+        status="Not beaten. A proportional controller at gain 0.4 -- push each actuator against the error under it -- returns -1.572 against doing nothing's -1.629, both feasible in 12 of 12. The gap is small and the gain was SET BY SWEEP: at gain 1.0 the same controller scores better and violates the budget in every episode, so shipping it unscaled would have left doing nothing as the best feasible policy.",
+        caveat='A synthetic PDE on a periodic square. It is a control problem, not a hazard: nothing here corresponds to a place.',
+        scores={"random": {"return": -1.686, "cost": 1.372741, "feasible": 0, "of": 12},
+                "incumbent": {"return": -1.572, "cost": 0.159424, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "plain": 'leave the dials alone', "policy": 'zero action', "return": -1.629, "cost": 0.17028, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -1.686, "cost": 1.372741, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE in every episode'},
+        {"key": 'proportional', "plain": 'push each dial against the error under it', "policy": 'proportional control (`proportional_action`)', "return": -1.572, "cost": 0.159424, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE policy known; the gain was set by sweep, not by taste'},
+        ),
+        measured_on=MEASURED,
+    ),
+    EnvSpec(
+        env_id="PDEControl-swe-v0",
+        cost_limit=0.192,
+        title="Steer the field (linearised shallow water)",
+        plain_title="Steer the field (linearised shallow water)",
+        plain_decision="Nine dials on a square of simulated fluid, sixteen "
+                       "turns, trying to hold the whole surface at its target "
+                       "value without using more effort than you are allowed.",
+        plain_score="how far the surface drifts from where it should be",
+        plain_budget="0.192 units of effort over the whole run",
+        plain_status='Nothing stays inside the budget on every run -- not even leaving all the dials alone.',
+        plain_caveat='A made-up fluid on a square, not a place -- and its budget can be exceeded by the fluid alone, whatever you do with the dials.',
+        dynamics="physics",
+        summary='The same nine-actuator tracking problem on linearised shallow water, three channels, sixteen steps.',
+        reward="minus the squared tracking error plus an effort penalty",
+        cost="exposure above a ceiling, plus any overspend on the actuators",
+        budget="0.192 over the sixteen-step run",
+        incumbent="`proportional_action` -- each actuator pushed against the "
+                  "error beneath it, at the largest gain that stays inside the "
+                  "budget",
+        status="Not beaten, and NOTHING IS FEASIBLE IN EVERY EPISODE -- not even doing nothing, which clears the budget in 11 of 12. The cost carries a state-driven exposure term, so on some episodes the limit is exceeded whatever the actuators do. That is a property of the testbed and not of any policy, and `task.py` already records that swe 'went a whole project without anyone noticing its margin'.",
+        caveat="Synthetic, as above -- and with a constraint that is not fully controllable, so a violation here is not necessarily a policy's fault.",
+        scores={"random": {"return": -0.205, "cost": 3.840559, "feasible": 0, "of": 12},
+                "incumbent": {"return": -0.15, "cost": 0.103551, "feasible": 11, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "plain": 'leave the dials alone', "policy": 'zero action', "return": -0.152, "cost": 0.092948, "feasible": 11, "of": 12,
+         "note": ''},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -0.205, "cost": 3.840559, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE in every episode'},
+        {"key": 'proportional', "plain": 'push each dial against the error under it', "policy": 'proportional control (`proportional_action`)', "return": -0.15, "cost": 0.103551, "feasible": 11, "of": 12,
+         "note": 'the best FEASIBLE policy known; the gain was set by sweep, not by taste'},
+        ),
+        measured_on=MEASURED,
+    ),
+    EnvSpec(
+        env_id="PDEControl-rdf-v0",
+        cost_limit=3.26,
+        title="Steer the field (FitzHugh-Nagumo front propagation)",
+        plain_title="Steer the field (FitzHugh-Nagumo front propagation)",
+        plain_decision="Nine dials on a square of simulated fluid, sixteen "
+                       "turns, trying to hold the whole surface at its target "
+                       "value without using more effort than you are allowed.",
+        plain_score="how far the surface drifts from where it should be",
+        plain_budget="3.26 units of effort over the whole run",
+        plain_status='Pushing each dial against the error under it is the best anyone has managed, and only just.',
+        plain_caveat='A made-up fluid on a square, not a place. It is here to test control methods, not to say anything about floods.',
+        dynamics="physics",
+        summary='Hold back a travelling front with nine actuators, two channels, sixteen steps. The most actuation-sensitive of the three.',
+        reward="minus the squared tracking error plus an effort penalty",
+        cost="exposure above a ceiling, plus any overspend on the actuators",
+        budget="3.26 over the sixteen-step run",
+        incumbent="`proportional_action` -- each actuator pushed against the "
+                  "error beneath it, at the largest gain that stays inside the "
+                  "budget",
+        status="Not beaten. The proportional controller at gain 0.3 returns -4.448 against doing nothing's -4.822, feasible 12 of 12, which is the clearest margin of the three testbeds. Random is feasible here too and still worse than doing nothing.",
+        caveat='Synthetic, as above.',
+        scores={"random": {"return": -4.888, "cost": 1.615287, "feasible": 12, "of": 12},
+                "incumbent": {"return": -4.448, "cost": 1.798861, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "plain": 'leave the dials alone', "policy": 'zero action', "return": -4.822, "cost": 0.411713, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -4.888, "cost": 1.615287, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'proportional', "plain": 'push each dial against the error under it', "policy": 'proportional control (`proportional_action`)', "return": -4.448, "cost": 1.798861, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE policy known; the gain was set by sweep, not by taste'},
+        ),
+        measured_on=MEASURED,
+    ),
+    EnvSpec(
+        env_id="FireDispatch-v0",
+        cost_limit=0.03,
+        title="Which fire to fight",
+        plain_title="Which fire to fight",
+        plain_decision="Four fires are burning at once and there are only so "
+                       "many crews. Each day for three days, decide how to "
+                       "split them between the fires.",
+        plain_score="how much populated ground burns across all four",
+        plain_budget="crews enough to clear 3% of one patch, shared between "
+                     "all four fires",
+        plain_status="Sending everyone to the biggest fire is the best anyone "
+                     "has managed, and it beats splitting them evenly by less "
+                     "than 2%.",
+        plain_caveat="The fires are real days from the historic record, but "
+                     "how they spread is guessed by a model trained on past "
+                     "fires, and no real fire was ever fought on our "
+                     "instruction.",
+        dynamics="learned",
+        summary="Allocate a fixed crew budget across four simultaneous fires, "
+                "drawn at random from the held-out NDWS records, over three "
+                "crew-days. Crews sent to a fire are spread uniformly over it, "
+                "so this asks the between-fire question and leaves the "
+                "within-fire one to `Firebreak-v0`.",
+        reward="minus the population-weighted burned fraction summed over the "
+               "four fires",
+        cost="fraction of one patch treated, shared across all four",
+        budget="0.03, summed over the three-day episode",
+        incumbent="`biggest_fire_action` -- send everyone to whichever fire is "
+                  "burning most (-24.97, feasible 12/12)",
+        status="Not beaten, and the whole spread is narrow: from doing nothing "
+               "(-25.69) to the best rule found (-24.97) is 0.72, under 3% of "
+               "the return. The ordering is at least interesting -- the "
+               "biggest fire beats the one with the most people in front of "
+               "it, and both beat an even split -- but a margin much larger "
+               "than 3% here is more likely a bug than a result.",
+        caveat="Same learned spread model and same unobservable counterfactual "
+               "as `Firebreak-v0`: a U-Net on about 18k historic fire days, "
+               "stepped on its own predictions, and no fire on record was "
+               "fought on our instruction. The four fires are real days but "
+               "they did not burn simultaneously; pairing them is this "
+               "environment's own construction.",
+        needs="the NDWS records and the trained spread checkpoint",
+        scores={"random": {"return": -25.477, "cost": 0.0241, "feasible": 12, "of": 12},
+                "incumbent": {"return": -24.974, "cost": 0.03, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "plain": 'stand the crews down', "policy": 'no crews sent', "return": -25.691, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'most_people', "plain": 'send them where the most people are', "policy": 'most-people-first (`most_people_action`)', "return": -25.535, "cost": 0.03, "feasible": 12, "of": 12,
+         "note": 'worse than sending them to the biggest fire, which is the small surprise here'},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -25.477, "cost": 0.0241, "feasible": 12, "of": 12,
+         "note": "feasible, because the action is a split and a random split still spends roughly the day's allowance"},
+        {"key": 'even', "plain": 'split them evenly', "policy": 'even split (`even_action`)', "return": -25.417, "cost": 0.03, "feasible": 12, "of": 12,
+         "note": 'identical to sending everyone everywhere: under this action mapping the split is normalised, so the two are the same policy'},
+        {"key": 'biggest', "plain": 'send them to the biggest fire', "policy": 'biggest-fire-first (`biggest_fire_action`)', "return": -24.974, "cost": 0.03, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE policy known, by 0.44 over an even split'},
+        ),
+        measured_on=MEASURED,
+    ),
+    EnvSpec(
+        env_id="FloodBuyout-v0",
+        cost_limit=17.803,
+        title="Which houses to buy out",
+        plain_title="Which houses to buy out",
+        plain_decision="Nine blocks along Onion Creek, and money for about "
+                       "eighteen houses. For each block in turn, decide what "
+                       "share of its flood-prone homes to buy and clear.",
+        plain_score="how many of the remaining homes end up in the water",
+        plain_budget="about eighteen houses, out of roughly seventy at risk",
+        plain_status="Taking the same share everywhere cuts the homes flooded "
+                     "by six sevenths. Starting with the lowest-lying blocks "
+                     "-- the obvious answer -- does barely half as well.",
+        plain_caveat="The houses, the creek and the flood maps are real, from "
+                     "the City of Austin and FEMA. The flood is a rise and "
+                     "fall in the creek rather than a flood that happened, "
+                     "and the budget counts houses rather than dollars "
+                     "because no verified price per house is on hand.",
+        dynamics="physics",
+        summary="Allocate a buyout programme across nine blocks of the Onion "
+                "Creek floodplain, one decision per block, then a flood is "
+                "solved over the unchanged terrain. Buying out a block removes "
+                "its houses from exposure; it does not move the water. On 33 "
+                "windows of real USGS 3DEP terrain with FEMA's floodway and "
+                "100-year floodplain and 43,366 City of Austin footprints.",
+        reward="minus the percentage of at-risk homes left standing in water "
+               "deeper than 0.10 m",
+        cost="houses acquired",
+        budget="a quarter of the at-risk homes in an average window, about 18",
+        incumbent="`even_action` -- take the same share of homes in every "
+                  "block (-2.48, feasible 12/12)",
+        status="Not beaten, and the obvious answer loses badly. Buying the "
+               "lowest-lying blocks first returns -9.91 and spends only 9.8 of "
+               "its 17.8 houses; taking an even share everywhere returns "
+               "-2.48 for the full budget. Doing nothing is -16.27. So the "
+               "programme works, the instinct to start at the bottom of the "
+               "hill does not, and there is still 2.48 of headroom to an "
+               "unaffordable clearance of everything.",
+        caveat="Austin really ran a buyout on Onion Creek after 2013 and 2015, "
+               "and this is not a reconstruction of it: the flood is a "
+               "single-peaked rise held in the channel, not a replayed event. "
+               "Two thirds of episodes carry no signal at all -- the water "
+               "reaches no house in that window whatever is bought -- so the "
+               "mean is carried by the third that do. The budget counts houses "
+               "rather than dollars on purpose; a plausible-looking price per "
+               "house would put false precision on every result.",
+        needs="the cached Onion Creek terrain and the City of Austin footprints",
+        scores={"random": {"return": -4.252, "cost": 28.604, "feasible": 7, "of": 12},
+                "incumbent": {"return": -2.477, "cost": 17.803, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "plain": 'buy nothing', "policy": 'buy nothing', "return": -16.27, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'lowest_first', "plain": 'buy the lowest-lying blocks first', "policy": 'lowest ground first (`lowest_first_action`)', "return": -9.907, "cost": 9.781, "feasible": 12, "of": 12,
+         "note": 'the obvious answer, and it leaves 8 of its 17.8 houses unspent while doing barely half the job'},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -4.252, "cost": 28.604, "feasible": 7, "of": 12,
+         "note": 'INFEASIBLE in 5 of 12 episodes'},
+        {"key": 'even', "plain": 'buy the same share everywhere', "policy": 'even share (`even_action`)', "return": -2.477, "cost": 17.803, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE approach known, for exactly the budget'},
+        {"key": 'flat_out', "plain": 'buy every flood-prone house', "policy": 'clear the floodplain', "return": 0.0, "cost": 45.167, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 2.5x the budget; nothing floods because nothing is left'},
+        ),
+        measured_on=MEASURED,
+    ),
+    EnvSpec(
+        env_id="FloodCrossing-v0",
+        cost_limit=29.0,
+        title="When to put the barricade down",
+        plain_title="When to close the road",
+        plain_decision="Water is rising at a low crossing. Every half hour "
+                       "for eighteen hours, decide whether the barricade is "
+                       "down -- knowing that closing the road strands "
+                       "everyone who needs it.",
+        plain_score="how long the road stays open while it is under water",
+        plain_budget="29 half-hours of closure, against a flood that covers "
+                     "the road for about 30",
+        plain_status="Closing while the road is under water AND stopping when "
+                     "the allowance runs out is the best anyone has managed. "
+                     "Closing whenever it is wet, which is what a crew on "
+                     "site does, runs out of allowance and only stays within "
+                     "it in 4 runs of 12.",
+        plain_caveat="The crossings, their positions and the ground around "
+                     "them are real. Whether the road is under water is "
+                     "worked out by the simulator, not guessed -- but how "
+                     "many cars would have driven in is not modelled at all, "
+                     "so this counts time, not casualties.",
+        dynamics="physics",
+        summary="Eighteen hours of half-hourly open/close decisions at one of "
+                "five real Austin low-water crossings, with the depth at the "
+                "crossing precomputed by the same local-inertial solver for "
+                "six flood sizes.",
+        reward="minus the percentage of intervals the road was OPEN while "
+               "under 0.15 m of water -- six inches, the figure every Texas "
+               "'Turn Around Don't Drown' notice carries",
+        cost="half-hours with the barricade down",
+        budget="29 intervals of 36, the median time a crossing is actually "
+               "under water -- so the whole flood cannot be covered and which "
+               "intervals to cover is the decision",
+        incumbent="`budgeted_react_action` -- close while the road is under "
+                  "water and stop when the allowance runs out (-3.24, "
+                  "feasible 12/12)",
+        status="Not beaten, and the two words that separate the bar from the "
+               "obvious rule are 'and stop'. Closing whenever the crossing is "
+               "wet scores a perfect 0.00 and clears the budget in 4 episodes "
+               "of 12; checking the allowance first costs 3.24 of return and "
+               "makes it feasible in all 12. Deciding at random is also "
+               "feasible and scores -40.05, so there is a wide band for a "
+               "learned policy -- and 3.24 of headroom to the unaffordable "
+               "perfect score.",
+        caveat="Five crossings, not eleven: the other six stay dry at every "
+               "flood size in the library, because the terrain box fetched "
+               "around them holds no creek the solver can fill, and an episode "
+               "there would have no decision in it. The hydrograph is a "
+               "single-peaked rise held in the channel rather than a routed "
+               "event. And every wet interval counts the same, because no "
+               "traffic count for these roads is on hand -- a harm model with "
+               "depth or traffic in it would leave more room for a policy to "
+               "be clever than this one does.",
+        needs="the precomputed crossing depth library (about eight minutes of "
+              "solver on first use) and the City of Austin crossing layer",
+        scores={"random": {"return": -40.046, "cost": 18.333, "feasible": 12, "of": 12},
+                "incumbent": {"return": -3.241, "cost": 28.75, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'never', "plain": 'never close the road', "policy": 'never close', "return": -83.102, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -40.046, "cost": 18.333, "feasible": 12, "of": 12,
+         "note": 'feasible, and for a long while the best feasible thing known here'},
+        {"key": 'budgeted', "plain": 'close while it is wet, and stop when the allowance runs out', "policy": 'budgeted closure (`budgeted_react_action`)', "return": -3.241, "cost": 28.75, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE rule known; it differs from the one below by a single check'},
+        {"key": 'ration', "plain": 'close only when the water is deepest', "policy": 'rationed closure (`ration_action`)', "return": -2.546, "cost": 29.0, "feasible": 7, "of": 12,
+         "note": 'INFEASIBLE in 5 of 12'},
+        {"key": 'react', "plain": 'close whenever it is wet', "policy": 'react on site (`react_action`)', "return": 0.0, "cost": 29.917, "feasible": 4, "of": 12,
+         "note": 'a perfect score and INFEASIBLE in 8 of 12 -- what a crew on site does, and it runs the allowance out'},
+        {"key": 'always', "plain": 'keep it closed all day', "policy": 'always closed', "return": 0.0, "cost": 36.0, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE in every episode'},
+        ),
+        measured_on=MEASURED,
+    ),
 )
 
 BY_ID: "dict[str, EnvSpec]" = {s.env_id: s for s in SPECS}
@@ -431,9 +777,11 @@ def register_all() -> "list[str]":
     calls all of them so a caller does not have to know which family lives
     where. Returns the ids now registered.
     """
-    from . import defend, evacuate, fire_env, flood_env
+    from . import (buyout, crossings, defend, dispatch, evacuate, fire_env,
+                   flood_env, pde_env, toy)
 
-    for module in (flood_env, evacuate, fire_env, defend):
+    for module in (flood_env, evacuate, fire_env, defend, buyout, dispatch,
+                   crossings, pde_env, toy):
         module.register_envs()
     return [s.env_id for s in SPECS]
 

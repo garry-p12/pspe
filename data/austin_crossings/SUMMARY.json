@@ -1,0 +1,28 @@
+{
+  "bbox": [
+    -97.95,
+    30.05,
+    -97.55,
+    30.45
+  ],
+  "layers": {
+    "low_water_crossings": {
+      "n": 22
+    },
+    "floodplain_fema": {
+      "n": 5373
+    },
+    "gauges": {
+      "n": 33,
+      "readings": 66
+    }
+  },
+  "sources": {
+    "terrain": "USGS 3DEP bare earth, via pspe.simulate.real.anywhere build_domain(source='3dep'); public domain",
+    "buildings/addresses/crossings/floodplain": "City of Austin open data, ArcGIS FeatureServer",
+    "base_flood_elevations": "FEMA National Flood Hazard Layer",
+    "gauges": "USGS NWIS instantaneous values; public domain",
+    "roads": "OpenStreetMap via Overpass, ODbL, fetched at request time"
+  },
+  "units": "City of Austin elevations are US survey feet and are converted to metres here; 3DEP and USGS are metres. City and FEMA elevations are NAVD88."
+}

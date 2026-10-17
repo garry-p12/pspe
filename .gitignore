@@ -25,6 +25,12 @@ data/lismore/pdf/
 # Austin layers: tens of MB, re-fetchable with scripts/fetch_austin_data.py.
 data/austin/*.geojson
 data/austin_onion/*.geojson
+# The building footprints `FloodBuyout-v0` reads (31 MB) and the crossing
+# layer `FloodCrossing-v0` reads (150 MB, mostly the greater-Austin FEMA
+# floodplain that came with it). Both re-fetchable; the exact commands are in
+# the FileNotFoundError each environment raises when they are missing.
+data/austin_onion_bld/*.geojson
+data/austin_crossings/*.geojson
 
 # The built default study: regenerate with scripts/build_austin_study.py.
 portal/public/data/austin/study.json

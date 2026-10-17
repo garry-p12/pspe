@@ -42,6 +42,13 @@ INCUMBENT = {
     "FloodEvacuate-v0": "never_action",
     "Firebreak-v0": "greedy_action",
     "FloodDefend-v0": "uniform_action",
+    'CMDPToy-v0': 'optimal_action_vector',
+    'PDEControl-dar-v0': 'proportional_action',
+    'PDEControl-swe-v0': 'proportional_action',
+    'PDEControl-rdf-v0': 'proportional_action',
+    'FireDispatch-v0': 'biggest_fire_action',
+    'FloodBuyout-v0': 'even_action',
+    'FloodCrossing-v0': 'budgeted_react_action',
 }
 
 #: Every policy in the catalog's ladder, keyed the same way, so `--ladder
@@ -80,6 +87,21 @@ LADDER_POLICIES = {
 }
 # The two flood presets share a ladder: same policies, same action layout.
 LADDER_POLICIES["FloodOperateFine-v0"] = LADDER_POLICIES["FloodOperate-v0"]
+
+#: The families added later.
+LADDER_POLICIES.update({
+    'CMDPToy-v0': {'nothing': 'zero_action', 'optimal': 'optimal_action_vector'},
+    'PDEControl-dar-v0': {'nothing': 'zero_action', 'proportional': 'proportional_action'},
+    'PDEControl-swe-v0': {'nothing': 'zero_action', 'proportional': 'proportional_action'},
+    'PDEControl-rdf-v0': {'nothing': 'zero_action', 'proportional': 'proportional_action'},
+    'FireDispatch-v0': {'nothing': -1.0, 'even': 'even_action', 'biggest': 'biggest_fire_action', 'most_people': 'most_people_action'},
+    'FloodBuyout-v0': {'nothing': -1.0, 'even': 'even_action', 'lowest_first': 'lowest_first_action', 'flat_out': 1.0},
+    "FloodCrossing-v0": {"never": "never_close_action",
+                         "budgeted": "budgeted_react_action",
+                         "ration": "ration_action",
+                         "react": "react_action",
+                         "always": "always_close_action"},
+})
 
 
 def _policy(env, inner, spec):
@@ -143,15 +165,27 @@ def roll(env, policy, seed: int, cap: int = 256):
     return total_r, total_c, info["cost_limit"], steps
 
 
+#: A violation of one part per million is not a violation.
+#:
+#: Episode cost is a sum of float32 steps and the limit is one number, so a
+#: policy that spends the budget EXACTLY lands a few parts in 1e8 either side
+#: of it. `CMDPToy-v0` makes this unavoidable rather than incidental: its
+#: optimum sits on the constraint boundary by definition, so nudging the
+#: action inside would stop it being the optimum. The tolerance belongs in the
+#: comparison.
+FEASIBLE_TOL = 1.0e-6
+
+
 def score(env, policy, seeds, limit) -> "dict[str, float]":
     import numpy as np
 
     rolls = [roll(env, policy, s) for s in seeds]
     ret = np.array([r[0] for r in rolls])
     cost = np.array([r[1] for r in rolls])
+    slack = abs(limit) * FEASIBLE_TOL
     return {"return": float(ret.mean()), "return_sd": float(ret.std()),
             "cost": float(cost.mean()), "cost_sd": float(cost.std()),
-            "feasible": int((cost <= limit).sum()), "of": len(seeds),
+            "feasible": int((cost <= limit + slack).sum()), "of": len(seeds),
             "steps": rolls[0][3]}
 
 

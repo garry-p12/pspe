@@ -30,6 +30,13 @@ INCUMBENTS = {
     "FloodEvacuate-v0": "never_action",
     "Firebreak-v0": "greedy_action",
     "FloodDefend-v0": "uniform_action",
+    'CMDPToy-v0': 'optimal_action_vector',
+    'PDEControl-dar-v0': 'proportional_action',
+    'PDEControl-swe-v0': 'proportional_action',
+    'PDEControl-rdf-v0': 'proportional_action',
+    'FireDispatch-v0': 'biggest_fire_action',
+    'FloodBuyout-v0': 'even_action',
+    'FloodCrossing-v0': 'budgeted_react_action',
 }
 
 #: Cheap to construct. The other two want data on disk.
