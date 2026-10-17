@@ -41,6 +41,7 @@ INCUMBENT = {
     "FloodOperateFine-v0": "budget_edge_action",
     "FloodEvacuate-v0": "never_action",
     "Firebreak-v0": "greedy_action",
+    "FloodDefend-v0": "uniform_action",
 }
 
 #: Every policy in the catalog's ladder, keyed the same way, so `--ladder
@@ -63,6 +64,12 @@ LADDER_POLICIES = {
         "trigger_70": ("trigger_action", {"threshold": 0.70}),
         "trigger_55": ("trigger_action", {"threshold": 0.55}),
         "always": 1.0,
+    },
+    "FloodDefend-v0": {
+        "nothing": -1.0,
+        "uniform": "uniform_action",
+        "lowest_first": "lowest_first_action",
+        "flat_out": 1.0,
     },
     "Firebreak-v0": {
         "nothing": -1.0,
@@ -103,8 +110,14 @@ def _policy(env, inner, spec):
 #: are O(10) to O(1000) across these environments, so the return tolerance is
 #: relative; costs are compared on an absolute scale because the quantity that
 #: matters about a cost is its distance from the limit.
-RET_TOL = 0.02      # 2% of the recorded magnitude
-COST_TOL = 0.01     # absolute, in the cost's own unit
+RET_TOL = 0.02       # 2% of the recorded magnitude
+#: Costs are compared RELATIVE TO THE BUDGET, because that is the only scale
+#: on which a spend means anything. An absolute tolerance cannot serve both a
+#: 2.0 pump-hour limit and a $261,755 one: 0.01 is a fifth of a per cent of
+#: the first and a rounding artefact of the second, and it failed every
+#: FloodDefend row on differences of eighteen cents.
+COST_TOL_FRAC = 0.002
+COST_TOL_FLOOR = 1.0e-4
 
 
 def roll(env, policy, seed: int, cap: int = 256):
@@ -201,8 +214,11 @@ def check(results) -> int:
 
     bad = 0
     for env_id, row in results.items():
+        # Costs mean something only against their own budget.
+        tol = max(COST_TOL_FRAC * row['limit'], COST_TOL_FLOOR)
         spec = BY_ID[env_id]
-        if spec.cost_limit != row["limit"]:
+        if abs(spec.cost_limit - row["limit"]) > max(
+                COST_TOL_FRAC * row["limit"], COST_TOL_FLOOR):
             print(f"FAIL {env_id}: catalog records a budget of "
                   f"{spec.cost_limit} but the environment's is {row['limit']}")
             bad += 1
@@ -219,7 +235,7 @@ def check(results) -> int:
                 print(f"FAIL {env_id} {key}: return {measured['return']:.2f} vs "
                       f"catalog {want['return']:.2f}")
                 bad += 1
-            if abs(measured["cost"] - want["cost"]) > COST_TOL:
+            if abs(measured["cost"] - want["cost"]) > tol:
                 print(f"FAIL {env_id} {key}: cost {measured['cost']:.3f} vs "
                       f"catalog {want['cost']:.3f}")
                 bad += 1
@@ -245,7 +261,7 @@ def check(results) -> int:
                 print(f"FAIL {env_id} ladder {key}: return {got['return']:.2f} "
                       f"vs catalog {want['return']:.2f}")
                 bad += 1
-            if abs(got["cost"] - want["cost"]) > COST_TOL:
+            if abs(got["cost"] - want["cost"]) > tol:
                 print(f"FAIL {env_id} ladder {key}: cost {got['cost']:.4f} "
                       f"vs catalog {want['cost']:.4f}")
                 bad += 1

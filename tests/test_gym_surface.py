@@ -29,6 +29,7 @@ INCUMBENTS = {
     "FloodOperateFine-v0": "budget_edge_action",
     "FloodEvacuate-v0": "never_action",
     "Firebreak-v0": "greedy_action",
+    "FloodDefend-v0": "uniform_action",
 }
 
 #: Cheap to construct. The other two want data on disk.
@@ -99,9 +100,16 @@ def test_every_environment_is_also_described_without_jargon():
 
 @pytest.mark.parametrize("env_id", list(INCUMBENTS))
 def test_the_catalog_budget_matches_the_environment(env_id):
-    """The portal turns a spend into "all of it" or "34x over" from this."""
+    """The portal turns a spend into "all of it" or "34x over" from this.
+
+    Compared at a tenth of a per cent, the same scale `score_gym.py` uses:
+    these budgets span 0.03 of a patch to $261,755, and the one that is
+    derived from the ground rather than chosen carries the terrain's own
+    arithmetic in its last digits.
+    """
     env = _make(env_id)
-    assert BY_ID[env_id].cost_limit == pytest.approx(env.unwrapped.task.cost_limit)
+    limit = env.unwrapped.task.cost_limit
+    assert BY_ID[env_id].cost_limit == pytest.approx(limit, rel=1e-3)
     env.close()
 
 

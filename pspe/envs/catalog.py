@@ -350,6 +350,75 @@ SPECS: "tuple[EnvSpec, ...]" = (
         ),
         measured_on=MEASURED,
     ),
+    EnvSpec(
+        env_id="FloodDefend-v0",
+        cost_limit=261755.45,
+        title="Spend the defence budget",
+        plain_title="Spend the defence budget",
+        plain_decision="Decide, for each of eight stretches of creek bank, how "
+                       "high to build an embankment -- before anyone knows how "
+                       "big the flood will be.",
+        plain_score="how much of the mapped flood-risk ground ends up under "
+                    "water",
+        plain_budget="about $262,000 of construction, which buys a 1.6 m "
+                     "embankment along the whole bank if you spread it evenly",
+        plain_status="Building evenly along the bank is the best anyone has "
+                     "managed. Building where the ground is lowest -- the "
+                     "obvious answer -- cannot be shown to beat building "
+                     "nothing at all.",
+        plain_caveat="The ground, the creek and the flood-risk map are real: "
+                     "USGS laser survey of Onion Creek and FEMA's own flood "
+                     "maps. The embankment is not -- Austin has no such levee "
+                     "and none is proposed here. The flood is a rise and fall "
+                     "in the creek, not a replay of a flood that happened.",
+        dynamics="physics",
+        summary="Allocate a fixed capital budget across eight segments of the "
+                "Onion Creek bank, one decision per segment, then a flood is "
+                "solved once over the terrain as built. On real USGS 3DEP bare "
+                "earth with FEMA's floodway and 100-year floodplain.",
+        reward="minus the percentage of the FEMA 100-year floodplain left "
+               "deeper than 0.10 m when the flood has passed",
+        cost="US dollars of embankment construction, through the real "
+             "trapezoidal section -- so cost per metre of height RISES with "
+             "height and a 3 m levee is twice a 2 m one, not 1.5 times",
+        budget="$261,755 for the whole programme, derived from the ground "
+               "rather than chosen: the cost of a uniform 1.6 m embankment "
+               "along the mean bank line, so it always binds",
+        incumbent="`uniform_action` -- one height along the whole bank, solved "
+                  "from the budget (-14.17, feasible 12/12)",
+        status="Not beaten, and the interesting row is the one below the bar. "
+               "`lowest_first_action` -- build where the bank is lowest, the "
+               "obvious engineering answer -- is NOT resolvably better than "
+               "building nothing: paired over 32 episodes it gains 0.65 at "
+               "t = 1.77. Spreading the budget evenly gains 1.04 at t = 3.05, "
+               "and beats the heuristic at t = 2.76. So the obvious answer is "
+               "wrong here and the reason is flanking: a partial levee on an "
+               "open reach is gone around rather than stopped at.",
+        caveat="The terrain, the channel and the at-risk ground are real. The "
+               "embankment is hypothetical -- Onion Creek has no continuous "
+               "levee and this does not propose one. The flood is a "
+               "single-peaked rise and fall held in the channel, not a routed "
+               "event from a gauge record, so it exercises the decision "
+               "without reproducing a flood that happened. Damage is flooded "
+               "area, not dollars of property loss: converting the two needs a "
+               "depth-damage curve this repository does not have.",
+        needs="the cached USGS 3DEP terrain for the Onion Creek box at 60 m",
+        scores={"random": {"return": -14.29, "cost": 313328.0, "feasible": 5, "of": 12},
+                "incumbent": {"return": -14.17, "cost": 261755.0, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "plain": 'build nothing', "policy": 'build nothing', "return": -15.04, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'lowest_first', "plain": 'build where the ground is lowest', "policy": 'lowest ground first (`lowest_first_action`)', "return": -14.69, "cost": 236457.0, "feasible": 12, "of": 12,
+         "note": 'the obvious engineering answer, and NOT resolvably better than building nothing: paired, it gains 0.65 at t = 1.77'},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -14.29, "cost": 313328.0, "feasible": 5, "of": 12,
+         "note": 'INFEASIBLE in 7 of 12 episodes'},
+        {"key": 'uniform', "plain": 'build evenly along the whole bank', "policy": 'uniform along the bank (`uniform_action`)', "return": -14.17, "cost": 261755.0, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE approach known, and it beats the engineering heuristic at t = 2.76'},
+        {"key": 'flat_out', "plain": 'build 3 m everywhere', "policy": '3 m along every segment', "return": -12.45, "cost": 791120.0, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 3x the budget'},
+        ),
+        measured_on=MEASURED,
+    ),
 )
 
 BY_ID: "dict[str, EnvSpec]" = {s.env_id: s for s in SPECS}
@@ -362,9 +431,9 @@ def register_all() -> "list[str]":
     calls all of them so a caller does not have to know which family lives
     where. Returns the ids now registered.
     """
-    from . import evacuate, fire_env, flood_env
+    from . import defend, evacuate, fire_env, flood_env
 
-    for module in (flood_env, evacuate, fire_env):
+    for module in (flood_env, evacuate, fire_env, defend):
         module.register_envs()
     return [s.env_id for s in SPECS]
 

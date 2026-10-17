@@ -1,5 +1,6 @@
 from .actuators import GaussianActuatorBasis
 from .catalog import BY_ID, SPECS, EnvSpec, catalog, describe, register_all
+from .defend import FloodDefendControlEnv, onion_creek_windows
 from .evacuate import EvacuateControlEnv
 from .fire_env import FirebreakEnv
 from .flood_env import (
@@ -28,6 +29,8 @@ __all__ = [
     "FloodOperateEnv",
     "FloodOperateTask",
     "EvacuateControlEnv",
+    "FloodDefendControlEnv",
+    "onion_creek_windows",
     "FirebreakEnv",
     "make_polder_bank",
     "SUMP_M",

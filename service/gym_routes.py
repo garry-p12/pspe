@@ -52,6 +52,7 @@ INCUMBENT = {
     "FloodOperateFine-v0": "budget_edge_action",
     "FloodEvacuate-v0": "never_action",
     "Firebreak-v0": "greedy_action",
+    "FloodDefend-v0": "uniform_action",
 }
 
 #: One episode of `FloodEvacuate-v0` is 48 steps of real routing lookups and
