@@ -82,6 +82,10 @@ def test_the_catalog_describes_every_registered_id_and_nothing_else():
 #: page can be honest without being unreadable -- a check that stops them
 #: silently reverting to the register of the paper, which is how the first
 #: version of that page got written.
+#: Environments whose episode ends in an absorbing state rather than on a
+#: clock. Everything else here stops because time ran out.
+TERMINATES = {"CMDPToy-v0"}
+
 JARGON = ("incumbent", "feasible", "infeasible", "episode", "policy",
           "return", "gymnasium", "cost_limit", "pump-hours", "surrogate",
           "baseline", "budget-edge", "lagrangian", "u-net", "ndws")
@@ -155,12 +159,25 @@ def test_the_cost_convention_is_the_one_safe_rl_reads(env_id):
         assert np.isfinite(reward)
         assert info["cost_limit"] == pytest.approx(inner.task.cost_limit)
         assert info["episode_cost"] == pytest.approx(total)
-        # The horizon is a time limit, not an absorbing state: a bootstrapping
-        # critic must not be told the value beyond it is zero.
-        assert terminated is False
-        if truncated or steps > 256:
+        # Terminated or truncated is not a style choice, and it is not the
+        # same answer for every environment here.
+        #
+        # A flood or a fire episode ends because the clock ran out: there IS a
+        # value beyond the horizon and a bootstrapping critic must not be told
+        # it is zero, so those truncate. `CMDPToy-v0` is a one-step bandit --
+        # its episode is over because the problem is over, which is an
+        # absorbing terminal state, and Gymnasium's own checker rejects an
+        # environment that truncates after one step. Asserting one rule for
+        # all of them was wrong, and it was wrong in the direction that would
+        # have mislabelled the only environment whose answer is known.
+        if env_id in TERMINATES:
+            assert truncated is False
+        else:
+            assert terminated is False
+        if terminated or truncated or steps > 256:
             break
-    assert truncated, "the episode must end on its horizon"
+    assert terminated or truncated, "the episode must end"
+    assert (terminated if env_id in TERMINATES else truncated)
     env.close()
 
 

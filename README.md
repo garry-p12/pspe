@@ -46,12 +46,28 @@ env = gym.make("FloodOperate-v0")   # or FloodOperateFine-v0, FloodEvacuate-v0, 
 
 | id | decision | dynamics | budget | best policy known inside it |
 |---|---|---|---|---|
+| `CMDPToy-v0` | one number, one step | closed form | 0.4 | **the optimum itself**, −0.16 |
 | `FloodOperate-v0` | gate and pump, 12 × 30 min | solved shallow-water | 2.0 pump-hours | `budget_edge_action`, −19.90 |
 | `FloodOperateFine-v0` | the same at 60 m cells | solved shallow-water | 2.0 pump-hours | `budget_edge_action`, −23.30 |
 | `FloodEvacuate-v0` | order 8 zones out, 48 slots | solved + real routing | 32 town-intervals | doing nothing, −4862.7 |
+| `FloodDefend-v0` | levee heights on 8 bank segments | solved + **real Onion Creek terrain** | $261,755 | `uniform_action`, −14.17 |
+| `FloodBuyout-v0` | which houses to buy out, 9 blocks | solved + **43,366 real footprints** | ~18 houses | `even_action`, −2.48 |
+| `FloodCrossing-v0` | close the road, 36 × 30 min | solved, **5 real crossings** | 29 closed intervals | `budgeted_react_action`, −3.24 |
 | `Firebreak-v0` | place breaks, 3 crew-days | **learned U-Net** | 0.03 of the patch | `greedy_action`, −31.08 |
+| `FireDispatch-v0` | split crews across 4 fires | **learned U-Net** | 0.03 of a patch | `biggest_fire_action`, −24.97 |
+| `PDEControl-dar-v0` | 9 actuators, 16 steps | solved RK4 | 0.936 | `proportional_action`, −1.57 |
+| `PDEControl-swe-v0` | the same, shallow water | solved RK4 | 0.192 | *nothing is feasible every run* |
+| `PDEControl-rdf-v0` | the same, FitzHugh–Nagumo | solved RK4 | 3.26 | `proportional_action`, −4.45 |
 
-**No learned policy has beaten any of these.** Two further things that a table
+**Start with `CMDPToy-v0`.** Its constrained optimum is known in closed form
+— `min(peak, limit) = 0.400`, multiplier `0.800`, both exposed on the
+environment — so an algorithm that does not reach it is broken, and you learn
+that in one line instead of inferring it from a league table on problems whose
+answers nobody knows. This closed form is what caught two real bugs in the
+baselines below.
+
+**No learned policy has beaten any of these** — except `CMDPToy-v0`, where
+the answer is written down rather than searched for. Two further things that a table
 of returns would hide, and which is why `pspe/envs/catalog.py` carries the full
 ladder of policies measured on each environment rather than a single row:
 
@@ -64,8 +80,9 @@ ladder of policies measured on each environment rather than a single row:
 - The best policy on *reward* is usually one you may not run. On
   `FloodOperate-v0` it spends 3.4 pump-hours against a limit of 2.0.
 
-`python3 scripts/score_gym.py --ladder --check` re-measures all 25 ladder rungs
-and exits nonzero if any number in the catalog has stopped being true. The
+`python3 scripts/score_gym.py --ladder --check` re-measures all 58 ladder
+rungs across the twelve and exits nonzero if any number in the catalog has
+stopped being true. The
 portal serves the same catalog at `/gym`.
 
 ---
