@@ -26,12 +26,16 @@ export type Scene = {
   marker: number[][];
   legend: { ground: string; water: string; marker: string };
   water_unit: string;
+  /** Depth that fills the drawn water column. Declared per environment, and
+   *  printed beside the legend, because an unlabelled rescale is how a
+   *  0.18 m flood comes to look like a catastrophe. */
+  water_scale?: number;
 };
 
 const VB = { w: 760, h: 430 };
 const TILE = 23;          // half-width of a cell's top face, before yaw
 const RELIEF = 54;        // pixels for the full height range of the terrain
-const WATER = 42;         // pixels per metre of water, so a flood is visible
+const WATER = 62;         // pixels for a full water column (see `water_scale`)
 const BASE = 26;          // the slab the ground sits on, so it reads as a model
 
 type Cell = {
@@ -62,15 +66,16 @@ export function IsoScene({
     return m || 1;
   }, [scene.ground]);
 
+  // Raw projection: yaw about the vertical, then an isometric cast. No
+  // centring here -- the whole scene is fitted afterwards, because its
+  // footprint changes with every degree of yaw and with how deep the water
+  // is, and a fixed offset leaves it hanging off the top corner at some
+  // angles. Which it did.
   const project = useCallback((x: number, y: number, z: number) => {
     const s = Math.sin(yaw), c = Math.cos(yaw);
     const rx = x * c - y * s;
     const ry = x * s + y * c;
-    return {
-      sx: VB.w / 2 + (rx - ry) * TILE,
-      sy: VB.h / 2 + (rx + ry) * TILE * 0.5 - z - 40,
-      d: rx + ry,
-    };
+    return { sx: (rx - ry) * TILE, sy: (rx + ry) * TILE * 0.5 - z, d: rx + ry };
   }, [yaw]);
 
   const cells = useMemo<Cell[]>(() => {
@@ -90,8 +95,9 @@ export function IsoScene({
           key: `g${r}-${c}`, depth: 0, x: c - mid, y: r - mid, z0: 0, z1: gz,
           top: base, left: shade(base, 0.78), right: shade(base, 0.62),
         });
-        if (w > 0.02) {
-          const wz = Math.min(w * WATER, 70);
+        const wScale = scene.water_scale ?? 1;
+        if (w > wScale * 0.01) {
+          const wz = Math.min((w / wScale) * WATER, 86);
           out.push({
             key: `w${r}-${c}`, depth: w, x: c - mid, y: r - mid,
             z0: gz, z1: gz + wz,
@@ -108,6 +114,32 @@ export function IsoScene({
       .map((cell) => ({ cell, d: project(cell.x, cell.y, 0).d }))
       .sort((a, b) => a.d - b.d || a.cell.z0 - b.cell.z0)
       .map((o) => o.cell);
+  }, [cells, project]);
+
+  /** Scale and offset that put the whole model inside the frame. */
+  const fit = useMemo(() => {
+    const PAD = 18;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    const h = 0.5;
+    for (const cell of cells) {
+      for (const [dx, dy] of [[-h, -h], [h, -h], [h, h], [-h, h]] as const) {
+        for (const z of [cell.z0, cell.z1]) {
+          const q = project(cell.x + dx, cell.y + dy, z);
+          if (q.sx < x0) x0 = q.sx;
+          if (q.sx > x1) x1 = q.sx;
+          if (q.sy < y0) y0 = q.sy;
+          if (q.sy > y1) y1 = q.sy;
+        }
+      }
+    }
+    if (!Number.isFinite(x0)) return { s: 1, tx: VB.w / 2, ty: VB.h / 2 };
+    const s = Math.min((VB.w - 2 * PAD) / Math.max(x1 - x0, 1),
+                       (VB.h - 2 * PAD) / Math.max(y1 - y0, 1));
+    return {
+      s,
+      tx: VB.w / 2 - ((x0 + x1) / 2) * s,
+      ty: VB.h / 2 - ((y0 + y1) / 2) * s,
+    };
   }, [cells, project]);
 
   useEffect(() => {
@@ -154,11 +186,14 @@ export function IsoScene({
       aria-label="The simulated ground, with water where the solver put it. Drag to turn."
       onPointerDown={(e) => { drag.current = { x: e.clientX, yaw }; }}
     >
-      {ordered.map(face)}
+      <g transform={`translate(${fit.tx} ${fit.ty}) scale(${fit.s})`}>
+        {ordered.map(face)}
+      </g>
       {labels?.map((l) => {
         const mid = (n - 1) / 2;
         const g = scene.ground[Math.min(l.r, n - 1)]?.[Math.min(l.c, n - 1)] ?? 0;
-        const p = project(l.c - mid, l.r - mid, BASE + (g / hi) * RELIEF + 26);
+        const q = project(l.c - mid, l.r - mid, BASE + (g / hi) * RELIEF + 26);
+        const p = { sx: fit.tx + q.sx * fit.s, sy: fit.ty + q.sy * fit.s };
         return (
           <g key={l.text} transform={`translate(${p.sx} ${p.sy})`}>
             <circle cx={-34} cy={-10} r={3} className="fill-ink" />

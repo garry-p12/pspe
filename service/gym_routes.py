@@ -337,7 +337,7 @@ def _scene(env_id: str, inner, obs: "np.ndarray") -> "dict[str, Any]":
             "protect": down(obs[2]), "marker": down(core.river.cpu().numpy().astype("float32")),
             "legend": {"ground": "protected ground", "water": "water",
                        "marker": "river"},
-            "water_unit": "m",
+            "water_unit": "m", "water_scale": 2.0,
         }
     if env_id == "FloodDefend-v0":
         core = inner.core
@@ -350,7 +350,7 @@ def _scene(env_id: str, inner, obs: "np.ndarray") -> "dict[str, Any]":
             "protect": down(obs[1]), "marker": down(built),
             "legend": {"ground": "ground at risk", "water": "water",
                        "marker": "where a levee can go"},
-            "water_unit": "m",
+            "water_unit": "m", "water_scale": 4.0,
         }
     if env_id == "FloodEvacuate-v0":
         # Eight zones, not a map. The egress table is per zone and per slot, so
@@ -361,18 +361,29 @@ def _scene(env_id: str, inner, obs: "np.ndarray") -> "dict[str, Any]":
         k = core.K
         pop = core.pop.cpu().numpy().astype("float32")
         pop = pop / max(float(pop.max()), 1e-6)
-        still = core.remaining[0].cpu().numpy().astype("float32")
-        still = still / max(float(core.pop.cpu().numpy().max()), 1e-6)
         order = core.under_order[0].cpu().numpy().astype("float32")
+        # Blue is water everywhere else on this page, so blue is water here
+        # too: the depth the egress table records at each zone this slot. The
+        # first version drew "people still in the zone" in the water colour,
+        # which made a full town read as a flood.
+        slot = min(core.t, core.horizon - 1)
+        member = int(core._member[0].item())
+        depth = core.table.exposure[member, :, slot].astype("float32")
         band = lambda v: np.repeat(np.asarray(v, dtype="float32")[:, None], k, axis=1)
         return {
-            "ground": down(band(pop)), "water": down(band(still), "max"),
+            "ground": down(band(pop)), "water": down(band(depth), "max"),
             "protect": down(band((pop > 0).astype("float32"))),
             "marker": down(band(order)),
             "legend": {"ground": "how many live there",
-                       "water": "still in the zone",
+                       "water": "water in the zone",
                        "marker": "told to leave"},
-            "water_unit": "",
+            # The deepest water anywhere in this egress table is 0.181 m. Drawn
+            # on the flood environments' metre scale it is two pixels and
+            # invisible, so the column is scaled to what this environment
+            # actually reaches -- and the page prints the scale, because an
+            # unlabelled rescale is how an ankle-deep flood comes to look like
+            # a catastrophe.
+            "water_unit": "m", "water_scale": 0.2,
         }
     if env_id == "Firebreak-v0":
         core = inner.core
@@ -381,7 +392,7 @@ def _scene(env_id: str, inner, obs: "np.ndarray") -> "dict[str, Any]":
             "protect": down(obs[core.pop]), "marker": down(obs[0], "max"),
             "legend": {"ground": "vegetation", "water": "fire",
                        "marker": "burning"},
-            "water_unit": "",
+            "water_unit": "", "water_scale": 1.0,
         }
     return {}
 

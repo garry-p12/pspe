@@ -283,6 +283,12 @@ export function GymBench() {
                     {t}
                   </span>
                 ))}
+                {play.scene.water_scale && play.scene.water_unit && (
+                  <span className="text-ink-faint">
+                    full water column = {play.scene.water_scale}{" "}
+                    {play.scene.water_unit}
+                  </span>
+                )}
                 <span className="ml-auto">
                   Height is the simulator&rsquo;s own terrain and water. Nothing here is drawn for effect.
                 </span>
