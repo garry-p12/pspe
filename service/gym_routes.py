@@ -29,6 +29,7 @@ router where it expected an RL library.
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -230,3 +231,323 @@ def rollout(req: RolloutRequest) -> RolloutResponse:
             caveat=spec.caveat)
     finally:
         env.close()
+
+
+# --------------------------------------------------------------------------- #
+# play
+# --------------------------------------------------------------------------- #
+"""Driving a real environment by hand, one decision at a time.
+
+The point of this surface is that it is **not a toy**. A step of
+`FloodOperate-v0` is 0.04 s of the same local-inertial solver the research
+runs, so the water a visitor watches spread is the water the benchmark
+measured -- not an illustration of it, and not a simplified model whose
+numbers would have to be disclaimed. The scene the portal draws is a
+downsampled view of the environment's own state.
+
+What a visitor chooses is deliberately coarse: four pump settings rather than
+a continuous dial. The underlying action space is continuous and a policy may
+use all of it; these are the settings an operator would actually be offered,
+and a control that cannot be worked by hand teaches nobody anything.
+"""
+
+import uuid
+
+#: Live sessions. Small and bounded: this is a demonstration surface, not a
+#: service anyone should build on, and an unbounded dict of live environments
+#: is a memory leak with a polite name.
+_SESSIONS: "dict[str, dict[str, Any]]" = {}
+MAX_SESSIONS = 24
+SCENE_N = 16                      # the scene is drawn at 16x16, whatever the grid
+
+
+def _control_spec(env_id: str) -> "list[dict[str, Any]]":
+    """The choices a person is offered, and the action each one means.
+
+    Every option carries the exact action vector it sends, so the page has no
+    opinion about what a choice means -- it posts back a label and the service
+    looks it up here.
+    """
+    if env_id.startswith("FloodOperate"):
+        return [
+            {"name": "Gate", "options": [
+                {"label": "closed", "action": [-1.0]},
+                {"label": "half", "action": [0.0]},
+                {"label": "open", "action": [1.0]}],
+             "default": 2},
+            {"name": "Pump", "options": [
+                {"label": "off", "action": [-1.0]},
+                {"label": "quarter", "action": [-0.5]},
+                {"label": "half", "action": [0.0]},
+                {"label": "full", "action": [1.0]}],
+             "default": 0},
+        ]
+    if env_id == "FloodDefend-v0":
+        return [{"name": "Build here", "options": [
+            {"label": "nothing", "action": [-1.0]},
+            {"label": "1 m", "action": [-1.0 + 2.0 / 3.0]},
+            {"label": "2 m", "action": [-1.0 + 4.0 / 3.0]},
+            {"label": "3 m", "action": [1.0]}], "default": 0}]
+    if env_id == "FloodEvacuate-v0":
+        # Two options, because the trigger family collapses to exactly these
+        # two behaviours on this ensemble -- which is the environment's own
+        # finding and not a simplification made for the page.
+        return [{"name": "Order out", "options": [
+            {"label": "nobody", "action": [-1.0] * 8},
+            {"label": "everybody", "action": [1.0] * 8}], "default": 0}]
+    if env_id == "Firebreak-v0":
+        return [{"name": "Crews", "options": [
+            {"label": "stand down", "action": None, "policy": "nothing"},
+            {"label": "spread evenly", "action": None, "policy": "uniform"},
+            {"label": "where it burns", "action": None, "policy": "greedy"}],
+            "default": 1}]
+    return []
+
+
+def _scene(env_id: str, inner, obs: "np.ndarray") -> "dict[str, Any]":
+    """The environment's own state, downsampled to something drawable.
+
+    `ground` is relief in 0..1, `water` is the quantity that spreads -- depth
+    in metres for a flood, burning fraction for a fire -- `protect` is what is
+    being defended and `marker` is the channel, the bank being built, or the
+    ignition. Each is reduced to `SCENE_N` by taking a block MAXIMUM for water
+    and a mean for the rest: a flood one cell wide is still a flood, and
+    averaging it away would draw a drier map than the solver computed.
+    """
+    def down(a: "np.ndarray", how: str = "mean") -> "list[list[float]]":
+        n = SCENE_N
+        a = np.asarray(a, dtype="float32")
+        h, w = a.shape
+        if h < n or w < n:
+            # Smaller than the scene: repeat, do not reshape. `FloodEvacuate-v0`
+            # is an 8x8 field and the block-reshape below would have raised on
+            # it -- which it did, as a 500 on that environment's first frame.
+            a = np.repeat(np.repeat(a, int(np.ceil(n / h)), axis=0),
+                          int(np.ceil(n / w)), axis=1)
+            h, w = a.shape
+        rs, cs = max(h // n, 1), max(w // n, 1)
+        a = a[:rs * n, :cs * n].reshape(n, rs, n, cs)
+        out = a.max(axis=(1, 3)) if how == "max" else a.mean(axis=(1, 3))
+        return [[round(float(v), 4) for v in row] for row in out]
+
+    if env_id.startswith("FloodOperate"):
+        core = inner.core
+        return {
+            "ground": down(obs[1]), "water": down(obs[0], "max"),
+            "protect": down(obs[2]), "marker": down(core.river.cpu().numpy().astype("float32")),
+            "legend": {"ground": "protected ground", "water": "water",
+                       "marker": "river"},
+            "water_unit": "m",
+        }
+    if env_id == "FloodDefend-v0":
+        core = inner.core
+        i = core.idx[0].item()
+        built = core.seg_mask[i].any(dim=0).cpu().numpy().astype("float32")
+        depth = (core.last_depth[0].cpu().numpy() if core.last_depth is not None
+                 else np.zeros_like(obs[0]))
+        return {
+            "ground": down(obs[0]), "water": down(depth, "max"),
+            "protect": down(obs[1]), "marker": down(built),
+            "legend": {"ground": "ground at risk", "water": "water",
+                       "marker": "where a levee can go"},
+            "water_unit": "m",
+        }
+    if env_id == "FloodEvacuate-v0":
+        # Eight zones, not a map. The egress table is per zone and per slot, so
+        # there is no grid to draw -- each zone becomes a band, which is an
+        # honest picture of an eight-element decision and not a pretend
+        # aerial view.
+        core = inner.core
+        k = core.K
+        pop = core.pop.cpu().numpy().astype("float32")
+        pop = pop / max(float(pop.max()), 1e-6)
+        still = core.remaining[0].cpu().numpy().astype("float32")
+        still = still / max(float(core.pop.cpu().numpy().max()), 1e-6)
+        order = core.under_order[0].cpu().numpy().astype("float32")
+        band = lambda v: np.repeat(np.asarray(v, dtype="float32")[:, None], k, axis=1)
+        return {
+            "ground": down(band(pop)), "water": down(band(still), "max"),
+            "protect": down(band((pop > 0).astype("float32"))),
+            "marker": down(band(order)),
+            "legend": {"ground": "how many live there",
+                       "water": "still in the zone",
+                       "marker": "told to leave"},
+            "water_unit": "",
+        }
+    if env_id == "Firebreak-v0":
+        core = inner.core
+        return {
+            "ground": down(obs[core.ndvi]), "water": down(obs[0], "max"),
+            "protect": down(obs[core.pop]), "marker": down(obs[0], "max"),
+            "legend": {"ground": "vegetation", "water": "fire",
+                       "marker": "burning"},
+            "water_unit": "",
+        }
+    return {}
+
+
+def _stats(env_id: str, inner, sess) -> "list[dict[str, Any]]":
+    """The three numbers along the top: where you are, what you have spent,
+    and how it is going."""
+    spent, limit = sess["spent"], float(inner.task.cost_limit)
+    horizon = sess["horizon"]
+    unit = {"FloodOperate-v0": "pump-hours", "FloodOperateFine-v0": "pump-hours",
+            "FloodEvacuate-v0": "town-intervals",
+            "Firebreak-v0": "of the patch", "FloodDefend-v0": "dollars"}[env_id]
+    spent_text = (f"${spent:,.0f} of ${limit:,.0f}" if unit == "dollars"
+                  else f"{spent:,.3g} of {limit:,.3g} {unit}")
+    step_word = {"FloodOperate-v0": "Half hour", "FloodOperateFine-v0": "Half hour",
+                 "FloodEvacuate-v0": "Half hour", "Firebreak-v0": "Crew day",
+                 "FloodDefend-v0": "Stretch"}[env_id]
+    return [
+        {"label": "time", "value": f"{step_word} {min(sess['t'] + 1, horizon)} of {horizon}"},
+        {"label": "spent", "value": spent_text,
+         "fraction": round(min(spent / max(limit, 1e-9), 1.5), 4),
+         "over": spent > limit},
+        {"label": "damage", "value": f"{sess['damage']}%"},
+    ]
+
+
+def _damage_pct(env_id: str, total_return: float) -> int:
+    """This run's return on the same scale the ladder uses.
+
+    The ladder's percentages are each policy's return over the WORST row's,
+    which is doing nothing on all five environments. Placing a live run on
+    that scale uses the same denominator, so the comparison is like for like
+    -- with the one caveat the page states: the ladder rows are twelve
+    episodes and this is one.
+    """
+    worst = min(r["return"] for r in BY_ID[env_id].ladder)
+    if worst >= 0:
+        return 0
+    return max(0, min(round(total_return / worst * 100), 999))
+
+
+def _evict() -> None:
+    while len(_SESSIONS) >= MAX_SESSIONS:
+        old = min(_SESSIONS, key=lambda k: _SESSIONS[k]["touched"])
+        try:
+            _SESSIONS[old]["env"].close()
+        except Exception:                                  # noqa: BLE001
+            pass
+        _SESSIONS.pop(old, None)
+
+
+class PlayStart(BaseModel):
+    env_id: str
+    seed: int = Field(0, ge=0, le=2**31 - 1)
+
+
+class PlayStep(BaseModel):
+    session: str
+    #: One label per control group, in the order `/gym/play/start` listed them.
+    choices: "list[str]"
+    #: Run the remaining steps with the same choices.
+    to_end: bool = False
+
+
+def _session_payload(sess, *, done: bool = False) -> "dict[str, Any]":
+    env_id, inner, obs = sess["env_id"], sess["env"].unwrapped, sess["obs"]
+    out = {
+        "session": sess["id"], "env_id": env_id, "t": sess["t"],
+        "horizon": sess["horizon"], "done": done,
+        "scene": _scene(env_id, inner, obs),
+        "stats": _stats(env_id, inner, sess),
+        "cost_limit": float(inner.task.cost_limit),
+        "spent": sess["spent"], "over_budget": sess["spent"] > float(inner.task.cost_limit),
+    }
+    if done:
+        out["result"] = {
+            "damage": sess["damage"],
+            "return": round(sess["return"], 3),
+            "spent": sess["spent"],
+            "feasible": sess["spent"] <= float(inner.task.cost_limit),
+            "note": "One episode, against ladder rows that are each twelve.",
+        }
+    return out
+
+
+@router.post("/play/start")
+def play_start(req: PlayStart) -> "dict[str, Any]":
+    """Begin a hand-driven episode of the real environment."""
+    if req.env_id not in BY_ID:
+        raise HTTPException(404, f"no environment {req.env_id!r}")
+    controls = _control_spec(req.env_id)
+    if not controls:
+        raise HTTPException(400, f"{req.env_id} has no hand controls")
+    import gymnasium as gym
+
+    register_all()
+    _evict()
+    try:
+        env = gym.make(req.env_id)
+    except Exception as exc:                               # noqa: BLE001
+        spec = BY_ID[req.env_id]
+        raise HTTPException(503, f"{req.env_id} needs {spec.needs or 'data'}: "
+                                 f"{type(exc).__name__}") from exc
+    env.action_space.seed(req.seed)
+    obs, _ = env.reset(seed=req.seed)
+    inner = env.unwrapped
+    horizon = getattr(inner.core, "horizon", None) or getattr(inner.core, "K", 12)
+    sess = {"id": uuid.uuid4().hex[:16], "env": env, "env_id": req.env_id,
+            "obs": obs, "t": 0, "spent": 0.0, "return": 0.0, "damage": 0,
+            "horizon": int(horizon), "touched": time.time()}
+    _SESSIONS[sess["id"]] = sess
+    out = _session_payload(sess)
+    out["controls"] = controls
+    out["plain"] = BY_ID[req.env_id].as_dict()["plain"]
+    return out
+
+
+@router.post("/play/step")
+def play_step(req: PlayStep) -> "dict[str, Any]":
+    """Take one decision -- or the rest of them -- and return the real state."""
+    sess = _SESSIONS.get(req.session)
+    if sess is None:
+        raise HTTPException(404, "that run has expired; start another")
+    sess["touched"] = time.time()
+    env, inner = sess["env"], sess["env"].unwrapped
+    groups = _control_spec(sess["env_id"])
+
+    parts, policy = [], None
+    for group, label in zip(groups, req.choices):
+        opt = next((o for o in group["options"] if o["label"] == label), None)
+        if opt is None:
+            raise HTTPException(400, f"{label!r} is not an option for {group['name']}")
+        if opt.get("policy"):
+            policy = opt["policy"]
+        else:
+            parts.extend(opt["action"])
+
+    def action_now() -> "np.ndarray":
+        if policy == "nothing":
+            return np.full(env.action_space.shape, -1.0, dtype=np.float32)
+        if policy == "uniform":
+            return np.asarray(inner.uniform_action(sess["obs"]), dtype=np.float32)
+        if policy == "greedy":
+            return np.asarray(inner.greedy_action(sess["obs"]), dtype=np.float32)
+        return np.asarray(parts, dtype=np.float32)
+
+    done = False
+    for _ in range(sess["horizon"] if req.to_end else 1):
+        obs, reward, terminated, truncated, info = env.step(action_now())
+        sess["obs"] = obs
+        sess["t"] += 1
+        sess["spent"] += float(info["cost"])
+        sess["return"] += float(reward)
+        sess["damage"] = _damage_pct(sess["env_id"], sess["return"])
+        if terminated or truncated:
+            done = True
+            break
+    return _session_payload(sess, done=done)
+
+
+@router.post("/play/stop")
+def play_stop(session: str) -> "dict[str, str]":
+    sess = _SESSIONS.pop(session, None)
+    if sess is not None:
+        try:
+            sess["env"].close()
+        except Exception:                                  # noqa: BLE001
+            pass
+    return {"status": "stopped"}

@@ -382,6 +382,7 @@ class FloodDefendEnv:
         self.idx = None
         self.heights = None
         self.spent = None
+        self.last_depth = None
 
     def reset(self, batch: int = 1, generator: "torch.Generator | None" = None) -> Tensor:
         g = generator
@@ -455,6 +456,9 @@ class FloodDefendEnv:
                 h, qx, qy = solver.step(h, qx, qy, dt)
                 t_now += dt
 
+        # Kept so a viewer can render the flood that was actually solved,
+        # rather than an illustration of one.
+        self.last_depth = h.detach()
         prot = self.protect_bank[self.idx]
         wet = ((h > self.task.wet_m) & prot).sum(dim=(1, 2)).float()
         total = prot.sum(dim=(1, 2)).float().clamp(min=1.0)
