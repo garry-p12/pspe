@@ -279,10 +279,14 @@ SPECS: "tuple[EnvSpec, ...]" = (
                "zero cost. The 2 eval members never cross any threshold, so "
                "the whole family is one point on this split. Only ordering "
                "everyone immediately does anything (0.00) and it spends 48 "
-               "against a limit of 32. With 6 members, 3 of which never flood, "
-               "no partition of this environment supports a claim. The support "
-               "IS the finding, and nothing should be trained here until it is "
-               "larger.",
+               "against a limit of 32. Worse than thin support: WHICH "
+               "degenerate arm the trigger tracks depends on which members are "
+               "in the pool. On the full six it scores ordering-everyone "
+               "exactly; on either half it scores never-ordering exactly. A "
+               "one-dimensional threshold over six members has no stable "
+               "behaviour to report, so no partition of this environment "
+               "supports a claim. The support IS the finding, and nothing "
+               "should be trained here until it is larger.",
         caveat="The routing is real and the flood is simulated. Only 3 of the 6 "
                "ensemble members ever put a zone over 0.10 m, and the deepest "
                "water anywhere in the table is 0.181 m, so a third of episodes "

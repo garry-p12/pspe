@@ -343,21 +343,23 @@ def test_the_three_incumbent_tables_agree():
             f"{sorted(rungs)}")
 
 
-def test_the_evacuation_trigger_collapses_to_two_policies():
-    """The trigger has one degree of freedom and expresses two behaviours.
+@pytest.mark.parametrize("split", ["all", "train", "eval"])
+def test_the_evacuation_trigger_never_does_anything_of_its_own(split):
+    """Every threshold coincides with never-ordering or with ordering everyone.
 
-    At 0.70 and above it scores exactly what never ordering scores, because
-    the signal never crosses it. At 0.55 it scores exactly what ordering
-    everyone immediately scores. That is why the frontier of this family is a
-    step function and why its best feasible point was doing nothing.
+    The trigger has one degree of freedom on one global signal, and on this
+    ensemble it never expresses a third behaviour: whatever threshold it is
+    given, its score equals one of the two degenerate arms exactly. That is
+    why the family's "frontier" is a step function and why its best feasible
+    point was doing nothing.
 
-    The seed is chosen rather than fixed, because a third of episodes here
-    score 0.0 for every policy -- only 3 of the 6 ensemble members ever put a
-    zone over 0.10 m -- and on one of those the collapse is unobservable
-    instead of absent. The test asserts both: that a seed with signal exists,
-    and that a seed without signal exists.
+    Checked on every split, because WHICH it coincides with depends on which
+    members are in the pool -- on the full six it tracks ordering everyone,
+    and on either half it tracks never ordering. A one-dimensional threshold
+    over six members has no stable behaviour to report, which is this
+    environment's real defect and is worse than the thin support alone.
     """
-    env = _make("FloodEvacuate-v0")
+    env = _make("FloodEvacuate-v0", split=split)
     inner = env.unwrapped
     always = lambda _o: np.ones(env.action_space.shape, dtype=np.float32)  # noqa: E731
 
@@ -370,21 +372,22 @@ def test_the_evacuation_trigger_collapses_to_two_policies():
             if truncated:
                 return ret
 
-    live = dead = None
-    for seed in range(12):
-        if total(inner.never_action, seed) != total(always, seed):
-            live = seed if live is None else live
-        else:
-            dead = seed if dead is None else dead
-    assert live is not None, "no seed in 0..11 separates ordering from not"
-    assert dead is not None, (
-        "every seed carried reward signal -- the ensemble used to have 3 dry "
-        "members of 6, so either the table changed or this test is stale")
-
-    never, order_all = total(inner.never_action, live), total(always, live)
-    assert total(lambda o: inner.trigger_action(o, 0.90), live) == pytest.approx(never)
-    assert total(lambda o: inner.trigger_action(o, 0.70), live) == pytest.approx(never)
-    assert total(lambda o: inner.trigger_action(o, 0.55), live) == pytest.approx(order_all)
+    saw_signal = False
+    for seed in range(6):
+        never = total(inner.never_action, seed)
+        order_all = total(always, seed)
+        if never != pytest.approx(order_all):
+            saw_signal = True
+        for threshold in (0.35, 0.55, 0.70, 0.90):
+            got = total(lambda o, t=threshold: inner.trigger_action(o, t), seed)
+            assert got == pytest.approx(never) or got == pytest.approx(order_all), (
+                f"the trigger at {threshold} scored {got:.2f} on seed {seed}, "
+                f"which is neither never ({never:.2f}) nor ordering everyone "
+                f"({order_all:.2f}) -- it has found a third behaviour, and "
+                f"this environment's write-up says it cannot")
+    assert saw_signal, (
+        f"no seed on the {split!r} split separates ordering from not, so this "
+        f"test asserted nothing")
     env.close()
 
 
