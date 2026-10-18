@@ -189,7 +189,8 @@ def score(env, policy, seeds, limit) -> "dict[str, float]":
             "steps": rolls[0][3]}
 
 
-def measure(env_ids, seeds, ladder: bool = False) -> "dict[str, dict]":
+def measure(env_ids, seeds, ladder: bool = False,
+            split: str = "eval") -> "dict[str, dict]":
     import numpy as np
     import gymnasium as gym
 
@@ -199,7 +200,7 @@ def measure(env_ids, seeds, ladder: bool = False) -> "dict[str, dict]":
     out: "dict[str, dict]" = {}
     for env_id in env_ids:
         name = INCUMBENT[env_id]
-        env = gym.make(env_id)
+        env = gym.make(env_id, split=split)
         inner = env.unwrapped
         # Every baseline takes an observation and returns an action, whether
         # or not it reads the observation, so no special-casing here.
@@ -315,6 +316,11 @@ def main() -> int:
     ap.add_argument("--seeds", type=int, default=12,
                     help="episodes per policy, seeded 0..n-1. The catalog's "
                          "numbers are 12; --check only means anything at 12.")
+    ap.add_argument("--split", default="eval", choices=("train", "eval", "all"),
+                    help="which half of each scenario pool to measure on. "
+                         "`eval` by default, because a number worth reporting "
+                         "is one from scenarios nothing was fitted to, and "
+                         "that is what the catalog records.")
     ap.add_argument("--check", action="store_true",
                     help="compare against the catalog and exit nonzero on drift")
     ap.add_argument("--ladder", action="store_true",
@@ -331,6 +337,11 @@ def main() -> int:
     if unknown:
         print(f"unknown environment(s): {', '.join(unknown)}", file=sys.stderr)
         return 2
+    if args.check and args.split != "eval":
+        print("--check compares against numbers measured on the eval split; "
+              f"--split {args.split} would compare different quantities.",
+              file=sys.stderr)
+        return 2
     if args.check and args.seeds != 12:
         print(f"--check compares against numbers measured on 12 seeds; "
               f"--seeds {args.seeds} would compare different quantities.",
@@ -338,7 +349,7 @@ def main() -> int:
         return 2
 
     results = measure(env_ids, list(range(args.seeds)),
-                      ladder=args.ladder)
+                      ladder=args.ladder, split=args.split)
     report(results)
     if args.json:
         Path(args.json).write_text(json.dumps(results, indent=1))

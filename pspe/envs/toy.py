@@ -45,6 +45,12 @@ class CMDPToyEnv(gym.Env):
 
     def __init__(self, cost_limit: float = 0.4, horizon: int = 1,
                  reward_peak: float = 0.8, grid: int = 8,
+                 #: Accepted and ignored. There is no scenario pool to hold
+                 #: out: the observation is a constant and the optimum is a
+                 #: closed form, so train and eval are necessarily the same
+                 #: problem. Taking the argument anyway means a caller can
+                 #: sweep every id without remembering which have pools.
+                 split: str = "train",
                  device: "torch.device | str" = "cpu",
                  seed: "int | None" = None) -> None:
         super().__init__()
@@ -63,6 +69,7 @@ class CMDPToyEnv(gym.Env):
         self.action_space = spaces.Box(-1.0, 1.0, shape=(self._core.action_dim,),
                                        dtype=np.float32)
         self.episode_cost = 0.0
+        self.split = split
 
     # -- the answer --------------------------------------------------------- #
     @property

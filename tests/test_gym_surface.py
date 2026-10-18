@@ -60,6 +60,57 @@ def test_all_four_ids_register():
     assert register_all() == ids, "registration must be idempotent"
 
 
+def test_train_and_eval_draw_from_disjoint_scenarios():
+    """The property that makes a number worth reporting.
+
+    Without this, a policy is scored on the scenarios it was fitted to and
+    nothing anywhere notices. `FloodBuyout-v0` is the standing example: its
+    headline claim held over the whole pool and vanished on the held-out
+    windows, and the difference was invisible until the split existed.
+    """
+    from pspe.envs.splits import SPLITS, split_indices       # noqa: PLC0415
+
+    for n in (6, 12, 33, 35, 64, 1689):
+        train = set(split_indices(n, "train").tolist())
+        held = set(split_indices(n, "eval").tolist())
+        assert not (train & held), f"splits overlap at n={n}"
+        assert train | held == set(range(n)), f"splits lose scenarios at n={n}"
+        assert train and held, f"a split is empty at n={n}"
+        # Stable across calls, or two runs reporting "eval" report different
+        # things.
+        assert split_indices(n, "eval").tolist() == sorted(held)
+    assert set(SPLITS) == {"train", "eval", "all"}
+
+
+@pytest.mark.parametrize("env_id", list(INCUMBENTS))
+def test_every_environment_accepts_a_split(env_id):
+    """Including the two with no pool, which take it and say why it is moot."""
+    for split in ("train", "eval"):
+        env = _make(env_id, split=split)
+        assert getattr(env.unwrapped, "split", None) == split or \
+            getattr(getattr(env.unwrapped, "core", None), "split", None) == split
+        env.close()
+
+
+@pytest.mark.parametrize("env_id", list(INCUMBENTS))
+def test_the_budget_does_not_depend_on_the_split(env_id):
+    """Train and eval have to be the SAME problem.
+
+    Three budgets here are derived from the ground -- mean bank length, a
+    share of at-risk homes, the median time a crossing is wet -- and deriving
+    them after the split gave train and eval different limits. A policy fitted
+    under one constraint would then have been reported under another, and the
+    catalog would have recorded whichever split it happened to measure.
+    """
+    limits = []
+    for split in ("train", "eval", "all"):
+        env = _make(env_id, split=split)
+        limits.append(float(env.unwrapped.task.cost_limit))
+        env.close()
+    assert max(limits) - min(limits) <= abs(limits[0]) * 1e-6, (
+        f"{env_id} has a different budget per split: {limits}")
+
+
 def test_the_catalog_describes_every_registered_id_and_nothing_else():
     assert set(BY_ID) == set(INCUMBENTS)
     for spec in SPECS:
@@ -72,6 +123,10 @@ def test_the_catalog_describes_every_registered_id_and_nothing_else():
         assert spec.status.strip(), f"{spec.env_id} reports no status"
         assert spec.dynamics in {"physics", "learned"}
         assert spec.scores, f"{spec.env_id} records no measured scores"
+        assert spec.split == "eval", (
+            f"{spec.env_id} records numbers from the {spec.split!r} split; the "
+            f"catalog reports held-out numbers")
+        assert spec.pool.strip(), f"{spec.env_id} does not say what its pool is"
         for arm in ("random", "incumbent"):
             s = spec.scores[arm]
             assert s["of"] > 0 and 0 <= s["feasible"] <= s["of"]

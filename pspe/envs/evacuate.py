@@ -469,9 +469,22 @@ class EvacuateControlEnv(gym.Env):
     def __init__(self, table: EgressTable, *,
                  budget: float = 32.0,
                  reward_scale: float = 1.0,
+                 split: str = "train",
                  device: "torch.device | str" = "cpu",
                  seed: "int | None" = None) -> None:
         super().__init__()
+        # Six members, three of which never flood anything. Partitioning that
+        # is arithmetic rather than a generalisation test, and
+        # `splits.SPLIT_NOTES` says so -- but a policy fitted on four members
+        # and scored on two is still a better claim than one fitted and scored
+        # on all six.
+        from dataclasses import replace as _replace          # noqa: PLC0415
+
+        from .splits import split_indices                    # noqa: PLC0415
+        keep = split_indices(int(table.ok.shape[0]), split)
+        table = _replace(table, ok=table.ok[keep], minutes=table.minutes[keep],
+                         exposure=table.exposure[keep])
+        self.split = split
         self.device = torch.device(device)
         self._generator = torch.Generator().manual_seed(0 if seed is None else seed)
         self._core = FloodEvacuateEnv(
@@ -613,8 +626,9 @@ def register_envs() -> None:
              max_episode_steps=None)
 
 
-def _make_default(budget: float = 32.0, **kw) -> EvacuateControlEnv:
+def _make_default(budget: float = 32.0, split: str = "train",
+                  **kw) -> EvacuateControlEnv:
     """Entry point for `gymnasium.make`, with the Onion Creek egress table."""
     from baselines.evac import table as _t
 
-    return EvacuateControlEnv(_t.load(), budget=budget, **kw)
+    return EvacuateControlEnv(_t.load(), budget=budget, split=split, **kw)

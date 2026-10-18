@@ -48,6 +48,7 @@ import torch.nn.functional as F
 from gymnasium import spaces
 
 from ..simulate.flood import FloodConfig, FloodSolver
+from .splits import split_indices
 
 Tensor = torch.Tensor
 ROOT = Path(__file__).resolve().parents[2]
@@ -215,6 +216,31 @@ def onion_creek_windows(
 # --------------------------------------------------------------------------- #
 # the task
 # --------------------------------------------------------------------------- #
+def _bank_bankline(bank, setback: int, segments: int, device) -> Tensor:
+    """Segment masks for every window in a bank, split or not.
+
+    Used only to size the budget from the full pool; the environment's own
+    `seg_mask` is built from its split.
+    """
+    riv = bank["river"].to(device).float().unsqueeze(1)
+    k = 2 * setback + 1
+    near = F.max_pool2d(riv, k, stride=1, padding=setback)[:, 0] > 0
+    line = near & bank["protect"].to(device)
+    n, h, w = line.shape
+    seg = torch.zeros(n, segments, h, w, dtype=torch.bool, device=device)
+    for i in range(n):
+        rc = line[i].nonzero(as_tuple=False)
+        if rc.shape[0] < segments:
+            continue
+        centred = rc.float() - rc.float().mean(dim=0, keepdim=True)
+        axis = torch.linalg.svd(centred, full_matrices=False)[2][0]
+        idx = rc[(centred @ axis).argsort()]
+        for j, part in enumerate(torch.tensor_split(idx, segments)):
+            if part.numel():
+                seg[i, j, part[:, 0], part[:, 1]] = True
+    return seg
+
+
 @dataclass
 class FloodDefendTask:
     """The constraint, in money.
@@ -269,12 +295,19 @@ class FloodDefendEnv:
                  peak_stage_m: "tuple[float, float]" = (2.0, 5.0),
                  flood_quantile: float = 0.35,
                  setback: int = 2,
+                 #: Which half of the scenario pool this environment draws
+                 #: from. `train` by default: fitting something is the common
+                 #: case, and asking for `eval` should be a deliberate act.
+                 split: str = "train",
                  device: "torch.device | str" = "cpu") -> None:
         self.task = task or FloodDefendTask()
         self.device = torch.device(device)
-        self.z_bank = bank["z"].to(self.device)
-        self.river_bank = bank["river"].to(self.device)
-        self.protect_bank = bank["protect"].to(self.device)
+        keep = split_indices(int(bank["z"].shape[0]), split)
+        self.split = split
+        self._full_bank = bank
+        self.z_bank = bank["z"][keep].to(self.device)
+        self.river_bank = bank["river"][keep].to(self.device)
+        self.protect_bank = bank["protect"][keep].to(self.device)
         self.dx = float(bank["dx"])
         self.n, self.h_cells, self.w = self.z_bank.shape
         self.K = segments
@@ -365,10 +398,17 @@ class FloodDefendEnv:
         self.stage_ref = torch.stack(ref).clamp(min=0.25)             # (N,)
 
         if self.task.cost_limit <= 0.0:
-            # Mean bank length over the windows that survived, at the design
-            # height. Stored back on the task so everything downstream -- the
-            # gym wrapper, `safe_rl`, the portal -- reads one number.
-            lengths = self.seg_mask.sum(dim=(1, 2, 3)).float() * self.dx
+            # Mean bank length at the design height. Stored back on the task so
+            # everything downstream -- the gym wrapper, `safe_rl`, the portal --
+            # reads one number.
+            #
+            # Derived from the WHOLE pool, before the split. A budget
+            # computed per split makes train and eval different problems,
+            # so a policy fitted under one constraint would be reported
+            # under another -- and the catalog would record whichever
+            # split it happened to measure.
+            full = _bank_bankline(self._full_bank, setback, self.K, self.device)
+            lengths = full.sum(dim=(1, 2, 3)).float() * self.dx
             self.task.cost_limit = float(
                 earth_levee_usd(lengths.mean(), self.task.design_height_m))
 
@@ -558,16 +598,17 @@ class FloodDefendControlEnv(gym.Env):
 
     def __init__(self, bank: "dict[str, Tensor] | None" = None, *,
                  budget: float = 0.0, segments: int = 8, flood_steps: int = 16,
-                 grid: int = 48, dx: float = 60.0,
+                 grid: int = 48, dx: float = 60.0, split: str = "train",
                  device: "torch.device | str" = "cpu",
                  seed: "int | None" = None) -> None:
         super().__init__()
         self.device = torch.device(device)
         self._generator = torch.Generator().manual_seed(0 if seed is None else seed)
         self._core = FloodDefendEnv(
-            bank if bank is not None else onion_creek_windows(grid=grid, dx=dx),
+            bank if bank is not None else onion_creek_windows(
+                grid=grid, dx=dx, stride=10),
             FloodDefendTask(cost_limit=budget), segments=segments,
-            flood_steps=flood_steps, device=self.device)
+            flood_steps=flood_steps, split=split, device=self.device)
         c, h, w = self._core.obs_shape
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(c, h, w),
                                             dtype=np.float32)

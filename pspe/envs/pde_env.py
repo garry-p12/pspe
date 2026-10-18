@@ -115,6 +115,12 @@ class PDEControlEnv(gym.Env):
         horizon: int = 16,
         n_actuators: int = 9,
         dynamics: Dynamics = "truth",
+        #: Accepted and recorded, but these testbeds have no finite pool to
+        #: partition: `initial_condition` draws a fresh field from the
+        #: generator every episode, so there is nothing for a policy to
+        #: memorise in the way it can memorise 35 windows of real terrain.
+        #: The argument exists so every id in this gym takes the same one.
+        split: str = "train",
         surrogate: nn.Module | None = None,
         task: TaskSpec | None = None,
         device: torch.device | str = "cpu",
@@ -123,6 +129,7 @@ class PDEControlEnv(gym.Env):
         super().__init__()
         self.device = torch.device(device)
         self._testbed_name = testbed
+        self.split = split
         self._testbed = make_testbed(testbed, grid=grid, device=self.device)
         self._task = task or make_task(testbed)
         self._basis = GaussianActuatorBasis(n_actuators, grid, device=self.device,
@@ -249,7 +256,7 @@ def register_envs() -> None:
 
 
 def _make_default(testbed: str = "dar", grid: int = 32, horizon: int = 8,
-                  **kw) -> "PDEControlEnv":
+                  split: str = "train", **kw) -> "PDEControlEnv":
     """Entry point for `gymnasium.make`.
 
     Grid 32 and horizon 8 rather than the research default of 64 and 16: this
@@ -257,7 +264,8 @@ def _make_default(testbed: str = "dar", grid: int = 32, horizon: int = 8,
     a minute is one nobody runs twice. `make_env` still builds the research
     configuration.
     """
-    return PDEControlEnv(testbed=testbed, grid=grid, horizon=horizon, **kw)
+    return PDEControlEnv(testbed=testbed, grid=grid, horizon=horizon,
+                         split=split, **kw)
 
 
 def make_env(

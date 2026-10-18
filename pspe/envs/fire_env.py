@@ -64,13 +64,24 @@ class FireEnv:
 
     def __init__(self, surrogate: nn.Module, data: dict[str, np.ndarray],
                  task: FireTask | None = None, *, grid: int = 64, patches: int = 4,
-                 horizon: int = 1, device: torch.device | str = "cpu") -> None:
+                 horizon: int = 1, split: str = "train",
+                 device: torch.device | str = "cpu") -> None:
         self.surrogate = surrogate.eval()
         for p in self.surrogate.parameters():
             p.requires_grad_(False)
         self.task = task or FireTask()
         self.grid, self.patches, self.horizon = grid, patches, horizon
         self.device = torch.device(device)
+
+        # Hold a quarter of the fire days back. The spread model was fitted on
+        # a different split of NDWS entirely; this one is about the POLICY,
+        # which would otherwise be scored on the same 1,689 days it was
+        # fitted to.
+        from .splits import split_indices                   # noqa: PLC0415
+        keep = split_indices(int(data["states"].shape[0]), split)
+        data = {k: (v[keep] if hasattr(v, "shape") and v.shape[:1] ==
+                    data["states"].shape[:1] else v) for k, v in data.items()}
+        self.split = split
 
         prev = data["states"][:, 0].astype(np.float32)            # (N, 1, H, W)
         prev = np.where(prev >= 0, prev, 0.0).astype(np.float32)
@@ -204,7 +215,8 @@ class FirebreakEnv(gym.Env):
 
     def __init__(self, surrogate: nn.Module, data: "dict[str, np.ndarray]", *,
                  budget: float = 0.03, horizon: int = 3, grid: int = 64,
-                 patches: int = 4, device: "torch.device | str" = "cpu",
+                 patches: int = 4, split: str = "train",
+                 device: "torch.device | str" = "cpu",
                  seed: "int | None" = None) -> None:
         super().__init__()
         self.device = torch.device(device)
@@ -212,7 +224,7 @@ class FirebreakEnv(gym.Env):
         self._core = FireEnv(surrogate, data,
                              FireTask(cost_limit=budget),
                              grid=grid, patches=patches, horizon=horizon,
-                             device=self.device)
+                             split=split, device=self.device)
         c, h, w = self._core.obs_shape
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(c, h, w),
                                             dtype=np.float32)
@@ -350,7 +362,8 @@ def register_envs() -> None:
              max_episode_steps=None)
 
 
-def _make_default(budget: float = 0.03, horizon: int = 3, **kw) -> FirebreakEnv:
+def _make_default(budget: float = 0.03, horizon: int = 3,
+                  split: str = "train", **kw) -> FirebreakEnv:
     """Entry point for `gymnasium.make`, on the held-out NDWS records."""
     import sys
     from pathlib import Path
@@ -359,4 +372,4 @@ def _make_default(budget: float = 0.03, horizon: int = 3, **kw) -> FirebreakEnv:
     from service.fire import _model, _records          # noqa: PLC0415
 
     return FirebreakEnv(_model(), _records(), budget=budget,
-                        horizon=horizon, **kw)
+                        horizon=horizon, split=split, **kw)

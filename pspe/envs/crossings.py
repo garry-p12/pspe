@@ -179,7 +179,8 @@ class FloodCrossingEnv(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(self, task: "FloodCrossingTask | None" = None, *,
-                 budget: float = 0.0, device: "torch.device | str" = "cpu",
+                 budget: float = 0.0, split: str = "train",
+                 device: "torch.device | str" = "cpu",
                  seed: "int | None" = None) -> None:
         super().__init__()
         self.task = task or FloodCrossingTask()
@@ -195,13 +196,28 @@ class FloodCrossingEnv(gym.Env):
                 if depth[i].max() > (task.wet_m if task else 0.15)]
         if not live:
             raise ValueError("no crossing in the library ever goes under water")
+        # Split BY SITE, not by (site, flood size). An eval episode is then a
+        # crossing the policy has never seen, which is the generalisation that
+        # matters for a rule meant to work at the next crossing too. Holding
+        # out flood sizes at a crossing it HAS seen would test something much
+        # easier and call it the same word.
+        from .splits import split_indices                    # noqa: PLC0415
+        live = [live[i] for i in split_indices(len(live), split)]
+        self.split = split
         self.depth = torch.from_numpy(depth[live])             # (S, G, T)
         self.names = [str(lib["names"][i]) for i in live]
         self.dry_names = [str(lib["names"][i]) for i in range(depth.shape[0])
                           if i not in live]
         if self.task.cost_limit <= 0.0:
-            wet = (self.depth > self.task.wet_m).sum(dim=-1).float()
-            self.task.cost_limit = float(wet.median())
+        # Derived from the WHOLE pool, before the split. A budget
+        # computed per split makes train and eval different problems,
+        # so a policy fitted under one constraint would be reported
+        # under another -- and the catalog would record whichever
+        # split it happened to measure.
+            allwet = (torch.from_numpy(depth[[i for i in range(depth.shape[0])
+                                               if depth[i].max() > self.task.wet_m]])
+                      > self.task.wet_m).sum(dim=-1).float()
+            self.task.cost_limit = float(allwet.median())
         if budget > 0:
             self.task.cost_limit = budget
         self.n_sites, self.n_stages, self.slots = self.depth.shape

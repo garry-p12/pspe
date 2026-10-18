@@ -56,9 +56,11 @@ class FireDispatchEnv:
     def __init__(self, surrogate, data: "dict[str, np.ndarray]",
                  task: "FireDispatchTask | None" = None, *,
                  fires: int = 4, horizon: int = 3, grid: int = 64,
-                 patches: int = 4, device: "torch.device | str" = "cpu") -> None:
+                 patches: int = 4, split: str = "train",
+                 device: "torch.device | str" = "cpu") -> None:
         self.task = task or FireDispatchTask()
         self.device = torch.device(device)
+        self.split = split
         self.fires = fires
         self.horizon = horizon
         # One `FireEnv` whose BATCH is this episode's set of fires. The fires
@@ -67,7 +69,7 @@ class FireDispatchEnv:
                              FireTask(cost_limit=task.cost_limit if task else 0.03,
                                       reward_scale=1.0),
                              grid=grid, patches=patches, horizon=horizon,
-                             device=self.device)
+                             split=split, device=self.device)
         self.grid, self.patches = grid, patches
         self.obs_shape = (self.fires + 1, grid, grid)
         self.action_dim = fires
@@ -154,7 +156,7 @@ class FireDispatchControlEnv(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(self, surrogate=None, data=None, *, budget: float = 0.03,
-                 fires: int = 4, horizon: int = 3,
+                 fires: int = 4, horizon: int = 3, split: str = "train",
                  device: "torch.device | str" = "cpu",
                  seed: "int | None" = None) -> None:
         super().__init__()
@@ -167,7 +169,8 @@ class FireDispatchControlEnv(gym.Env):
             from service.fire import _model, _records            # noqa: PLC0415
             surrogate, data = _model(), _records()
         self._core = FireDispatchEnv(surrogate, data, FireDispatchTask(cost_limit=budget),
-                                     fires=fires, horizon=horizon, device=self.device)
+                                     fires=fires, horizon=horizon, split=split,
+                                     device=self.device)
         c, h, w = self._core.obs_shape
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(c, h, w),
                                             dtype=np.float32)

@@ -721,6 +721,11 @@ class FloodControlEnv(gym.Env):
         control_minutes: float = 30.0,
         budget_pump_hours: float = 2.0,
         n_terrains: int = 64,
+        #: Which half of the terrain bank to draw from. `train` by default.
+        #: The bank is generated rather than observed, so a policy cannot
+        #: memorise a real place here -- but it can certainly memorise 64
+        #: generated ones, which is the same failure wearing a different hat.
+        split: str = "train",
         surrogate: object | None = None,
         device: torch.device | str = "cpu",
         seed: int | None = None,
@@ -732,6 +737,10 @@ class FloodControlEnv(gym.Env):
                                 generator=torch.Generator().manual_seed(
                                     0 if seed is None else seed),
                                 device=self.device)
+        from .splits import split_indices                   # noqa: PLC0415
+        keep = split_indices(int(bank["z"].shape[0]), split)
+        self.split = split
+        bank = {**bank, "z": bank["z"][torch.as_tensor(keep)]}
         self._core = FloodOperateEnv(
             bank, task=FloodOperateTask(cost_limit=budget_pump_hours),
             horizon=horizon, control_minutes=control_minutes, dx=dx,

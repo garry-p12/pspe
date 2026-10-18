@@ -44,6 +44,7 @@ from gymnasium import spaces
 
 from ..simulate.flood import FloodConfig, FloodSolver
 from .defend import _fema_masks
+from .splits import split_indices
 
 Tensor = torch.Tensor
 ROOT = Path(__file__).resolve().parents[2]
@@ -200,13 +201,16 @@ class FloodBuyoutEnv:
                  #: Calibrated by sweep: at 2-5 m almost nothing floods and
                  #: at 8-14 m the policies separate by a factor of four.
                  peak_stage_m: "tuple[float, float]" = (8.0, 14.0),
+                 split: str = "train",
                  device: "torch.device | str" = "cpu") -> None:
         self.task = task or FloodBuyoutTask()
         self.device = torch.device(device)
-        self.z_bank = bank["z"].to(self.device)
-        self.river_bank = bank["river"].to(self.device)
-        self.risk_bank = bank["protect"].to(self.device)
-        self.homes_bank = bank["homes"].to(self.device)
+        keep = split_indices(int(bank["z"].shape[0]), split)
+        self.split = split
+        self.z_bank = bank["z"][keep].to(self.device)
+        self.river_bank = bank["river"][keep].to(self.device)
+        self.risk_bank = bank["protect"][keep].to(self.device)
+        self.homes_bank = bank["homes"][keep].to(self.device)
         self.dx = float(bank["dx"])
         self.n, self.h_cells, self.w = self.z_bank.shape
         self.K = zones
@@ -230,9 +234,15 @@ class FloodBuyoutEnv:
                 self.zone[k, rs[i]:rs[i + 1], cs[j]:cs[j + 1]] = True
                 k += 1
 
-        at_risk = (self.homes_bank * self.risk_bank.float()).sum(dim=(1, 2))
         if self.task.cost_limit <= 0.0:
-            self.task.cost_limit = float(at_risk.mean() * self.task.share)
+        # Derived from the WHOLE pool, before the split. A budget
+        # computed per split makes train and eval different problems,
+        # so a policy fitted under one constraint would be reported
+        # under another -- and the catalog would record whichever
+        # split it happened to measure.
+            full = (bank["homes"].to(self.device)
+                    * bank["protect"].to(self.device).float()).sum(dim=(1, 2))
+            self.task.cost_limit = float(full.mean() * self.task.share)
         self.obs_shape = (5, self.h_cells, self.w)
         self.action_dim = 1
         self.t = 0
@@ -349,7 +359,7 @@ class FloodBuyoutControlEnv(gym.Env):
 
     def __init__(self, bank: "dict[str, Tensor] | None" = None, *,
                  budget: float = 0.0, zones: int = 9, flood_steps: int = 16,
-                 grid: int = 40, dx: float = 60.0,
+                 grid: int = 40, dx: float = 60.0, split: str = "train",
                  device: "torch.device | str" = "cpu",
                  seed: "int | None" = None) -> None:
         super().__init__()
@@ -358,7 +368,7 @@ class FloodBuyoutControlEnv(gym.Env):
         self._core = FloodBuyoutEnv(
             bank if bank is not None else austin_windows(grid=grid, dx=dx, stride=4),
             FloodBuyoutTask(cost_limit=budget), zones=zones,
-            flood_steps=flood_steps, device=self.device)
+            flood_steps=flood_steps, split=split, device=self.device)
         c, h, w = self._core.obs_shape
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(c, h, w),
                                             dtype=np.float32)
