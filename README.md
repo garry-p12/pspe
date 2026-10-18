@@ -59,6 +59,23 @@ env = gym.make("FloodOperate-v0")   # or FloodOperateFine-v0, FloodEvacuate-v0, 
 | `PDEControl-swe-v0` | the same, shallow water | solved RK4 | 0.192 | *nothing is feasible every run* |
 | `PDEControl-rdf-v0` | the same, FitzHugh–Nagumo | solved RK4 | 3.26 | `proportional_action`, −4.45 |
 
+Every figure in that table is measured on the **held-out** quarter of each
+environment's scenario pool. `gymnasium.make(id)` gives the training pool;
+`split="eval"` asks for the rest. The partition is fixed under a constant
+seed in `pspe/envs/splits.py`, so two runs reporting an eval number report it
+on the same scenarios.
+
+That split is worth the trouble. Of the three headline comparisons this gym
+makes, two survive being held out and one does not:
+
+| claim | over the whole pool | held out |
+|---|---|---|
+| `FloodDefend`: uniform − lowest-first | +0.21, t = 2.00 | +0.59, t = 4.58 |
+| `Firebreak`: greedy − uniform | +0.79, t = 5.78 | +0.90, t = 4.73 |
+| `FloodBuyout`: even − lowest-first | +7.57, t = 2.69 | **+0.05, t = 0.68** |
+
+Before the split existed all three read the same way.
+
 **Start with `CMDPToy-v0`.** Its constrained optimum is known in closed form
 — `min(peak, limit) = 0.400`, multiplier `0.800`, both exposed on the
 environment — so an algorithm that does not reach it is broken, and you learn
