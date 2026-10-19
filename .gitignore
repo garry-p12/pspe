@@ -31,6 +31,10 @@ data/austin_onion/*.geojson
 # the FileNotFoundError each environment raises when they are missing.
 data/austin_onion_bld/*.geojson
 data/austin_crossings/*.geojson
+# NLCD land cover: a 160x160 crop of the MRLC 2021 raster over the Austin box,
+# 16 KB, kept because `FloodGreenInfra-v0` and `HeatRetrofit-v0` both need it
+# and re-cutting it needs either Vista or a WMS round trip.
+!data/nlcd/*.tif
 
 # The built default study: regenerate with scripts/build_austin_study.py.
 portal/public/data/austin/study.json

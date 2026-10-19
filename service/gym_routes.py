@@ -61,6 +61,8 @@ INCUMBENT = {
     'FireDispatch-v0': 'biggest_fire_action',
     'FloodBuyout-v0': 'even_action',
     'FloodCrossing-v0': 'budgeted_react_action',
+    'FloodGreenInfra-v0': 'most_paved_action',
+    'HeatRetrofit-v0': 'exposure_first_action',
 }
 
 #: One episode of `FloodEvacuate-v0` is 48 steps of real routing lookups and
@@ -315,6 +317,18 @@ def _control_spec(env_id: str) -> "list[dict[str, Any]]":
             {"label": "the biggest fire", "action": None, "policy": "biggest_fire_action"},
             {"label": "where the people are", "action": None,
              "policy": "most_people_action"}], "default": 2}]
+    if env_id == "HeatRetrofit-v0":
+        return [{"name": "Cool this block", "options": [
+            {"label": "none", "action": [-1.0]},
+            {"label": "a quarter", "action": [-0.5]},
+            {"label": "half", "action": [0.0]},
+            {"label": "all of it", "action": [1.0]}], "default": 0}]
+    if env_id == "FloodGreenInfra-v0":
+        return [{"name": "Retrofit here", "options": [
+            {"label": "none", "action": [-1.0]},
+            {"label": "a quarter", "action": [-0.5]},
+            {"label": "half", "action": [0.0]},
+            {"label": "all of it", "action": [1.0]}], "default": 0}]
     if env_id == "FloodBuyout-v0":
         return [{"name": "Buy here", "options": [
             {"label": "none", "action": [-1.0]},
@@ -467,6 +481,28 @@ def _scene(env_id: str, inner, obs: "np.ndarray") -> "dict[str, Any]":
                        "marker": "houses"},
             "water_unit": "m", "water_scale": 4.0,
         }
+    if env_id == "HeatRetrofit-v0":
+        core = inner.core
+        hot = (core.last_exposure[0].cpu().numpy()
+               if core.last_exposure is not None else obs[0])
+        return {
+            "ground": down(obs[1]), "water": down(hot, "max"),
+            "protect": down(obs[2]), "marker": down(obs[3]),
+            "legend": {"ground": "where people are",
+                       "water": "hours over 35 C", "marker": "cooled"},
+            "water_unit": "", "water_scale": 1.0,
+        }
+    if env_id == "FloodGreenInfra-v0":
+        core = inner.core
+        depth = (core.last_depth[0].cpu().numpy() if core.last_depth is not None
+                 else np.zeros_like(obs[0]))
+        return {
+            "ground": down(obs[0]), "water": down(depth, "max"),
+            "protect": down(obs[1]), "marker": down(obs[3]),
+            "legend": {"ground": "ground", "water": "water",
+                       "marker": "retrofitted"},
+            "water_unit": "m", "water_scale": 1.0,
+        }
     if env_id == "FloodCrossing-v0":
         # The real ground around this crossing, from the cached 3DEP tile the
         # depth library was solved on. Schematic would have been easier and
@@ -543,14 +579,18 @@ def _stats(env_id: str, inner, sess) -> "list[dict[str, Any]]":
             "Firebreak-v0": "of the patch", "FloodDefend-v0": "dollars",
             "FireDispatch-v0": "of a patch", "FloodBuyout-v0": "houses",
             "FloodCrossing-v0": "closed half-hours",
-            "CMDPToy-v0": "units"}.get(env_id, "units of effort")
+            "CMDPToy-v0": "units",
+            "FloodGreenInfra-v0": "m2 retrofitted",
+            "HeatRetrofit-v0": "m2 cooled"}.get(env_id, "units of effort")
     spent_text = (f"${spent:,.0f} of ${limit:,.0f}" if unit == "dollars"
                   else f"{spent:,.3g} of {limit:,.3g} {unit}")
     step_word = {"FloodOperate-v0": "Half hour", "FloodOperateFine-v0": "Half hour",
                  "FloodEvacuate-v0": "Half hour", "Firebreak-v0": "Crew day",
                  "FloodDefend-v0": "Stretch", "FireDispatch-v0": "Crew day",
                  "FloodBuyout-v0": "Block", "FloodCrossing-v0": "Half hour",
-                 "CMDPToy-v0": "Step"}.get(env_id, "Turn")
+                 "CMDPToy-v0": "Step",
+                 "FloodGreenInfra-v0": "Catchment",
+                 "HeatRetrofit-v0": "Block"}.get(env_id, "Turn")
     return [
         {"label": "time", "value": f"{step_word} {min(sess['t'] + 1, horizon)} of {horizon}"},
         {"label": "spent", "value": spent_text,

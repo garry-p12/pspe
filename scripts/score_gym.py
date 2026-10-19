@@ -49,6 +49,8 @@ INCUMBENT = {
     'FireDispatch-v0': 'biggest_fire_action',
     'FloodBuyout-v0': 'even_action',
     'FloodCrossing-v0': 'budgeted_react_action',
+    'FloodGreenInfra-v0': 'most_paved_action',
+    'HeatRetrofit-v0': 'exposure_first_action',
 }
 
 #: Every policy in the catalog's ladder, keyed the same way, so `--ladder
@@ -96,6 +98,13 @@ LADDER_POLICIES.update({
     'PDEControl-rdf-v0': {'nothing': 'zero_action', 'proportional': 'proportional_action'},
     'FireDispatch-v0': {'nothing': -1.0, 'even': 'even_action', 'biggest': 'biggest_fire_action', 'most_people': 'most_people_action'},
     'FloodBuyout-v0': {'nothing': -1.0, 'even': 'even_action', 'lowest_first': 'lowest_first_action', 'flat_out': 1.0},
+    "HeatRetrofit-v0": {"nothing": -1.0, "even": "even_action",
+                        "hottest": "hottest_action",
+                        "people": "most_people_action",
+                        "both": "exposure_first_action", "flat_out": 1.0},
+    "FloodGreenInfra-v0": {"nothing": -1.0, "even": "even_action",
+                           "uphill": "highest_first_action",
+                           "paved": "most_paved_action", "flat_out": 1.0},
     "FloodCrossing-v0": {"never": "never_close_action",
                          "budgeted": "budgeted_react_action",
                          "ration": "ration_action",

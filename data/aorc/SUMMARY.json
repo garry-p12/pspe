@@ -1,0 +1,104 @@
+{
+ "box": {
+  "west": -97.9,
+  "south": 30.05,
+  "east": -97.6,
+  "north": 30.35
+ },
+ "variable": "APCP_surface",
+ "units": "mm per hour",
+ "source": "NOAA AORC v1.1 via s3://noaa-nws-aorc-v1-1-1km, anonymous, public domain",
+ "storms": [
+  {
+   "storm": "Halloween 2013",
+   "file": "aorc_halloween_2013.npz",
+   "grid": [
+    72,
+    36,
+    36
+   ],
+   "total_mm_mean": 135.3,
+   "total_mm_max": 184.8,
+   "peak_hour_mm": 34.3,
+   "peak_cell_mm_h": 59.8
+  },
+  {
+   "storm": "Memorial Day 2015",
+   "file": "aorc_memorial_day_2015.npz",
+   "grid": [
+    72,
+    36,
+    36
+   ],
+   "total_mm_mean": 133.2,
+   "total_mm_max": 196.2,
+   "peak_hour_mm": 32.9,
+   "peak_cell_mm_h": 71.9
+  },
+  {
+   "storm": "October 2015",
+   "file": "aorc_october_2015.npz",
+   "grid": [
+    72,
+    36,
+    36
+   ],
+   "total_mm_mean": 244.9,
+   "total_mm_max": 330.6,
+   "peak_hour_mm": 64.9,
+   "peak_cell_mm_h": 103.6
+  },
+  {
+   "storm": "May 2016",
+   "file": "aorc_may_2016.npz",
+   "grid": [
+    72,
+    36,
+    36
+   ],
+   "total_mm_mean": 104.2,
+   "total_mm_max": 231.7,
+   "peak_hour_mm": 28.7,
+   "peak_cell_mm_h": 108.6
+  },
+  {
+   "storm": "October 2018",
+   "file": "aorc_october_2018.npz",
+   "grid": [
+    72,
+    36,
+    36
+   ],
+   "total_mm_mean": 72.5,
+   "total_mm_max": 100.6,
+   "peak_hour_mm": 9.6,
+   "peak_cell_mm_h": 26.5
+  },
+  {
+   "storm": "May 2019",
+   "file": "aorc_may_2019.npz",
+   "grid": [
+    72,
+    36,
+    36
+   ],
+   "total_mm_mean": 71.8,
+   "total_mm_max": 114.7,
+   "peak_hour_mm": 27.8,
+   "peak_cell_mm_h": 55.3
+  },
+  {
+   "storm": "August 2022",
+   "file": "aorc_august_2022.npz",
+   "grid": [
+    72,
+    36,
+    36
+   ],
+   "total_mm_mean": 47.8,
+   "total_mm_max": 100.0,
+   "peak_hour_mm": 27.8,
+   "peak_cell_mm_h": 61.5
+  }
+ ]
+}

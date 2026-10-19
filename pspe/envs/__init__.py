@@ -4,6 +4,8 @@ from .buyout import FloodBuyoutControlEnv, austin_windows
 from .crossings import FloodCrossingEnv
 from .defend import FloodDefendControlEnv, onion_creek_windows
 from .dispatch import FireDispatchControlEnv
+from .greeninfra import FloodGreenInfraControlEnv, onion_catchments
+from .heat import HeatRetrofitControlEnv, austin_blocks
 from .toy import CMDPToyEnv
 from .evacuate import EvacuateControlEnv
 from .fire_env import FirebreakEnv
@@ -36,6 +38,10 @@ __all__ = [
     "FloodDefendControlEnv",
     "FloodBuyoutControlEnv",
     "FireDispatchControlEnv",
+    "FloodGreenInfraControlEnv",
+    "HeatRetrofitControlEnv",
+    "austin_blocks",
+    "onion_catchments",
     "FloodCrossingEnv",
     "CMDPToyEnv",
     "austin_windows",

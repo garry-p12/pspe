@@ -1,0 +1,91 @@
+{
+ "box": {
+  "west": -97.9,
+  "south": 30.05,
+  "east": -97.6,
+  "north": 30.35
+ },
+ "variable": "TMP_2maboveground",
+ "units": "degrees C",
+ "source": "NOAA AORC v1.1 via s3://noaa-nws-aorc-v1-1-1km, anonymous, public domain",
+ "heatwaves": [
+  {
+   "heatwave": "August 2023",
+   "file": "aorc_heat_august_2023.npz",
+   "grid": [
+    168,
+    36,
+    36
+   ],
+   "peak_c": 42.2,
+   "mean_c": 32.6,
+   "hours_over_35_min_pct": 32.1,
+   "hours_over_35_max_pct": 42.9
+  },
+  {
+   "heatwave": "July 2022",
+   "file": "aorc_heat_july_2022.npz",
+   "grid": [
+    168,
+    36,
+    36
+   ],
+   "peak_c": 43.4,
+   "mean_c": 32.4,
+   "hours_over_35_min_pct": 31.0,
+   "hours_over_35_max_pct": 42.9
+  },
+  {
+   "heatwave": "June 2023",
+   "file": "aorc_heat_june_2023.npz",
+   "grid": [
+    168,
+    36,
+    36
+   ],
+   "peak_c": 40.9,
+   "mean_c": 30.3,
+   "hours_over_35_min_pct": 13.7,
+   "hours_over_35_max_pct": 31.5
+  },
+  {
+   "heatwave": "August 2011",
+   "file": "aorc_heat_august_2011.npz",
+   "grid": [
+    168,
+    36,
+    36
+   ],
+   "peak_c": 41.6,
+   "mean_c": 32.5,
+   "hours_over_35_min_pct": 36.3,
+   "hours_over_35_max_pct": 41.7
+  },
+  {
+   "heatwave": "July 2018",
+   "file": "aorc_heat_july_2018.npz",
+   "grid": [
+    168,
+    36,
+    36
+   ],
+   "peak_c": 43.7,
+   "mean_c": 31.5,
+   "hours_over_35_min_pct": 25.6,
+   "hours_over_35_max_pct": 38.1
+  },
+  {
+   "heatwave": "August 2019",
+   "file": "aorc_heat_august_2019.npz",
+   "grid": [
+    168,
+    36,
+    36
+   ],
+   "peak_c": 40.0,
+   "mean_c": 31.2,
+   "hours_over_35_min_pct": 24.4,
+   "hours_over_35_max_pct": 36.3
+  }
+ ]
+}

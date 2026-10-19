@@ -37,6 +37,8 @@ INCUMBENTS = {
     'FireDispatch-v0': 'biggest_fire_action',
     'FloodBuyout-v0': 'even_action',
     'FloodCrossing-v0': 'budgeted_react_action',
+    'FloodGreenInfra-v0': 'most_paved_action',
+    'HeatRetrofit-v0': 'exposure_first_action',
 }
 
 #: Cheap to construct. The other two want data on disk.

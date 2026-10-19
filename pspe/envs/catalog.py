@@ -801,6 +801,165 @@ SPECS: "tuple[EnvSpec, ...]" = (
         ),
         measured_on=MEASURED,
     ),
+    EnvSpec(
+        env_id="FloodGreenInfra-v0",
+        cost_limit=1438056.375,
+        pool="178 windows of real terrain and 7 real storms: windows 178/60, storms 5/2",
+        title="Where to put the stormwater infrastructure",
+        plain_title="Where to put the drainage",
+        plain_decision="Nine blocks along the creek, and money to retrofit a "
+                       "quarter of the paved surface. For each block, decide "
+                       "how much to treat -- before anybody knows which storm "
+                       "is coming.",
+        plain_score="how much of the low ground ends up under water",
+        plain_budget="about 144 hectares of paved surface",
+        plain_status="Retrofitting works. Where you put it matters much less "
+                     "-- the only choice that holds up on blocks nobody "
+                     "practised on is that treating the most paved ground "
+                     "beats starting uphill.",
+        plain_caveat="The rain is real -- seven storms that actually fell on "
+                     "Austin, hour by hour, at one kilometre. The ground and "
+                     "the paved surface are real. What a retrofit does to "
+                     "runoff is a simple absorption rule, not a drainage "
+                     "model: a treated patch soaks up a fixed share of what "
+                     "lands on it and never fills up.",
+        dynamics="physics",
+        summary="Allocate a stormwater retrofit budget across nine "
+                "sub-catchments, then a real storm falls on the window and "
+                "the local-inertial solver routes it. Rain is NOAA AORC v1.1, "
+                "hourly at 1 km; impervious cover is NLCD 2021; the ground is "
+                "USGS 3DEP.",
+        reward="minus the percentage of the LOW GROUND -- the bottom tenth of "
+               "the window by elevation, where runoff collects -- left deeper "
+               "than 0.15 m",
+        cost="square metres of impervious surface retrofitted",
+        budget="a quarter of the impervious cover in an average window, about "
+               "144 ha, derived from the whole pool",
+        incumbent="`most_paved_action` -- treat the most paved catchments "
+                  "first (-23.74, feasible 12/12)",
+        status="Not beaten, and the placement question is weak but real. "
+               "Retrofitting beats doing nothing clearly (t = 8.14 held out). "
+               "Among placements only one comparison survives being held out: "
+               "treating the most paved catchments beats treating uphill "
+               "first, t = 2.34 on the pool and t = 2.46 held out. Spreading "
+               "evenly also beats uphill on the pool (t = 2.41) and does NOT "
+               "held out (t = 0.64) -- a second instance of the thing "
+               "FloodBuyout-v0 is the standing example of, caught here before "
+               "it was written down as a result. Paved against even is "
+               "unresolved on both. Two measurements shaped this "
+               "environment and both are recorded in the module: scored over "
+               "the WHOLE window, placement makes no difference at all -- "
+               "even, paved-first and uphill-first all score -0.089 against "
+               "doing nothing, to three decimals, which is correct physics for "
+               "a volume-limited problem -- and at 2.4 km windows nothing "
+               "separates either. Scoring the low ground at 4.8 km is what "
+               "gives the choice somewhere to bite.",
+        caveat="The rain, the ground and the impervious cover are real. The "
+               "treatment is not: a treated cell absorbs a fixed share of the "
+               "rain that lands on it, with no storage that fills, no drawdown "
+               "and no underdrain. That makes this optimistic about long "
+               "storms and roughly right about short ones. The 1 km rain field "
+               "is reduced to its box-mean hyetograph rather than regridded, "
+               "so the storm's timing and intensity are real and its spatial "
+               "structure is not used.",
+        needs="the AORC storms (scripts/fetch_aorc_storms.py) and the NLCD crop",
+        scores={"random": {"return": -23.359, "cost": 3030135.4, "feasible": 2, "of": 12},
+                "incumbent": {"return": -23.737, "cost": 1383170.6, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "plain": 'retrofit nothing', "policy": 'retrofit nothing', "return": -24.414, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'even', "plain": 'the same share everywhere', "policy": 'even share (`even_action`)', "return": -23.828, "cost": 1438054.9, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'uphill', "plain": 'uphill first', "policy": 'uphill first (`highest_first_action`)', "return": -23.802, "cost": 1390683.1, "feasible": 12, "of": 12,
+         "note": 'the obvious answer -- stop the water before it collects -- and it loses. Beaten by treating the most paved catchments on BOTH splits (t = 2.34 on the pool, t = 2.46 held out). It also loses to spreading evenly on the pool (t = 2.41) but NOT held out (t = 0.64), so only the first comparison is a claim about the problem'},
+        {"key": 'paved', "plain": 'where the pavement is', "policy": 'most paved first (`most_paved_action`)', "return": -23.737, "cost": 1383170.6, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE rule known'},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -23.359, "cost": 3030135.4, "feasible": 2, "of": 12,
+         "note": 'INFEASIBLE in 10 of 12 episodes'},
+        {"key": 'flat_out', "plain": 'retrofit everything', "policy": 'treat every paved cell', "return": -22.253, "cost": 5880599.9, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 4x the budget'},
+        ),
+        measured_on=MEASURED,
+    ),
+    EnvSpec(
+        env_id="HeatRetrofit-v0",
+        cost_limit=1480464.375,
+        pool="68 windows of real Austin and 6 real heat waves: windows 68/22, waves 4/2",
+        title="Which blocks to cool",
+        plain_title="Which blocks to cool",
+        plain_decision="A heat wave is coming and there is money to shade or "
+                       "reflect a quarter of the hard surface. For each of "
+                       "nine blocks, decide how much to treat.",
+        plain_score="how many hours people spend above 35 degrees, counted "
+                    "where the people are",
+        plain_budget="about 148 hectares of hard surface",
+        plain_status="Treating where the buildings are beats treating the "
+                     "hottest blocks -- the two obvious answers disagree, and "
+                     "the hotter-is-more-urgent one loses.",
+        plain_caveat="The heat is real, hour by hour at one kilometre, from "
+                     "six Austin heat waves. Where people are is estimated "
+                     "from building footprints, not counted. How much cooler "
+                     "a treated block gets is taken from published figures, "
+                     "not simulated -- so trust the ORDER of these rows more "
+                     "than the numbers.",
+        dynamics="observed",
+        summary="Allocate a cooling budget across nine blocks, then a real "
+                "heat wave is counted over the window. Temperature is NOAA "
+                "AORC v1.1, hourly at 1 km, over six Austin heat waves "
+                "(August 2023 peaked at 42.2 C, July 2018 at 43.7 C). "
+                "Population is proxied by 43,366 City of Austin footprints and "
+                "treatable surface by NLCD 2021. No PDE is solved, so an "
+                "episode costs milliseconds.",
+        reward="minus the population-weighted percentage of hours above 35 C",
+        cost="square metres of impervious surface treated",
+        budget="a quarter of the impervious cover in an average window, about "
+               "148 ha, derived from the whole pool",
+        incumbent="`exposure_first_action` -- treat where heat and people "
+                  "coincide (-36.45, feasible 12/12)",
+        status="Not beaten, and the designed disagreement is real. Treating "
+               "the most built-up blocks beats treating the hottest ones by "
+               "0.25, paired, at t = 6.99 on held-out data -- STRONGER than "
+               "on the full pool (t = 5.26), which is the direction a result "
+               "should move if it is about the problem. The two rules pick "
+               "almost entirely different ground: their top cells overlap by "
+               "12%, with a correlation of +0.39 between heat and building "
+               "density. Combining them adds nothing over people alone "
+               "(t = 1.52, not resolved), so the temperature field carries no "
+               "targeting information beyond where the people are -- which is "
+               "a finding about this heat wave data, not a claim about heat.",
+        caveat="One quantity here is assumed rather than measured: cooling per "
+               "unit of treatment is a literature coefficient of 1.5 C at full "
+               "treatment, where published neighbourhood-scale estimates run "
+               "0.3 C for cool roofs to 1-2 C with canopy. Every magnitude "
+               "scales with it. Three things the original specification asked "
+               "for were dropped rather than invented -- indoor overheating "
+               "needs a thermal model this repository does not have, "
+               "households without air conditioning cannot be located from any "
+               "available survey, and the City of Austin footprint layer "
+               "carries no year built, checked against the live service. "
+               "Population is building footprints, not a census.",
+        needs="the AORC heat waves (scripts/fetch_aorc_storms.py --heat) and "
+              "the NLCD crop",
+        scores={"random": {"return": -35.647, "cost": 3191881.8, "feasible": 2, "of": 12},
+                "incumbent": {"return": -36.447, "cost": 1391974.0, "feasible": 12, "of": 12}},
+        ladder=(
+        {"key": 'nothing', "plain": 'cool nothing', "policy": 'treat nothing', "return": -37.02, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'hottest', "plain": 'the hottest blocks', "policy": 'hottest first (`hottest_action`)', "return": -36.613, "cost": 1400836.9, "feasible": 12, "of": 12,
+         "note": 'one of the two obvious answers, and the loser: beaten by treating where the buildings are at t = 6.99, paired, held out'},
+        {"key": 'even', "plain": 'the same share everywhere', "policy": 'even share (`even_action`)', "return": -36.508, "cost": 1480462.9, "feasible": 12, "of": 12,
+         "note": ''},
+        {"key": 'people', "plain": 'where the buildings are', "policy": 'most buildings first (`most_people_action`)', "return": -36.448, "cost": 1393705.5, "feasible": 12, "of": 12,
+         "note": 'the other obvious answer, and the winner'},
+        {"key": 'both', "plain": 'where heat and people coincide', "policy": 'heat x people (`exposure_first_action`)', "return": -36.447, "cost": 1391974.0, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE rule known, and indistinguishable from people alone (t = 1.52): the heat term adds nothing'},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -35.647, "cost": 3191881.8, "feasible": 2, "of": 12,
+         "note": 'INFEASIBLE in 10 of 12 episodes'},
+        {"key": 'flat_out', "plain": 'cool everything', "policy": 'treat every hard surface', "return": -34.307, "cost": 6085454.8, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 4x the budget'},
+        ),
+        measured_on=MEASURED,
+    ),
 )
 
 BY_ID: "dict[str, EnvSpec]" = {s.env_id: s for s in SPECS}
@@ -814,10 +973,10 @@ def register_all() -> "list[str]":
     where. Returns the ids now registered.
     """
     from . import (buyout, crossings, defend, dispatch, evacuate, fire_env,
-                   flood_env, pde_env, toy)
+                   flood_env, greeninfra, heat, pde_env, toy)
 
     for module in (flood_env, evacuate, fire_env, defend, buyout, dispatch,
-                   crossings, pde_env, toy):
+                   crossings, greeninfra, heat, pde_env, toy):
         module.register_envs()
     return [s.env_id for s in SPECS]
 
