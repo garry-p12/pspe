@@ -56,3 +56,8 @@ data/evac/
 # every run, so ignoring it also ends a standing uncommitted-change.
 *.md
 !README.md
+# Generated documents. `scripts/make_gym_paper.js` rebuilds the gym paper from
+# the catalog and a set of portal screenshots; the .docx itself is a 1.3 MB
+# binary that would churn on every rebuild.
+*.docx
+docs/paper/figures/
