@@ -123,7 +123,13 @@ def test_the_catalog_describes_every_registered_id_and_nothing_else():
         assert spec.caveat.strip(), f"{spec.env_id} states no caveat"
         assert spec.incumbent.strip(), f"{spec.env_id} names no incumbent"
         assert spec.status.strip(), f"{spec.env_id} reports no status"
-        assert spec.dynamics in {"physics", "learned"}
+        # Three categories, not two. "observed" is a real third answer -- the
+        # field is measured data replayed, nothing is predicted -- and the
+        # two-way version of this assertion shipped a portal label calling
+        # measured temperature "guessed by a model".
+        assert spec.dynamics in {"physics", "learned", "observed"}
+        assert spec.as_dict()["plain"]["dynamics"] in {
+            "really simulated", "guessed by a model", "really measured"}
         assert spec.scores, f"{spec.env_id} records no measured scores"
         assert spec.split == "eval", (
             f"{spec.env_id} records numbers from the {spec.split!r} split; the "

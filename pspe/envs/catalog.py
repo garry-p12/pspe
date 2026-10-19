@@ -59,9 +59,18 @@ class EnvSpec:
 
     env_id: str
     title: str
-    #: What the simulator steps. "physics" means a conservation law is solved;
-    #: "learned" means a neural network predicts the next state and its own
-    #: error compounds.
+    #: What advances the state, and the three answers are genuinely different
+    #: claims about how much to trust a number.
+    #:
+    #: "physics"  -- a conservation law is solved.
+    #: "learned"  -- a neural network predicts the next state and its own
+    #:               error compounds, because it is stepped on its own output.
+    #: "observed" -- neither. The field is measured data replayed, so nothing
+    #:               is being predicted at all. `HeatRetrofit-v0` is the case:
+    #:               its temperature is AORC, and a two-way split rendered it
+    #:               on the portal as "guessed by a model", which is the
+    #:               opposite of true for the most directly measured data in
+    #:               this gym.
     dynamics: str
     summary: str
     reward: str
@@ -132,8 +141,9 @@ class EnvSpec:
                 "title": self.plain_title, "decision": self.plain_decision,
                 "score": self.plain_score, "budget": self.plain_budget,
                 "status": self.plain_status, "caveat": self.plain_caveat,
-                "dynamics": ("really simulated" if self.dynamics == "physics"
-                             else "guessed by a model"),
+                "dynamics": {"physics": "really simulated",
+                             "learned": "guessed by a model",
+                             "observed": "really measured"}[self.dynamics],
             },
         }
 

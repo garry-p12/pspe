@@ -383,7 +383,10 @@ export function GymBench() {
                         </span>
                         <span className={clsx("shrink-0 text-[10px]",
                                               e.id === envId ? "text-bg/70" : "text-ink-faint")}>
-                          {e.plain.dynamics === "really simulated" ? "simulated" : "model"}
+                          {{"really simulated": "simulated",
+                            "really measured": "measured",
+                            "guessed by a model": "model",
+                          }[e.plain.dynamics] ?? e.plain.dynamics}
                         </span>
                       </button>
                     </li>
