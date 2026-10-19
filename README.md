@@ -58,6 +58,8 @@ env = gym.make("FloodOperate-v0")   # or FloodOperateFine-v0, FloodEvacuate-v0, 
 | `PDEControl-dar-v0` | 9 actuators, 16 steps | solved RK4 | 0.936 | `proportional_action`, −1.57 |
 | `PDEControl-swe-v0` | the same, shallow water | solved RK4 | 0.192 | *nothing is feasible every run* |
 | `PDEControl-rdf-v0` | the same, FitzHugh–Nagumo | solved RK4 | 3.26 | `proportional_action`, −4.45 |
+| `FloodGreenInfra-v0` | retrofit 9 sub-catchments | solved + **7 real storms** | 144 ha paved | `most_paved_action`, −23.74 |
+| `HeatRetrofit-v0` | cool 9 blocks | **observed**, 6 real heat waves | 148 ha hard surface | `exposure_first_action`, −36.45 |
 
 Every figure in that table is measured on the **held-out** quarter of each
 environment's scenario pool. `gymnasium.make(id)` gives the training pool;
@@ -73,8 +75,12 @@ makes, two survive being held out and one does not:
 | `FloodDefend`: uniform − lowest-first | +0.21, t = 2.00 | +0.59, t = 4.58 |
 | `Firebreak`: greedy − uniform | +0.79, t = 5.78 | +0.90, t = 4.73 |
 | `FloodBuyout`: even − lowest-first | +7.57, t = 2.69 | **+0.05, t = 0.68** |
+| `HeatRetrofit`: most buildings − hottest | +0.16, t = 5.26 | +0.25, t = 6.99 |
+| `FloodGreenInfra`: even − uphill first | +0.20, t = 2.41 | **+0.03, t = 0.64** |
 
-Before the split existed all three read the same way.
+Before the split existed the survivors and the casualties read the same way.
+Two of the five do not survive, and both were claims this project had
+written down.
 
 **Start with `CMDPToy-v0`.** Its constrained optimum is known in closed form
 — `min(peak, limit) = 0.400`, multiplier `0.800`, both exposed on the
@@ -97,8 +103,8 @@ ladder of policies measured on each environment rather than a single row:
 - The best policy on *reward* is usually one you may not run. On
   `FloodOperate-v0` it spends 3.4 pump-hours against a limit of 2.0.
 
-`python3 scripts/score_gym.py --ladder --check` re-measures all 58 ladder
-rungs across the twelve and exits nonzero if any number in the catalog has
+`python3 scripts/score_gym.py --ladder --check` re-measures all 71 ladder
+rungs across the fourteen and exits nonzero if any number in the catalog has
 stopped being true. The
 portal serves the same catalog at `/gym`.
 
