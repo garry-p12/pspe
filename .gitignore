@@ -65,3 +65,10 @@ data/evac/
 # binary that would churn on every rebuild.
 *.docx
 docs/paper/figures/
+
+# macOS Finder metadata. Five of these were tracked and churned on every
+# `ls` through a directory; nothing reads them.
+.DS_Store
+
+# Derived: a zip of docs/deck_bundle/, rebuilt from files already tracked.
+docs/deck_bundle.zip
