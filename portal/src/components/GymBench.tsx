@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { IsoScene, type Scene } from "./IsoScene";
+import { GymExplain } from "./GymExplain";
 
 /**
  * Make the decision yourself, against the environment a benchmark is scored in.
@@ -28,13 +29,15 @@ import { IsoScene, type Scene } from "./IsoScene";
 type Opt = { label: string; action: number[] | null; policy?: string };
 type Group = { name: string; options: Opt[]; default: number };
 type Stat = { label: string; value: string; fraction?: number; over?: boolean };
+type RealRow = { label: string; real: boolean; text: string };
 type Plain = {
   title: string; decision: string; score: string;
   budget: string; status: string; caveat: string; dynamics: string;
+  when?: string; what?: string; real?: RealRow[];
 };
 type Rung = {
   key: string; plain: string; return: number; cost: number;
-  feasible: number; of: number;
+  feasible: number; of: number; pct: number; ok: boolean;
 };
 type EnvRow = { id: string; plain: Plain; ladder: Rung[]; cost_limit: number };
 type Listing = { environments: EnvRow[]; measured_on: string; reproduce: string };
@@ -126,64 +129,6 @@ function Segmented({
   );
 }
 
-function Ladder({ env, result }: { env: EnvRow; result: Result | null }) {
-  const worst = Math.min(...env.ladder.map((r) => r.return));
-  const rows = env.ladder.map((r) => ({
-    key: r.key,
-    name: r.plain,
-    damage: Math.round((r.return / worst) * 100),
-    ok: r.feasible === r.of,
-    note: r.cost <= 0 ? "nothing spent"
-      : r.feasible === r.of ? (r.cost / env.cost_limit > 0.95 ? "all of it" : "part of it")
-      : r.feasible > 0 ? `over in ${r.of - r.feasible} of ${r.of} runs`
-      : `${(r.cost / env.cost_limit).toFixed(1)}x over`,
-    mine: false,
-  }));
-  if (result) {
-    rows.push({
-      key: "__yours", name: "your run", damage: result.damage,
-      ok: result.feasible,
-      note: result.feasible ? "within budget" : "over budget",
-      mine: true,
-    });
-  }
-  rows.sort((a, b) => a.damage - b.damage);
-  return (
-    <>
-      <div className="mt-5 flex items-baseline justify-between border-b border-line pb-1">
-        <h3 className="text-[10.5px] font-semibold uppercase tracking-wide text-ink">
-          Where you&rsquo;d rank
-        </h3>
-        <span className="text-[10.5px] text-ink-faint">damage</span>
-      </div>
-      <ul>
-        {rows.map((r) => (
-          <li key={r.key}
-              className={clsx("flex items-start justify-between gap-3 border-b border-line-soft py-2 last:border-0",
-                              r.mine && "-mx-2 rounded bg-accent-soft px-2")}>
-            <span className="min-w-0">
-              <span className={clsx("block text-[12.5px] leading-snug",
-                                    r.mine ? "font-semibold text-ink" : "text-ink-mute")}>
-                {r.name}
-              </span>
-              <span className={clsx("block text-[11px] leading-snug",
-                                    r.ok ? "text-ink-faint" : "text-bad")}>
-                {r.note}
-              </span>
-            </span>
-            <span className="font-mono text-[12.5px] tabular-nums text-ink">{r.damage}%</span>
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
-        {result
-          ? "Your run is one episode. Every other row is twelve, so treat the placing as a sighting shot."
-          : "When you finish, your run is placed in this list."}
-      </p>
-    </>
-  );
-}
-
 export function GymBench() {
   const [list, setList] = useState<Listing | null>(null);
   const [envId, setEnvId] = useState<string>("FloodOperate-v0");
@@ -251,8 +196,8 @@ export function GymBench() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-[1200px] gap-6 px-4 py-6 md:px-6
-                      lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-6">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
             <div className="min-w-0">
@@ -342,12 +287,6 @@ export function GymBench() {
             !error && <p className="mt-5 text-[12.5px] text-ink-faint">Starting a run…</p>
           )}
 
-          {plain && (
-            <p className="mt-4 max-w-[78ch] border-l-2 border-ink pl-3.5 text-[12.5px]
-                          leading-relaxed text-ink">
-              {plain.status}
-            </p>
-          )}
         </div>
 
         <aside className="min-w-0">
@@ -396,13 +335,6 @@ export function GymBench() {
             );
           })}
 
-          {env && <Ladder env={env} result={play?.result ?? null} />}
-
-          {plain && (
-            <p className="mt-4 text-[11px] leading-relaxed text-ink-faint">
-              {plain.caveat}
-            </p>
-          )}
           {list && (
             <p className="mt-3 text-[11px] leading-relaxed text-ink-faint">
               This is the real environment, not a practice copy — each step runs
@@ -411,6 +343,14 @@ export function GymBench() {
             </p>
           )}
         </aside>
+      </div>
+
+      {plain && env && (
+        <GymExplain
+          plain={plain} ladder={env.ladder} costLimit={env.cost_limit}
+          result={play?.result ?? null}
+        />
+      )}
       </div>
     </div>
   );

@@ -92,9 +92,9 @@ def environments(probe: bool = False) -> "dict[str, Any]":
         # The page shows these two; the technical pair below is for anything
         # reading this API rather than the portal.
         "plain_headline": (
-            "Nothing we have trained beats a simple rule on any of these four. "
-            "And on most of them the approach with the best score is one you "
-            "could not afford to use."
+            "Nothing we have trained beats a simple rule on any of these "
+            "fourteen. And on most of them the approach with the best score "
+            "is one you could not afford to use."
         ),
         "plain_how_to_read": (
             "Each row is a way of deciding. Damage is measured against doing "
@@ -603,16 +603,13 @@ def _stats(env_id: str, inner, sess) -> "list[dict[str, Any]]":
 def _damage_pct(env_id: str, total_return: float) -> int:
     """This run's return on the same scale the ladder uses.
 
-    The ladder's percentages are each policy's return over the WORST row's,
-    which is doing nothing on all five environments. Placing a live run on
-    that scale uses the same denominator, so the comparison is like for like
-    -- with the one caveat the page states: the ladder rows are twelve
-    episodes and this is one.
+    Both scales come from `EnvSpec.harm_pct`, which is the point of calling it
+    rather than repeating the arithmetic: the denominator is doing nothing's
+    return, so 100 means "no better than not acting" and a live run is placed
+    against the rungs like for like -- with the one caveat the page states,
+    that the rungs are twelve episodes and this is one.
     """
-    worst = min(r["return"] for r in BY_ID[env_id].ladder)
-    if worst >= 0:
-        return 0
-    return max(0, min(round(total_return / worst * 100), 999))
+    return BY_ID[env_id].harm_pct(total_return)
 
 
 def _evict() -> None:

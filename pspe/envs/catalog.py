@@ -125,6 +125,55 @@ class EnvSpec:
     plain_budget: str = ""        # what you are allowed to spend
     plain_status: str = ""        # one sentence on where this stands
     plain_caveat: str = ""        # the thing it would be unfair not to say
+    #: `plain_decision` answers two questions at once -- WHEN the decision is
+    #: made relative to the hazard, and WHAT is actually being chosen -- and
+    #: the portal needs them apart. The when/what distinction is also the one
+    #: that sorts this gym: four environments decide repeatedly while the
+    #: hazard runs, four commit the whole budget before it starts, and those
+    #: are different problems wearing the same API.
+    plain_when: str = ""          # when you decide, relative to the hazard
+    plain_what: str = ""          # what you are actually choosing
+    #: The caveat, split into claims a reader can weigh one at a time, as
+    #: ({label, real, text}, ...). `plain_caveat` says all of this in prose and
+    #: stays the source of truth; running it together means a reader who skims
+    #: takes either "it is real" or "it is made up" from an entry that says
+    #: both. Every environment has at least one of each unless it genuinely
+    #: does not -- `CMDPToy-v0` is made up on purpose and says so.
+    plain_real: "tuple[dict[str, Any], ...]" = ()
+
+    #: The rung every percentage on the portal is measured against: doing
+    #: nothing. Keyed rather than positional because two environments call it
+    #: "never" (there is no barricade to lower, no order to give) and the rest
+    #: call it "nothing".
+    #:
+    #: It used to be the WORST rung instead, on the reasoning that doing
+    #: nothing is always worst. It is not: on `PDEControl-dar/swe/rdf-v0`,
+    #: `CMDPToy-v0` and `FloodDefend-v0` the worst rung is a RANDOM policy,
+    #: which on four of those five also breaks the budget. Anchoring on it
+    #: made "100%" mean "the worst anyone happened to try", which moves when
+    #: somebody adds a row and answers no question a reader has.
+    BASELINE_KEYS = ("nothing", "never")
+
+    def baseline_return(self) -> float:
+        """Doing nothing's return -- the denominator for every percentage."""
+        for key in self.BASELINE_KEYS:
+            for row in self.ladder:
+                if row["key"] == key:
+                    return float(row["return"])
+        return min((float(r["return"]) for r in self.ladder), default=0.0)
+
+    def harm_pct(self, total_return: float) -> int:
+        """A return as a share of doing nothing's, where 100 is doing nothing.
+
+        Above 100 is real and is not clamped away: on `FloodDefend-v0`,
+        building where the ground is lowest scores 103, which is the entry's
+        point. Zero is real too -- closing the road the whole time takes no
+        harm at all, and costs more than you are allowed.
+        """
+        base = self.baseline_return()
+        if base >= 0:
+            return 0
+        return max(0, min(round(total_return / base * 100), 999))
 
     def as_dict(self) -> "dict[str, Any]":
         return {
@@ -134,13 +183,18 @@ class EnvSpec:
             "status": self.status, "caveat": self.caveat, "needs": self.needs,
             "cost_limit": self.cost_limit,
             "scores": {k: dict(v) for k, v in self.scores.items()},
-            "ladder": [dict(row) for row in self.ladder],
+            "ladder": [{**row, "pct": self.harm_pct(float(row["return"])),
+                        "ok": row["feasible"] == row["of"]}
+                       for row in self.ladder],
+            "baseline_return": self.baseline_return(),
             "measured_on": self.measured_on,
             "split": self.split, "pool": self.pool,
             "plain": {
                 "title": self.plain_title, "decision": self.plain_decision,
                 "score": self.plain_score, "budget": self.plain_budget,
                 "status": self.plain_status, "caveat": self.plain_caveat,
+                "when": self.plain_when, "what": self.plain_what,
+                "real": [dict(r) for r in self.plain_real],
                 "dynamics": {"physics": "really simulated",
                              "learned": "guessed by a model",
                              "observed": "really measured"}[self.dynamics],
@@ -157,6 +211,14 @@ MEASURED = "2026-10-16"
 SPECS: "tuple[EnvSpec, ...]" = (
     EnvSpec(
         env_id="FloodOperate-v0",
+        plain_when='During the flood, every half hour for 6 hours',
+        plain_what='How far to open the drain gate, and how hard to run the pump.',
+        plain_real=(
+            {"label": 'How water moves', "real": True,
+             "text": "Solved by a real flood physics model."},
+            {"label": 'The land', "real": False,
+             "text": "64 generated areas, not a real place. Results carry over only as far as those areas look like real ones."},
+        ),
         pool='64 generated polders: 48 train, 16 eval',
         cost_limit=2.0,
         plain_title='Run the pumps',
@@ -211,6 +273,14 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="FloodOperateFine-v0",
+        plain_when='During the flood, every half hour for 6 hours',
+        plain_what='The same two choices, on a map with four times as many squares.',
+        plain_real=(
+            {"label": 'How water moves', "real": True,
+             "text": "Solved by a real flood physics model, on a finer grid. These are the numbers to quote."},
+            {"label": 'The land', "real": False,
+             "text": "The same 64 generated areas as the coarser version, not a real place."},
+        ),
         pool='64 generated polders: 48 train, 16 eval',
         cost_limit=2.0,
         plain_title='Run the pumps, in finer detail',
@@ -259,6 +329,16 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="FloodEvacuate-v0",
+        plain_when='During the flood, every half hour for a day',
+        plain_what='Which of eight neighbourhoods to tell to leave.',
+        plain_real=(
+            {"label": 'The streets and driving times', "real": True,
+             "text": "The real Austin street map."},
+            {"label": 'The flood', "real": True,
+             "text": "Solved by a real flood physics model."},
+            {"label": 'The harm', "real": False,
+             "text": "Nobody has ever evacuated on our say-so, and in half the forecasts nothing floods. This is an estimate, never something that happened."},
+        ),
         pool='6 forecast members: 4 train, 2 eval',
         cost_limit=32.0,
         plain_title='Call the evacuation',
@@ -327,6 +407,16 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="Firebreak-v0",
+        plain_when='During the fire, over 3 days',
+        plain_what='Where to send the crews to clear strips of fuel.',
+        plain_real=(
+            {"label": 'The fire days', "real": True,
+             "text": "Real days from the historic record."},
+            {"label": 'How the fire spreads', "real": False,
+             "text": "Guessed by a model trained on past fires, not worked out from physics, and each day it is fed its own guess from the day before."},
+            {"label": 'What would really have happened', "real": False,
+             "text": "No real fire ever had a break cut where we said."},
+        ),
         pool='1,689 held-out NDWS fire days: 1,267 train, 422 eval',
         cost_limit=0.03,
         plain_title='Cut firebreaks',
@@ -380,6 +470,16 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="FloodDefend-v0",
+        plain_when='Before the flood, once for each of 8 stretches of bank',
+        plain_what='How high to build an embankment on each stretch.',
+        plain_real=(
+            {"label": 'The ground and the creek', "real": True,
+             "text": "USGS laser survey of Onion Creek, and FEMA's own flood maps."},
+            {"label": 'The embankment', "real": False,
+             "text": "Austin has no such levee, and none is proposed here."},
+            {"label": 'The flood', "real": False,
+             "text": "A rise and fall in the creek, not a replay of a flood that happened."},
+        ),
         pool='35 windows of real terrain: 29 train, 6 eval',
         cost_limit=202149.2031,
         title="Spend the defence budget",
@@ -452,6 +552,14 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="CMDPToy-v0",
+        plain_when='Once. One decision and it is over.',
+        plain_what='A single number.',
+        plain_real=(
+            {"label": 'The best answer', "real": True,
+             "text": "Worked out on paper, so you can check yourself against it."},
+            {"label": 'The problem', "real": False,
+             "text": "Deliberately trivial -- one step, one number, a blank picture -- so that anything that goes wrong is your method and not the problem."},
+        ),
         pool='no pool; the optimum is a closed form',
         cost_limit=0.4,
         title="The one with a known answer",
@@ -501,11 +609,17 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="PDEControl-dar-v0",
+        plain_when='During the run, 8 turns',
+        plain_what='Where to set nine dials on the surface.',
+        plain_real=(
+            {"label": 'The fluid', "real": False,
+             "text": "A made-up fluid on a square, not a place. It is here to test control methods, not to say anything about floods."},
+        ),
         pool='no pool; a fresh field is drawn every episode',
         cost_limit=0.936,
         title="Steer the field (diffusion, advection and reaction)",
         plain_title="Steer the field (diffusion, advection and reaction)",
-        plain_decision="Nine dials on a square of simulated fluid, sixteen "
+        plain_decision="Nine dials on a square of simulated fluid, eight "
                        "turns, trying to hold the whole surface at its target "
                        "value without using more effort than you are allowed.",
         plain_score="how far the surface drifts from where it should be",
@@ -513,10 +627,10 @@ SPECS: "tuple[EnvSpec, ...]" = (
         plain_status='Pushing each dial against the error under it is the best anyone has managed, and only just.',
         plain_caveat='A made-up fluid on a square, not a place. It is here to test control methods, not to say anything about floods.',
         dynamics="physics",
-        summary='Steer a spreading, drifting, reacting field back to its target with nine actuators, sixteen steps on a 32x32 periodic grid, against a differentiable RK4 truth solver.',
+        summary='Steer a spreading, drifting, reacting field back to its target with nine actuators, eight steps on a 32x32 periodic grid, against a differentiable RK4 truth solver.',
         reward="minus the squared tracking error plus an effort penalty",
         cost="exposure above a ceiling, plus any overspend on the actuators",
-        budget="0.936 over the sixteen-step run",
+        budget="0.936 over the eight-step run",
         incumbent="`proportional_action` -- each actuator pushed against the "
                   "error beneath it, at the largest gain that stays inside the "
                   "budget",
@@ -536,11 +650,19 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="PDEControl-swe-v0",
+        plain_when='During the run, 8 turns',
+        plain_what='Where to set nine dials on the surface.',
+        plain_real=(
+            {"label": 'The fluid', "real": False,
+             "text": "A made-up fluid on a square, not a place. It is here to test control methods, not to say anything about floods."},
+            {"label": 'The allowance', "real": False,
+             "text": "It can be exceeded by the fluid alone, whatever you do with the dials -- so nothing here stays within it every time."},
+        ),
         pool='no pool; a fresh field is drawn every episode',
         cost_limit=0.192,
         title="Steer the field (linearised shallow water)",
         plain_title="Steer the field (linearised shallow water)",
-        plain_decision="Nine dials on a square of simulated fluid, sixteen "
+        plain_decision="Nine dials on a square of simulated fluid, eight "
                        "turns, trying to hold the whole surface at its target "
                        "value without using more effort than you are allowed.",
         plain_score="how far the surface drifts from where it should be",
@@ -548,10 +670,10 @@ SPECS: "tuple[EnvSpec, ...]" = (
         plain_status='Nothing stays inside the budget on every run -- not even leaving all the dials alone.',
         plain_caveat='A made-up fluid on a square, not a place -- and its budget can be exceeded by the fluid alone, whatever you do with the dials.',
         dynamics="physics",
-        summary='The same nine-actuator tracking problem on linearised shallow water, three channels, sixteen steps.',
+        summary='The same nine-actuator tracking problem on linearised shallow water, three channels, eight steps.',
         reward="minus the squared tracking error plus an effort penalty",
         cost="exposure above a ceiling, plus any overspend on the actuators",
-        budget="0.192 over the sixteen-step run",
+        budget="0.192 over the eight-step run",
         incumbent="`proportional_action` -- each actuator pushed against the "
                   "error beneath it, at the largest gain that stays inside the "
                   "budget",
@@ -571,11 +693,17 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="PDEControl-rdf-v0",
+        plain_when='During the run, 8 turns',
+        plain_what='Where to set nine dials on the surface.',
+        plain_real=(
+            {"label": 'The fluid', "real": False,
+             "text": "A made-up fluid on a square, not a place. It is here to test control methods, not to say anything about floods."},
+        ),
         pool='no pool; a fresh field is drawn every episode',
         cost_limit=3.26,
         title="Steer the field (FitzHugh-Nagumo front propagation)",
         plain_title="Steer the field (FitzHugh-Nagumo front propagation)",
-        plain_decision="Nine dials on a square of simulated fluid, sixteen "
+        plain_decision="Nine dials on a square of simulated fluid, eight "
                        "turns, trying to hold the whole surface at its target "
                        "value without using more effort than you are allowed.",
         plain_score="how far the surface drifts from where it should be",
@@ -583,10 +711,10 @@ SPECS: "tuple[EnvSpec, ...]" = (
         plain_status='Pushing each dial against the error under it is the best anyone has managed, and only just.',
         plain_caveat='A made-up fluid on a square, not a place. It is here to test control methods, not to say anything about floods.',
         dynamics="physics",
-        summary='Hold back a travelling front with nine actuators, two channels, sixteen steps. The most actuation-sensitive of the three.',
+        summary='Hold back a travelling front with nine actuators, two channels, eight steps. The most actuation-sensitive of the three.',
         reward="minus the squared tracking error plus an effort penalty",
         cost="exposure above a ceiling, plus any overspend on the actuators",
-        budget="3.26 over the sixteen-step run",
+        budget="3.26 over the eight-step run",
         incumbent="`proportional_action` -- each actuator pushed against the "
                   "error beneath it, at the largest gain that stays inside the "
                   "budget",
@@ -606,6 +734,14 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="FireDispatch-v0",
+        plain_when='During the fires, each day for 3 days',
+        plain_what='How to split the crews between four fires.',
+        plain_real=(
+            {"label": 'The fire days', "real": True,
+             "text": "Real days from the historic record."},
+            {"label": 'How the fires spread', "real": False,
+             "text": "Guessed by a model trained on past fires, and no real fire was ever fought on our instruction."},
+        ),
         pool='1,689 held-out NDWS fire days: 1,267 train, 422 eval',
         cost_limit=0.03,
         title="Which fire to fight",
@@ -666,6 +802,16 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="FloodBuyout-v0",
+        plain_when='Before the flood, once for each of 9 blocks',
+        plain_what="What share of a block's flood-prone homes to buy and clear.",
+        plain_real=(
+            {"label": 'The houses, the creek and the flood maps', "real": True,
+             "text": "From the City of Austin and FEMA."},
+            {"label": 'The flood', "real": False,
+             "text": "A rise and fall in the creek, rather than a flood that happened."},
+            {"label": 'The price', "real": False,
+             "text": "The allowance counts houses rather than dollars, because no verified price per house is on hand."},
+        ),
         pool='33 windows of real terrain: 25 train, 8 eval',
         cost_limit=17.803,
         title="Which houses to buy out",
@@ -736,6 +882,16 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="FloodCrossing-v0",
+        plain_when='During the flood, every half hour for 18 hours',
+        plain_what='Whether the barricade is down.',
+        plain_real=(
+            {"label": 'The crossings and the ground', "real": True,
+             "text": "Real positions, real terrain."},
+            {"label": 'Whether the road is under water', "real": True,
+             "text": "Worked out by the simulator, not guessed."},
+            {"label": 'Who would have driven in', "real": False,
+             "text": "Not modelled at all, so this counts time, not casualties."},
+        ),
         pool='5 crossings, split by site: 4 train, 1 eval',
         cost_limit=29.0,
         title="When to put the barricade down",
@@ -813,6 +969,16 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="FloodGreenInfra-v0",
+        plain_when='Before the storm, once for each of 9 blocks',
+        plain_what="How much of a block's paved surface to retrofit.",
+        plain_real=(
+            {"label": 'The rain', "real": True,
+             "text": "Seven storms that actually fell on Austin, hour by hour, at one kilometre."},
+            {"label": 'The ground and the paved surface', "real": True,
+             "text": "Real, from the national land-cover survey."},
+            {"label": 'What a retrofit does to runoff', "real": False,
+             "text": "A simple absorption rule, not a drainage model: a treated patch soaks up a fixed share of what lands on it and never fills up."},
+        ),
         cost_limit=1438056.375,
         pool="178 windows of real terrain and 7 real storms: windows 178/60, storms 5/2",
         title="Where to put the stormwater infrastructure",
@@ -893,6 +1059,16 @@ SPECS: "tuple[EnvSpec, ...]" = (
     ),
     EnvSpec(
         env_id="HeatRetrofit-v0",
+        plain_when='Before the heat wave, once for each of 9 blocks',
+        plain_what="How much of a block's hard surface to shade or reflect.",
+        plain_real=(
+            {"label": 'The heat', "real": True,
+             "text": "Measured, hour by hour at one kilometre, across six Austin heat waves."},
+            {"label": 'Where people are', "real": False,
+             "text": "Estimated from building footprints, not counted."},
+            {"label": 'How much cooler a treated block gets', "real": False,
+             "text": "Taken from published figures, not simulated -- so trust the order of these rows more than the numbers."},
+        ),
         cost_limit=1480464.375,
         pool="68 windows of real Austin and 6 real heat waves: windows 68/22, waves 4/2",
         title="Which blocks to cool",
