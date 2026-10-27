@@ -298,6 +298,14 @@ class FloodEvacuateEnv:
                                   device=self.device)
         self._cols = torch.tensor([c for _, c in rc], dtype=torch.long,
                                   device=self.device)
+        # The egress table as device tensors, cached once. `_observe` reads
+        # the current slot of both on every step, and `step` already does the
+        # same via `torch.as_tensor` on a numpy slice; doing that per step per
+        # channel would copy the table into the device on every observation.
+        self.exposure_at = torch.as_tensor(
+            np.asarray(table.exposure, dtype=np.float32), device=self.device)
+        self.ok_at = torch.as_tensor(
+            np.asarray(table.ok, dtype=np.float32), device=self.device)
         self.state: Tensor | None = None
         self.t = 0
 
@@ -308,7 +316,7 @@ class FloodEvacuateEnv:
 
     @property
     def obs_shape(self) -> tuple[int, int, int]:
-        return (4, self.grid, self.grid)
+        return (6, self.grid, self.grid)
 
     # -- episode ------------------------------------------------------------- #
     def reset(self, batch: int = 1, generator: torch.Generator | None = None,
@@ -330,7 +338,7 @@ class FloodEvacuateEnv:
         self.t = 0
 
     def _observe(self) -> Tensor:
-        """The zones scattered onto their raster, as a (B, 4, G, G) field.
+        """The zones scattered onto their raster, as a (B, 6, G, G) field.
 
         A field and not a vector of zones, for two reasons. Neighbourhoods
         that are near each other flood together, so geography is signal a
@@ -346,11 +354,34 @@ class FloodEvacuateEnv:
         sig = self.signal[self._member, min(self.t, self.horizon - 1)].view(b, 1)
         tf = torch.full((b, 1), self.t / max(self.horizon, 1), device=self.device)
 
-        out = torch.zeros(b, 4, g, g, device=self.device)
+        # Channels 4 and 5 are PER-ZONE hazard, added 2026-10-27. Without
+        # them this observation carried no per-zone risk information at all --
+        # only a remaining-population count, a GLOBAL signal and the clock --
+        # so no policy could decide which zone to order, and
+        # `trigger_action` ordering every zone at once was not a weak choice
+        # but the only one the observation supported. The hindsight oracle
+        # scores -941.8 inside the budget against the best feasible rung's
+        # -3726.9, and it gets there by ordering zones selectively and late;
+        # that 2785 of headroom was unreachable by construction rather than
+        # unreached by the policies. An information gap reported as headroom
+        # is a misleading benchmark.
+        #
+        # What is exposed is what an emergency manager can see NOW: water at
+        # the zone this interval, and whether its egress is still open this
+        # interval. Neither is a forecast. The future of either remains the
+        # thing a policy has to anticipate, which is the intended difficulty.
+        slot = min(self.t, self.horizon - 1)
+        idx = self._member
+        water_now = self.exposure_at[idx, :, slot]
+        open_now = self.ok_at[idx, :, slot]
+
+        out = torch.zeros(b, 6, g, g, device=self.device)
         rows = self._rows
         cols = self._cols
         out[:, 0, rows, cols] = frac
         out[:, 3, rows, cols] = self.under_order
+        out[:, 4, rows, cols] = water_now
+        out[:, 5, rows, cols] = open_now
         # The signal and the clock are global, so they fill the field rather
         # than sitting on the zones: a conv kernel that never sees a zone cell
         # would otherwise read neither.
@@ -380,6 +411,46 @@ class FloodEvacuateEnv:
         sig = state[:, 1].flatten(1)[:, 0]        # the signal fills the field
         on = (sig >= threshold).float() * 2.0 - 1.0
         return on.view(-1, 1).expand(-1, self.K).contiguous()
+
+    def jit_action(self, state: Tensor, water: float = 0.02,
+                   keep: bool = True) -> Tensor:
+        """Order each zone just-in-time: when ITS water rises, while it can go.
+
+        The selective counterpart to `trigger_action`, and the rung the ladder
+        was missing. `trigger_action` reads one global number and orders every
+        zone at once, which is all the old four-channel observation supported;
+        with per-zone water and per-zone egress in channels 4 and 5 a rule can
+        decide zone by zone.
+
+        Cost here accrues for every interval an order STANDS, so ordering
+        early is expensive and ordering late is useless -- the whole problem is
+        per-zone timing. This rule spends on a zone only once that zone is
+        actually wetting, and only while its egress is still open, which is
+        the cheapest order that still gets anyone out.
+
+        `keep` latches an order once given, because rescinding an evacuation
+        and re-issuing it is not a thing an emergency manager does, and
+        un-latching lets the rule flicker the order on and off to game the
+        per-interval cost.
+        """
+        wet = state[:, 4].flatten(1)[:, self._flat_idx]
+        open_now = state[:, 5].flatten(1)[:, self._flat_idx]
+        fire = ((wet >= water) & (open_now > 0.5)).float()
+        if keep:
+            fire = torch.maximum(fire, self.under_order)
+        return fire * 2.0 - 1.0
+
+    @property
+    def _flat_idx(self) -> Tensor:
+        """Where each zone sits in a flattened (G, G) field.
+
+        `rasterise_zones` walks collisions to the next free cell, so this is
+        not `k` and cannot be recomputed from the zone index alone.
+        """
+        if getattr(self, "_flat_idx_cache", None) is None:
+            self._flat_idx_cache = (self._rows * self.grid
+                                    + self._cols).to(self.device)
+        return self._flat_idx_cache
 
     # -- dynamics ------------------------------------------------------------ #
     def step(self, action: Tensor) -> tuple[Tensor, Tensor, Tensor, bool]:
@@ -482,8 +553,25 @@ class EvacuateControlEnv(gym.Env):
 
         from .splits import split_indices                    # noqa: PLC0415
         keep = split_indices(int(table.ok.shape[0]), split)
+        # `signal` MUST be subset with the rest. It was not, until
+        # 2026-10-27: `ok`, `minutes` and `exposure` were sliced down to the
+        # split's members while `signal` kept all six, and the member index is
+        # drawn against the SUBSET length -- so on the eval split the dynamics
+        # came from global members {0, 4} while the observed warning signal
+        # came from `signal[0]` and `signal[1]`, i.e. global members {0, 1}.
+        # Member 4's flood was paired with member 1's forecast.
+        #
+        # Every number this environment has ever reported on a split was
+        # measured with the observation desynchronised from the dynamics, and
+        # the consequences were not subtle. The `trigger_*` family reads that
+        # signal and nothing else, which is why no threshold could be made
+        # both feasible and useful: it was watching the wrong flood. The
+        # hindsight oracle is open-loop and never reads an observation, so it
+        # was the one arm immune to this -- which is a large part of why it
+        # appeared to dominate the whole ladder.
         table = _replace(table, ok=table.ok[keep], minutes=table.minutes[keep],
-                         exposure=table.exposure[keep])
+                         exposure=table.exposure[keep],
+                         signal=table.signal[keep])
         self.split = split
         self.device = torch.device(device)
         self._generator = torch.Generator().manual_seed(0 if seed is None else seed)
@@ -603,6 +691,11 @@ class EvacuateControlEnv(gym.Env):
         """
         t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)[None]
         return self._core.trigger_action(t, threshold)[0].cpu().numpy()
+
+    def jit_action(self, obs: "np.ndarray", water: float = 0.02) -> "np.ndarray":
+        """Per-zone just-in-time orders. See `EvacuateCore.jit_action`."""
+        t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)[None]
+        return self._core.jit_action(t, water)[0].cpu().numpy()
 
 
 def register_envs() -> None:
