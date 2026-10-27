@@ -46,21 +46,30 @@ const P = (text, o = {}) => new Paragraph({
 });
 
 /** Inline markup: **bold**, `code`, *italic*. */
-function runs(text, o = {}) {
+// Recursive, not a flat scan. A bold span in this document routinely contains
+// `code` -- "**named `gym_routes.py`**" -- and a flat scan lets the bold
+// alternative swallow the backticks, so the file printed the literal
+// backtick characters inside bold text. Each token is re-parsed with the
+// formatting so far carried down in `carry`.
+function runs(text, o = {}, carry = {}) {
   const out = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g;
+  const re = /(\*\*[^*]+?\*\*|`[^`]+?`|\*[^*]+?\*)/g;
   let last = 0, m;
   const push = (t, extra) => {
     if (!t) return;
     out.push(new TextRun({ text: t, size: o.size ?? 21, font: o.font ?? "Calibri",
-                           color: o.color, ...extra }));
+                           color: o.color, ...carry, ...extra }));
   };
   while ((m = re.exec(text))) {
     push(text.slice(last, m.index));
     const tok = m[0];
-    if (tok.startsWith("**")) push(tok.slice(2, -2), { bold: true });
-    else if (tok.startsWith("`")) push(tok.slice(1, -1), { font: "Consolas", size: (o.size ?? 21) - 2 });
-    else push(tok.slice(1, -1), { italics: true });
+    if (tok.startsWith("**")) {
+      out.push(...runs(tok.slice(2, -2), o, { ...carry, bold: true }));
+    } else if (tok.startsWith("`")) {
+      push(tok.slice(1, -1), { font: "Consolas", size: (o.size ?? 21) - 2 });
+    } else {
+      out.push(...runs(tok.slice(1, -1), o, { ...carry, italics: true }));
+    }
     last = m.index + tok.length;
   }
   push(text.slice(last));

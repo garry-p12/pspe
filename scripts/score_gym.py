@@ -47,7 +47,12 @@ INCUMBENT = {
     'PDEControl-swe-v0': 'proportional_action',
     'PDEControl-rdf-v0': 'proportional_action',
     'FireDispatch-v0': 'biggest_fire_action',
-    'FloodBuyout-v0': 'even_action',
+    # Was `even_action`, which its own ladder row beat: `lowest_first_action`
+    # returns -0.519 to even's -0.572 and does it on 8.7 of the 17.8 houses.
+    # An incumbent that something else in the same table dominates sets the
+    # bar below the strongest feasible policy known, which is the one thing
+    # this constant exists to avoid.
+    'FloodBuyout-v0': 'lowest_first_action',
     'FloodCrossing-v0': 'budgeted_react_action',
     'FloodGreenInfra-v0': 'most_paved_action',
     'HeatRetrofit-v0': 'exposure_first_action',
@@ -67,11 +72,32 @@ LADDER_POLICIES = {
         "sealed_aware": "sealed_aware_action",
         "flat_out": 1.0,
     },
+    # `trigger_*` is kept at the thresholds the whole-pool sweep chose, and
+    # the low ones are new. The three original rungs CANNOT FIRE on the eval
+    # split: its signal never exceeds 0.4781, so 0.55, 0.70 and 0.90 all
+    # score exactly `never` at a cost of exactly zero, and four of the six
+    # rungs in this table were the same policy wearing different names. The
+    # thresholds were tuned on the whole pool before the split existed and
+    # were never re-tuned after it; `trigger_33`/`_40`/`_45` bracket the range
+    # the eval scenarios actually reach.
+    #
+    # `jit` is the rung the family was missing. Every `trigger_*` reads one
+    # GLOBAL number and orders every zone at once, which is all the old
+    # four-channel observation supported. With per-zone water and egress now
+    # in channels 4 and 5, `jit_action` orders zone by zone as each one wets,
+    # and on the train split it returns -1863 feasible 12/12 against `never`'s
+    # -4206 -- a 2343 improvement that no member of the threshold family can
+    # reach at any setting.
     "FloodEvacuate-v0": {
         "never": "never_action",
         "trigger_90": ("trigger_action", {"threshold": 0.90}),
         "trigger_70": ("trigger_action", {"threshold": 0.70}),
         "trigger_55": ("trigger_action", {"threshold": 0.55}),
+        "trigger_45": ("trigger_action", {"threshold": 0.45}),
+        "trigger_40": ("trigger_action", {"threshold": 0.40}),
+        "trigger_33": ("trigger_action", {"threshold": 0.33}),
+        "jit": ("jit_action", {"water": 0.02}),
+        "jit_early": ("jit_action", {"water": 0.01}),
         "always": 1.0,
     },
     "FloodDefend-v0": {
@@ -198,8 +224,31 @@ def score(env, policy, seeds, limit) -> "dict[str, float]":
             "steps": rolls[0][3]}
 
 
+def learned_rungs(env, env_id: str, seeds, limit, root: str) -> "dict[str, dict]":
+    """Score every checkpoint `scripts/train_gym_policy.py` left under `root`.
+
+    One rung per training seed rather than one averaged rung, because a mean
+    over three training seeds hides the thing worth knowing about a learned
+    policy on a 26-window pool: whether all three runs landed in the same
+    place. The rungs are scored by the same `score` as every hand-written rung
+    above them, on the same twelve evaluation seeds.
+    """
+    import torch
+
+    from pspe.plan.gym_ppo import load_policy
+
+    out: "dict[str, dict]" = {}
+    for ckpt in sorted(Path(root).glob(f"{env_id}/seed*/policy.pt")):
+        seed = ckpt.parent.name.replace("seed", "")
+        state = torch.load(ckpt, map_location="cpu", weights_only=False)
+        policy = load_policy(state, env.action_space.shape)
+        out[f"learned(s{seed})"] = score(env, policy, seeds, limit)
+    return out
+
+
 def measure(env_ids, seeds, ladder: bool = False,
-            split: str = "eval") -> "dict[str, dict]":
+            split: str = "eval",
+            learned_root: str = "") -> "dict[str, dict]":
     import numpy as np
     import gymnasium as gym
 
@@ -225,6 +274,9 @@ def measure(env_ids, seeds, ladder: bool = False,
             for key, spec in LADDER_POLICIES.get(env_id, {}).items():
                 rungs[key] = score(env, _policy(env, inner, spec), seeds, limit)
             row["ladder"] = rungs
+        if learned_root:
+            row["learned"] = learned_rungs(env, env_id, seeds, limit,
+                                           learned_root)
         out[env_id] = row
         env.close()
     return out
@@ -240,7 +292,8 @@ def report(results) -> None:
         # The two arms above are also ladder rungs; print each number once.
         already = {("random", round(r["return"], 2)),
                    (row["incumbent"], round(i["return"], 2))}
-        for label, s in sorted(row.get("ladder", {}).items(),
+        rungs = {**row.get("ladder", {}), **row.get("learned", {})}
+        for label, s in sorted(rungs.items(),
                                key=lambda kv: kv[1]["return"]):
             if label == "random" or round(s["return"], 2) == round(i["return"], 2) \
                     and round(s["cost"], 4) == round(i["cost"], 4):
@@ -336,6 +389,13 @@ def main() -> int:
                     help="also score every policy in the catalog's ladder. "
                          "With --check this verifies the whole table, which is "
                          "where three of this gym's four findings came from.")
+    ap.add_argument("--learned", type=str, default="",
+                    help="also score the trained checkpoints under this "
+                         "directory (see scripts/train_gym_policy.py), one "
+                         "rung per training seed. Cannot be combined with "
+                         "--check: a learned row is not in the catalog, and "
+                         "silently exempting it from the drift check would "
+                         "make the check mean less than it does.")
     ap.add_argument("--json", type=str, default="",
                     help="also write the measurements here")
     args = ap.parse_args()
@@ -351,6 +411,10 @@ def main() -> int:
               f"--split {args.split} would compare different quantities.",
               file=sys.stderr)
         return 2
+    if args.check and args.learned:
+        print("--learned scores policies the catalog does not record; run it "
+              "without --check.", file=sys.stderr)
+        return 2
     if args.check and args.seeds != 12:
         print(f"--check compares against numbers measured on 12 seeds; "
               f"--seeds {args.seeds} would compare different quantities.",
@@ -358,7 +422,8 @@ def main() -> int:
         return 2
 
     results = measure(env_ids, list(range(args.seeds)),
-                      ladder=args.ladder, split=args.split)
+                      ladder=args.ladder, split=args.split,
+                      learned_root=args.learned)
     report(results)
     if args.json:
         Path(args.json).write_text(json.dumps(results, indent=1))

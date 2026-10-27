@@ -59,7 +59,7 @@ INCUMBENT = {
     'PDEControl-swe-v0': 'proportional_action',
     'PDEControl-rdf-v0': 'proportional_action',
     'FireDispatch-v0': 'biggest_fire_action',
-    'FloodBuyout-v0': 'even_action',
+    'FloodBuyout-v0': 'lowest_first_action',
     'FloodCrossing-v0': 'budgeted_react_action',
     'FloodGreenInfra-v0': 'most_paved_action',
     'HeatRetrofit-v0': 'exposure_first_action',

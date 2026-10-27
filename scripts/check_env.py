@@ -14,8 +14,19 @@ import torch
 
 from pspe.utils import get_device, peak_memory_mb
 
-REQUIRED = ["torch", "numpy", "scipy", "gymnasium", "hydra", "tensorboard", "matplotlib"]
+# `rasterio` and `fastapi` joined this list on 2026-10-26. Neither was
+# declared anywhere, and both gate environments that ship: without rasterio
+# `FloodDefend-v0`, `FloodBuyout-v0`, `FloodGreenInfra-v0` and
+# `HeatRetrofit-v0` raise on `gymnasium.make`, and without fastapi so do
+# `Firebreak-v0` and `FireDispatch-v0`, which reach their fire model through
+# `service.fire`. Six of fourteen, failing at construction, and `make smoke`
+# reported a clean environment throughout -- which is the reason they belong
+# here rather than only in requirements.txt.
+REQUIRED = ["torch", "numpy", "scipy", "gymnasium", "hydra", "tensorboard",
+            "matplotlib", "rasterio", "fastapi"]
 OPTIONAL = {
+    "tifffile": "GeoTIFF reads (pspe/simulate/real/floodcast.py)",
+    "uvicorn": "serving the portal's API (scripts/serve.sh)",
     "transformers": 'Phase 3/4 open-weight backbones      -> pip install -e ".[llm]"',
     "peft": 'LoRA on HuggingFace backbones        -> pip install -e ".[llm]"',
     "accelerate": 'mixed precision / device placement   -> pip install -e ".[llm]"',

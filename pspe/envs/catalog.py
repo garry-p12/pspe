@@ -363,7 +363,28 @@ SPECS: "tuple[EnvSpec, ...]" = (
                   "policy known. The named `trigger_action` at 0.55 scores far "
                   "better (-1242.3) and spends 38.25, clearing the limit in 2 "
                   "of 12 episodes.",
-        status="NOTHING KNOWN IS BOTH FEASIBLE AND BETTER THAN DOING NOTHING, "
+        status="A HINDSIGHT ORACLE SCORES -941.8 INSIDE THE BUDGET, against "
+               "-3726.9 for the best feasible rung -- so there is 2785 of "
+               "return here and nothing hand-written finds it. The oracle "
+               "(`scripts/gym_oracle.py`, constrained CEM, 128x12) is not a "
+               "policy: it optimises each scenario knowing that scenario's "
+               "future, so it bounds what a policy could do rather than being "
+               "one. It is not in the ladder because `--ladder --check` has to "
+               "be able to re-measure every rung, and a CEM search is not a "
+               "callable. What it does differently is stagger: one to six "
+               "zones per step, 29-34% of zone-intervals ever ordered, and "
+               "replaying its sequences reproduces its numbers exactly. At "
+               "15.8 of spend it beats `jit` at 14.6 by 2785. "
+               "Three defects were fixed on 2026-10-27 before any of this "
+               "could be read: the observation carried no per-zone hazard at "
+               "all (channels 4 and 5 now do), four ladder rungs were the "
+               "same policy under different names, and -- the real one -- the "
+               "split sliced `ok`/`minutes`/`exposure` to its members but NOT "
+               "`signal`, so the dynamics came from members {0, 4} while the "
+               "observed warning came from members {0, 1}. Every number this "
+               "environment reported on a split before that date was measured "
+               "with the forecast decoupled from the flood. "
+               "NOTHING KNOWN IS BOTH FEASIBLE AND BETTER THAN DOING NOTHING, "
                "and on held-out members it is worse: EVERY trigger threshold "
                "scores exactly what never ordering scores, to the decimal, at "
                "zero cost. The 2 eval members never cross any threshold, so "
@@ -391,17 +412,27 @@ SPECS: "tuple[EnvSpec, ...]" = (
                 "incumbent": {"return": -3726.852, "cost": 0.0, "feasible": 12, "of": 12}},
         ladder=(
         {"key": 'never', "plain": 'never tell anyone to leave', "policy": 'never order', "return": -3726.852, "cost": 0.0, "feasible": 12, "of": 12,
-         "note": 'the best FEASIBLE policy known on this environment, which is the finding'},
+         "note": 'the best FEASIBLE policy known here, and still the incumbent'},
+        {"key": 'jit', "plain": 'warn each neighbourhood as its own streets wet', "policy": '`jit_action`, per-zone water 0.02', "return": -3726.852, "cost": 14.6111, "feasible": 12, "of": 12,
+         "note": 'the rung the family was missing: it decides zone by zone rather than ordering everyone at once, which the four-channel observation could not express. On the TRAIN split it returns -1863.4 feasible 12/12 against never-ordering -4206.0, a 2343 gain no global threshold reaches at any setting. On eval it spends 14.6 and saves nobody, because here the severe member needs 48'},
+        {"key": 'jit_early', "plain": 'warn each neighbourhood a little sooner', "policy": '`jit_action`, per-zone water 0.01', "return": -3726.852, "cost": 29.2104, "feasible": 12, "of": 12,
+         "note": 'twice the spend of `jit` for the same return; the eval split has no middle ground a threshold can reach'},
         {"key": 'trigger_90', "plain": 'warn only at the very last moment', "policy": 'trigger at 0.90', "return": -3726.852, "cost": 0.0, "feasible": 12, "of": 12,
-         "note": 'scores never-ordering exactly: the signal never crosses 0.90'},
-        {"key": 'trigger_70', "plain": 'warn very late', "policy": 'trigger at 0.70', "return": -3726.852, "cost": 0.0, "feasible": 12, "of": 12,
-         "note": 'also never fires, so also never-ordering'},
+         "note": 'never fires: the eval signal peaks at 0.8392, so this is never-ordering under another name'},
+        {"key": 'trigger_55', "plain": 'warn when the river rises', "policy": 'trigger at 0.55 (`trigger_action`)', "return": 0.0, "cost": 24.0, "feasible": 6, "of": 12,
+         "note": 'INFEASIBLE. Gets everyone out -- the return is a perfect 0.00 -- and the cost is bimodal by member, about 0 on the mild one and about 48 on the severe one, so a 24.0 mean describes no episode that exists. 1.5x the budget where it matters'},
+        {"key": 'trigger_45', "plain": 'warn a little earlier', "policy": 'trigger at 0.45', "return": 0.0, "cost": 24.0, "feasible": 6, "of": 12,
+         "note": 'INFEASIBLE, identically to 0.55: between them the eval signal has no crossing'},
+        {"key": 'trigger_40', "plain": 'warn earlier still', "policy": 'trigger at 0.40', "return": 0.0, "cost": 24.0, "feasible": 6, "of": 12,
+         "note": 'INFEASIBLE, same crossing as 0.45 and 0.55'},
+        {"key": 'trigger_33', "plain": 'warn on the first sign', "policy": 'trigger at 0.33', "return": 0.0, "cost": 40.0, "feasible": 6, "of": 12,
+         "note": 'INFEASIBLE, and now firing on the mild member too: 40.0 against a limit of 32'},
+        {"key": 'trigger_70', "plain": 'warn very late', "policy": 'trigger at 0.70', "return": -3726.852, "cost": 23.5, "feasible": 6, "of": 12,
+         "note": 'INFEASIBLE and useless: it fires late enough to spend 23.5 and save nobody. The worst of both'},
+        {"key": 'always', "plain": 'tell everyone to leave straight away', "policy": 'order everyone at once', "return": 0.0, "cost": 48.0, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 1.5x the budget in every episode'},
         {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -1749.244, "cost": 44.6273, "feasible": 0, "of": 12,
          "note": 'INFEASIBLE in every episode'},
-        {"key": 'trigger_55', "plain": 'warn when the river rises', "policy": 'trigger at 0.55 (`trigger_action`)', "return": -3726.852, "cost": 0.0, "feasible": 12, "of": 12,
-         "note": 'the named incumbent. Scores order-everyone-at-once exactly, and its cost is bimodal by ensemble member -- 0.00 or 39-48, never near 32 -- so its 28.2 mean describes no episode that exists'},
-        {"key": 'always', "plain": 'tell everyone to leave straight away', "policy": 'order everyone at once', "return": 0.0, "cost": 48.0, "feasible": 0, "of": 12,
-         "note": 'INFEASIBLE, 1.5x the budget; the trigger at 0.55 is this policy'},
         ),
         measured_on=MEASURED,
     ),
@@ -841,8 +872,15 @@ SPECS: "tuple[EnvSpec, ...]" = (
                "deeper than 0.10 m",
         cost="houses acquired",
         budget="a quarter of the at-risk homes in an average window, about 18",
-        incumbent="`even_action` -- take the same share of homes in every "
-                  "block (-2.48, feasible 12/12)",
+        incumbent="`lowest_first_action` -- buy the lowest-lying blocks first "
+                  "(-0.52, feasible 12/12, on 8.7 of the 18-house budget). It "
+                  "replaced `even_action` (-0.57, feasible 12/12, the whole "
+                  "budget) on 2026-10-26: the two are indistinguishable in "
+                  "return on the held-out windows (+0.05, t = 0.68; see "
+                  "status) but the spend is not a noise question, and an "
+                  "incumbent its own ladder dominates sets the bar below the "
+                  "best feasible policy known. The -2.48 this field used to "
+                  "quote was the whole-pool number, not the eval one.",
         status="THE RESULT DID NOT SURVIVE A HELD-OUT SPLIT, which is this "
                "entry's finding and a correction to what it said on "
                "2026-10-17. Over the whole 33-window pool an even share beats "
@@ -865,16 +903,16 @@ SPECS: "tuple[EnvSpec, ...]" = (
                "house would put false precision on every result.",
         needs="the cached Onion Creek terrain and the City of Austin footprints",
         scores={"random": {"return": -0.269, "cost": 35.5302, "feasible": 5, "of": 12},
-                "incumbent": {"return": -0.572, "cost": 17.803, "feasible": 12, "of": 12}},
+                "incumbent": {"return": -0.519, "cost": 8.6804, "feasible": 12, "of": 12}},
         ladder=(
         {"key": 'nothing', "plain": 'buy nothing', "policy": 'buy nothing', "return": -0.992, "cost": 0.0, "feasible": 12, "of": 12,
          "note": ''},
         {"key": 'lowest_first', "plain": 'buy the lowest-lying blocks first', "policy": 'lowest ground first (`lowest_first_action`)', "return": -0.519, "cost": 8.6804, "feasible": 12, "of": 12,
-         "note": 'the obvious answer, and it leaves 8 of its 17.8 houses unspent while doing barely half the job'},
+         "note": 'the best FEASIBLE policy known here. Its return is indistinguishable from an even share on these eight windows (+0.05, t = 0.68), but it gets there on 8.7 of the 17.8 houses, and that half-budget difference is arithmetic rather than noise'},
         {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -0.269, "cost": 35.5302, "feasible": 5, "of": 12,
          "note": 'INFEASIBLE in 5 of 12 episodes'},
         {"key": 'even', "plain": 'buy the same share everywhere', "policy": 'even share (`even_action`)', "return": -0.572, "cost": 17.803, "feasible": 12, "of": 12,
-         "note": 'the best FEASIBLE approach known, for exactly the budget'},
+         "note": 'spends the whole budget to land 0.05 BEHIND buying the lowest ground first -- inside the noise on return, twice the houses. It was labelled the incumbent until a learned policy needed a bar to clear and the ladder was read against itself'},
         {"key": 'flat_out', "plain": 'buy every flood-prone house', "policy": 'clear the floodplain', "return": 0.0, "cost": 58.9167, "feasible": 0, "of": 12,
          "note": 'INFEASIBLE, 2.5x the budget; nothing floods because nothing is left'},
         ),

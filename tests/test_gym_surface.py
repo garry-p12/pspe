@@ -35,7 +35,7 @@ INCUMBENTS = {
     'PDEControl-swe-v0': 'proportional_action',
     'PDEControl-rdf-v0': 'proportional_action',
     'FireDispatch-v0': 'biggest_fire_action',
-    'FloodBuyout-v0': 'even_action',
+    'FloodBuyout-v0': 'lowest_first_action',
     'FloodCrossing-v0': 'budgeted_react_action',
     'FloodGreenInfra-v0': 'most_paved_action',
     'HeatRetrofit-v0': 'exposure_first_action',
@@ -49,6 +49,15 @@ def _make(env_id: str, **kw):
     register_all()
     try:
         return gymnasium.make(env_id, **kw)
+    except ImportError:
+        # NOT a skip. A missing dependency is a declaration bug, not absent
+        # data, and skipping it is how six of the fourteen environments came to
+        # be unconstructable while this suite reported 109 passes: without
+        # rasterio the four terrain environments raise here, without fastapi so
+        # do the two that reach their fire model through `service.fire`, and
+        # every assertion about them quietly vanished. Both are now in
+        # `requirements.txt` and in `scripts/check_env.py`'s REQUIRED list.
+        raise
     except Exception as exc:                                   # noqa: BLE001
         if env_id in CHEAP:
             raise
