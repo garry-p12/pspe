@@ -263,3 +263,37 @@ def test_checkpoint_carries_the_annealed_spread():
     assert "log_std_cap" in agent.state()["policy"]
     assert float(agent.state()["policy"]["log_std_cap"]) == pytest.approx(-2.3)
     env.close()
+
+
+# --------------------------------------------------------------------------- #
+# A diverged solve is not a good policy
+# --------------------------------------------------------------------------- #
+def test_pde_env_never_returns_a_non_finite_reward_or_cost():
+    """`PDEControl-swe-v0` can be driven to numerical divergence by an
+    open-loop actuation sequence -- one eval scenario did exactly that under
+    CEM and returned an infinite episode cost. `inf` poisons every mean
+    computed downstream and, worse, sorts a diverged episode into a winning
+    position on return. The env must report such a step as terminated and
+    unambiguously infeasible instead."""
+    from pspe.envs import register_all
+
+    register_all()
+    env = gymnasium.make("PDEControl-swe-v0", split="eval")
+    limit = float(env.unwrapped.task.cost_limit)
+    rng = np.random.default_rng(0)
+    for seed in range(6):
+        env.reset(seed=seed)
+        for _ in range(64):
+            # Corners of the box, which is where the instability lives.
+            act = rng.choice([-1.0, 1.0], size=env.action_space.shape)
+            obs, rew, term, trunc, info = env.step(act.astype(np.float32))
+            assert np.isfinite(rew), f"reward {rew} on seed {seed}"
+            assert np.isfinite(info["cost"]), f"cost {info['cost']}"
+            assert np.isfinite(np.asarray(obs)).all(), "observation"
+            if info.get("diverged"):
+                assert term, "a diverged solve must end the episode"
+                assert info["cost"] > limit, (
+                    "a diverged solve must be infeasible, not merely costly")
+            if term or trunc:
+                break
+    env.close()

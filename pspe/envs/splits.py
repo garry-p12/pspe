@@ -61,7 +61,8 @@ SPLIT_NOTES = {
 
 def split_indices(n: int, split: str = "train", *,
                   eval_fraction: float = EVAL_FRACTION,
-                  seed: int = SPLIT_SEED) -> "np.ndarray":
+                  seed: int = SPLIT_SEED,
+                  strata: "np.ndarray | None" = None) -> "np.ndarray":
     """The indices of `n` scenarios belonging to `split`.
 
     Deterministic: the same `n` always yields the same partition, so two runs
@@ -70,6 +71,37 @@ def split_indices(n: int, split: str = "train", *,
     A pool too small to split without emptying one side comes back whole, for
     both splits, rather than silently handing back one scenario -- and the
     caller is expected to say so. `SPLIT_NOTES` is where this gym says it.
+
+    `strata` is a per-scenario severity key. With it the partition walks the
+    severity ORDER and takes every k-th scenario for eval, so both sides span
+    the range; without it the partition is the random permutation it has
+    always been. This exists because a random partition of a thin pool can
+    hand one side a degenerate slice and nothing notices. On
+    `FloodEvacuate-v0` the six forecast members have signal maxima from 0.3312
+    to 1.0, the random split put {0, 4} in eval, and the two eval members span
+    0.3312 and 0.8392 with NOTHING in between -- so eval returns came out
+    near-binary (-3726.85 under the budget, 0.00 over it) and twelve seeds
+    carried two distinct outcomes. A stratified split cannot fix a pool of six
+    being a pool of six, but it can stop the partition from concentrating the
+    severity on one side.
+
+    Stratifying is opt-in per pool rather than global, and deliberately so: it
+    changes which scenarios are held out, which invalidates every number
+    previously recorded on that pool's splits. A pool whose random partition
+    already spans its range gains nothing and would pay that cost for free.
+
+    What this does NOT fix is worth stating, because it was built in the belief
+    that it would. The three pools in this gym with degenerate eval support are
+    degenerate for three different reasons, and severity stratification
+    addresses none of them: `FloodEvacuate-v0` has six members so any quarter
+    is two members whatever order they are in; `FloodBuyout-v0` has
+    thirty-three windows and a perfectly good partition, but its incumbent
+    scores 0.0 on eleven of twelve eval scenarios because there is no harm
+    left to prevent; and `FloodCrossing-v0`'s returns are quantised to three
+    levels. Thin support, uninformative scenarios and a coarse reward are not
+    the same defect. The measure that separates them is per-scenario
+    DISCRIMINATION -- the gap between doing nothing and the best known policy
+    -- which `scripts/gym_discrimination.py` reports.
     """
     if split not in SPLITS:
         raise ValueError(f"split must be one of {SPLITS}, not {split!r}")
@@ -82,6 +114,24 @@ def split_indices(n: int, split: str = "train", *,
         # undefined, and returning one scenario would make it noise wearing
         # the word "held out".
         return np.arange(n)
+    if strata is not None:
+        key = np.asarray(strata, dtype=np.float64).reshape(-1)
+        if key.shape[0] != n:
+            raise ValueError(
+                f"strata has {key.shape[0]} entries for a pool of {n}")
+        # Ties broken by the same permutation the unstratified path uses, so
+        # equal strata give a RANDOM partition rather than index order. It is
+        # not the same partition as the unstratified path -- that one takes
+        # the first `n_eval` of a permutation and this one walks the sorted
+        # order in steps -- so stratifying is a change of partition even when
+        # the strata carry no information.
+        jitter = np.random.default_rng(seed).permutation(n)
+        order = np.lexsort((jitter, key))
+        step = max(1, int(round(n / n_eval)))
+        picked = np.sort(order[step // 2::step][:n_eval])
+        if split == "eval":
+            return picked
+        return np.sort(np.setdiff1d(np.arange(n), picked))
     order = np.random.default_rng(seed).permutation(n)
     return np.sort(order[n_eval:] if split == "train" else order[:n_eval])
 

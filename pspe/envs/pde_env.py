@@ -143,6 +143,11 @@ class PDEControlEnv(gym.Env):
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(c, h, w), dtype=np.float32)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(n_actuators,), dtype=np.float32)
         self.episode_cost = 0.0
+        #: Set when a solve went non-finite this episode. Readable after the
+        #: fact, because "this row is a diverged solve" and "this row is a bad
+        #: policy" are different statements and a benchmark must not report
+        #: the second when it means the first.
+        self.diverged = False
 
     # -- gymnasium API ------------------------------------------------------ #
     def reset(
@@ -158,6 +163,7 @@ class PDEControlEnv(gym.Env):
             self._generator = torch.Generator().manual_seed(seed)
         state = self._core.reset(batch=1, generator=self._generator)
         self.episode_cost = 0.0
+        self.diverged = False
         return state[0].detach().cpu().numpy().astype(np.float32), {"cost": 0.0}
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
@@ -165,11 +171,49 @@ class PDEControlEnv(gym.Env):
         act = act.clamp(-1.0, 1.0)
         with torch.no_grad():
             state, reward, cost, done = self._core.step(act)
+
+        # The solver can be driven to numerical divergence. `swe` is the one
+        # that does it in practice: an open-loop actuation sequence found by
+        # CEM took one eval scenario's field to a non-finite state, and the
+        # search that produced it ran for nine hours because a diverged field
+        # is both slow to step and attractive to a maximiser that reads -inf
+        # as merely very bad. Actions are already clamped to the box, so this
+        # is a property of the testbed under adversarial actuation rather than
+        # of any caller.
+        #
+        # A diverged solve is reported as UNDEFINED-and-infeasible, never as
+        # `inf`. Three reasons, in order of how badly each bit: `inf` poisons
+        # every mean and standard deviation computed downstream; it sorts
+        # ahead of or behind real rows depending on sign, so a diverged
+        # episode can WIN a ladder on return; and an episode whose physics
+        # stopped being physics has no return, so attributing a good one to it
+        # is worse than attributing a bad one. The cost is set above the limit
+        # so every feasibility test counts it as a violation, the step earns no
+        # reward, and the episode ends -- stepping a diverged field further
+        # produces nothing but more divergence.
+        bad = not (torch.isfinite(state).all() and torch.isfinite(reward).all()
+                   and torch.isfinite(cost).all())
+        if bad:
+            self.diverged = True
+            step_cost = 2.0 * abs(float(self._task.cost_limit)) + 1.0
+            self.episode_cost += step_cost
+            info = {
+                "cost": step_cost,
+                "episode_cost": self.episode_cost,
+                "cost_limit": self._task.cost_limit,
+                "diverged": True,
+            }
+            obs = np.nan_to_num(
+                state[0].detach().cpu().numpy().astype(np.float32),
+                nan=0.0, posinf=0.0, neginf=0.0)
+            return obs, 0.0, True, False, info
+
         self.episode_cost += float(cost[0])
         info = {
             "cost": float(cost[0]),
             "episode_cost": self.episode_cost,
             "cost_limit": self._task.cost_limit,
+            "diverged": False,
         }
         obs = state[0].detach().cpu().numpy().astype(np.float32)
         return obs, float(reward[0]), False, bool(done), info
