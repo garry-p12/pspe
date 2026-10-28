@@ -124,9 +124,40 @@ def _building_density(shape, bounds, epsg) -> "np.ndarray":
     return count
 
 
+#: Window offsets, as (row, col) into the 60 m DEM, that the SOLVER wets.
+#:
+#: `min_homes` below is an elevation proxy -- at-risk ground within `reach_m`
+#: of the channel bed -- and the proxy is wrong often enough to break the
+#: benchmark. Measured by running the flood on all 33 windows the proxy
+#: admits, at channel stages of 9, 11 and 14 m with nothing bought:
+#: **25 of them flood exactly zero at-risk houses**, and four of those stay dry
+#: at a 30 m stage. The proxy counts houses low enough to be reached and not
+#: whether water routes to them, so it admits ground behind a rise or past the
+#: open south and east edges.
+#:
+#: Keeping only the 8 the solver wets is what makes the scores mean anything,
+#: and it costs the environment its claim to test SITE generalisation. These
+#: eight offsets span 8 cells by 8 cells -- 480 m of sliding inside a 2400 m
+#: window, so the extremes still share 80% of their area. They are one reach of
+#: Onion Creek seen at eight offsets, not eight places. The scenario dimension
+#: that remains is forcing: `peak_stage_m` draws per episode and the flooded
+#: share runs 0.05 to 1.00 across that range on these windows.
+#:
+#: The domain cannot do better. Of 20 DISJOINT 40x40 tiles in the 11.0 x 12.5 km
+#: DEM, 4 hold a floodway and **none** holds 20 reachable houses; at 50% overlap
+#: it is still none. The 33-window pool exists only because a stride of 4 slides
+#: the window in 240 m steps, 90% overlap, and can centre the one reach that
+#: qualifies. A location split here is train-on-site, test-on-site, and
+#: §5.14al says so beside the numbers.
+WET_WINDOWS = ((80, 108), (80, 112), (80, 116),
+               (84, 108), (84, 112), (84, 116),
+               (88, 108), (88, 112))
+
+
 def austin_windows(grid: int = 40, dx: float = 60.0, *, min_homes: float = 20.0,
                    min_river: int = 6, reach_m: float = 6.0,
-                   stride: int | None = None) -> "dict[str, Tensor]":
+                   stride: int | None = None,
+                   wet_only: bool = True) -> "dict[str, Tensor]":
     """Windows of Onion Creek holding a channel, flood-risk ground and houses.
 
     `min_homes` counts houses the water can REACH -- on at-risk ground and
@@ -135,7 +166,10 @@ def austin_windows(grid: int = 40, dx: float = 60.0, *, min_homes: float = 20.0,
     alone gave 13 windows of which 8 in 10 episodes scored exactly 0.0 for
     every policy, because FEMA's hundred-year floodplain here reaches ground a
     flood in the channel does not. Filtering on reachable homes gives 33
-    windows that all pose a question.
+    windows, of which the solver wets 8 -- see `WET_WINDOWS`, which is the
+    pool `wet_only` keeps and the only pool on which this environment
+    discriminates. Pass `wet_only=False` to get all 33, which is how
+    `WET_WINDOWS` was measured and is not a benchmark.
     """
     from .defend import _cached_dem                       # noqa: PLC0415
 
@@ -145,7 +179,7 @@ def austin_windows(grid: int = 40, dx: float = 60.0, *, min_homes: float = 20.0,
     h, w = z_full.shape
     step = stride or max(grid // 4, 1)
 
-    zs, rs, ps, hs = [], [], [], []
+    zs, rs, ps, hs, offsets = [], [], [], [], []
     for r in range(0, h - grid + 1, step):
         for c in range(0, w - grid + 1, step):
             riv = river_full[r:r + grid, c:c + grid]
@@ -164,10 +198,25 @@ def austin_windows(grid: int = 40, dx: float = 60.0, *, min_homes: float = 20.0,
             rs.append(riv)
             ps.append(risk)
             hs.append(homes)
+            offsets.append((r, c))
     if not zs:
         raise ValueError(
             f"no {grid}x{grid} window at {dx:.0f} m holds a floodway and "
             f"{min_homes:.0f} at-risk homes")
+    if wet_only:
+        keep = [i for i, rc in enumerate(offsets) if rc in WET_WINDOWS]
+        if len(keep) != len(WET_WINDOWS):
+            missing = sorted(set(WET_WINDOWS) - set(offsets))
+            raise ValueError(
+                f"{len(keep)} of {len(WET_WINDOWS)} wet windows found at "
+                f"grid={grid} dx={dx:.0f} stride={step}; missing {missing}. "
+                "WET_WINDOWS is tied to the scan order and to the DEM cache, "
+                "so a changed cache or a changed stride invalidates it -- "
+                "re-measure with wet_only=False rather than editing the list")
+        zs = [zs[i] for i in keep]
+        rs = [rs[i] for i in keep]
+        ps = [ps[i] for i in keep]
+        hs = [hs[i] for i in keep]
 
     z = torch.from_numpy(np.stack(zs)).float()
     z = z - z.amin(dim=(-2, -1), keepdim=True)

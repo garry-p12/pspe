@@ -214,7 +214,8 @@ class EnvSpec:
 #: rather than a guarantee.
 MEASURED = "2026-10-16"
 
-#: `FloodEvacuate-v0` (the sixteen-member ensemble and the `jit` ladder, §5.14ah).
+#: `FloodEvacuate-v0` (the sixteen-member ensemble and the `jit` ladder, §5.14ah)
+#: and `FloodBuyout-v0` (the wet-only window pool, §5.14al).
 REMEASURED = "2026-10-27"
 
 SPECS: "tuple[EnvSpec, ...]" = (
@@ -858,7 +859,7 @@ SPECS: "tuple[EnvSpec, ...]" = (
              "text": "The allowance counts houses rather than dollars, because no verified price per house is on hand."},
         ),
         pool='33 windows of real terrain: 25 train, 8 eval',
-        cost_limit=17.803,
+        cost_limit=8.3125,
         title="Which houses to buy out",
         plain_title="Which houses to buy out",
         plain_decision="Nine blocks along Onion Creek, and money for about "
@@ -885,52 +886,62 @@ SPECS: "tuple[EnvSpec, ...]" = (
         reward="minus the percentage of at-risk homes left standing in water "
                "deeper than 0.10 m",
         cost="houses acquired",
-        budget="a quarter of the at-risk homes in an average window, about 18",
-        incumbent="`lowest_first_action` -- buy the lowest-lying blocks first "
-                  "(-0.52, feasible 12/12, on 8.7 of the 18-house budget). It "
-                  "replaced `even_action` (-0.57, feasible 12/12, the whole "
-                  "budget) on 2026-10-26: the two are indistinguishable in "
-                  "return on the held-out windows (+0.05, t = 0.68; see "
-                  "status) but the spend is not a noise question, and an "
-                  "incumbent its own ladder dominates sets the bar below the "
-                  "best feasible policy known. The -2.48 this field used to "
-                  "quote was the whole-pool number, not the eval one.",
-        status="THE RESULT DID NOT SURVIVE A HELD-OUT SPLIT, which is this "
-               "entry's finding and a correction to what it said on "
-               "2026-10-17. Over the whole 33-window pool an even share beats "
-               "buying the lowest blocks first by 7.57, paired, at t = 2.69. "
-               "On the 8 windows nothing was fitted to, the same comparison is "
-               "+0.05 at t = 0.68: no difference. The eval windows also barely "
-               "flood -- doing nothing scores -0.99 against -16.27 on the pool "
-               "-- so there is little signal there to order anything by. Both "
-               "readings are bad for the environment: 33 windows cannot hold "
-               "enough out to support a claim, and the claim it did support "
-               "was about the pool it was tuned on. Nothing should be trained "
-               "here and reported until the pool is larger.",
+        budget="a quarter of the at-risk homes in an average window, about 8",
+        incumbent="`even_action` -- buy the same share in every zone (-48.20, "
+                  "feasible 12/12, the whole 8.3-house budget). It was "
+                  "demoted to `lowest_first_action` on 2026-10-26 and "
+                  "restored on 2026-10-27, and the reversal is a measurement "
+                  "correction rather than a change of mind: the demotion was "
+                  "decided where the two differed by +0.05 at t = 0.68, on a "
+                  "pool in which 25 of 33 windows flood no house at all. On "
+                  "the wet-only pool the same comparison is +7.91 at "
+                  "t = +4.99. The -0.52 and -0.57 this field used to quote "
+                  "were a near-dry pool's numbers, 100x smaller because the "
+                  "reward is minus the percentage of at-risk homes in water "
+                  "and almost none of them were.",
+        status="SINGLE-SITE BY CONSTRUCTION, which is this entry's finding "
+               "and a correction to what it said on 2026-10-26. The pool is "
+               "now the 8 windows the SOLVER wets (`buyout.WET_WINDOWS`); the "
+               "other 25 the elevation proxy admitted flood no at-risk house "
+               "at a 9, 11 or 14 m channel stage, and four stay dry at 30 m. "
+               "Restricting to them is what makes the ladder mean anything -- "
+               "doing nothing scores -70.07 against an even share's -48.20, "
+               "where before every policy scored near zero on 11 of 12 "
+               "scenarios -- and it costs the environment its claim to test "
+               "SITE generalisation. The 8 offsets span 480 m inside a 2400 m "
+               "window, so the extremes share 80% of their area: one reach of "
+               "Onion Creek seen eight ways. The domain cannot do better. Of "
+               "20 disjoint 40x40 tiles, 4 hold a floodway and none holds 20 "
+               "reachable houses; at 50% overlap it is still none. Train and "
+               "eval here are the same place at a different offset, and what "
+               "varies between scenarios is the forcing: `peak_stage_m` draws "
+               "per episode and the flooded share runs 0.05 to 1.00 across "
+               "that range. Report it as a severity-generalisation task or "
+               "not at all.",
         caveat="Austin really ran a buyout on Onion Creek after 2013 and 2015, "
                "and this is not a reconstruction of it: the flood is a "
                "single-peaked rise held in the channel, not a replayed event. "
-               "Two thirds of episodes carry no signal at all -- the water "
-               "reaches no house in that window whatever is bought -- so the "
-               "mean is carried by the third that do. The budget counts houses "
+               "The 'two thirds of episodes carry no signal' this field warned "
+               "about was the dry pool and is fixed: every scenario now floods "
+               "and every scenario orders the ladder. The budget counts houses "
                "rather than dollars on purpose; a plausible-looking price per "
                "house would put false precision on every result.",
         needs="the cached Onion Creek terrain and the City of Austin footprints",
-        scores={"random": {"return": -0.269, "cost": 35.5302, "feasible": 5, "of": 12},
-                "incumbent": {"return": -0.519, "cost": 8.6804, "feasible": 12, "of": 12}},
+        scores={"random": {"return": -33.153, "cost": 14.2562, "feasible": 3, "of": 12},
+                "incumbent": {"return": -48.198, "cost": 8.3125, "feasible": 12, "of": 12}},
         ladder=(
-        {"key": 'nothing', "plain": 'buy nothing', "policy": 'buy nothing', "return": -0.992, "cost": 0.0, "feasible": 12, "of": 12,
-         "note": ''},
-        {"key": 'lowest_first', "plain": 'buy the lowest-lying blocks first', "policy": 'lowest ground first (`lowest_first_action`)', "return": -0.519, "cost": 8.6804, "feasible": 12, "of": 12,
-         "note": 'the best FEASIBLE policy known here. Its return is indistinguishable from an even share on these eight windows (+0.05, t = 0.68), but it gets there on 8.7 of the 17.8 houses, and that half-budget difference is arithmetic rather than noise'},
-        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -0.269, "cost": 35.5302, "feasible": 5, "of": 12,
-         "note": 'INFEASIBLE in 5 of 12 episodes'},
-        {"key": 'even', "plain": 'buy the same share everywhere', "policy": 'even share (`even_action`)', "return": -0.572, "cost": 17.803, "feasible": 12, "of": 12,
-         "note": 'spends the whole budget to land 0.05 BEHIND buying the lowest ground first -- inside the noise on return, twice the houses. It was labelled the incumbent until a learned policy needed a bar to clear and the ladder was read against itself'},
-        {"key": 'flat_out', "plain": 'buy every flood-prone house', "policy": 'clear the floodplain', "return": 0.0, "cost": 58.9167, "feasible": 0, "of": 12,
-         "note": 'INFEASIBLE, 2.5x the budget; nothing floods because nothing is left'},
+        {"key": 'nothing', "plain": 'buy nothing', "policy": 'buy nothing', "return": -70.073, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": 'half to all of the at-risk houses end up in water, which is what the wet-only pool made visible: this row used to read -0.99'},
+        {"key": 'even', "plain": 'buy the same share everywhere', "policy": 'even share (`even_action`)', "return": -48.198, "cost": 8.3125, "feasible": 12, "of": 12,
+         "note": 'the best FEASIBLE policy known here, and the incumbent. Beats buying the lowest ground first by 7.91 paired, t = +4.99, spending the whole budget against its 5.37'},
+        {"key": 'lowest_first', "plain": 'buy the lowest-lying blocks first', "policy": 'lowest ground first (`lowest_first_action`)', "return": -56.110, "cost": 5.3730, "feasible": 12, "of": 12,
+         "note": 'was the incumbent from 2026-10-26 to 2026-10-27 on a near-dry pool that could not order the two. It leaves 2.9 houses of budget unspent and 7.91 of return on the table'},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -33.153, "cost": 14.2562, "feasible": 3, "of": 12,
+         "note": 'INFEASIBLE in 9 of 12 episodes, and reward alone ranks it FIRST -- it buys 1.7x the budget'},
+        {"key": 'flat_out', "plain": 'buy every flood-prone house', "policy": 'clear the floodplain', "return": 0.0, "cost": 27.5, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, 3.3x the budget; nothing floods because nothing is left'},
         ),
-        measured_on=MEASURED,
+        measured_on=REMEASURED,
     ),
     EnvSpec(
         env_id="FloodCrossing-v0",

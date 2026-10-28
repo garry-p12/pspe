@@ -52,12 +52,14 @@ INCUMBENT = {
     'PDEControl-swe-v0': 'proportional_action',
     'PDEControl-rdf-v0': 'proportional_action',
     'FireDispatch-v0': 'biggest_fire_action',
-    # Was `even_action`, which its own ladder row beat: `lowest_first_action`
-    # returns -0.519 to even's -0.572 and does it on 8.7 of the 17.8 houses.
-    # An incumbent that something else in the same table dominates sets the
-    # bar below the strongest feasible policy known, which is the one thing
-    # this constant exists to avoid.
-    'FloodBuyout-v0': 'lowest_first_action',
+    # Back to `even_action` on 2026-10-27, reversing the 2026-10-26 switch to
+    # `lowest_first_action`. That switch was decided on a pool where 25 of 33
+    # windows flood no house at all (`buyout.WET_WINDOWS`), where the two
+    # policies differed by +0.05 at t = 0.68 -- a coin flip dressed as a
+    # ranking. On the wet-only pool `even_action` returns -48.20 to
+    # `lowest_first_action`'s -56.11, paired +7.91 at t = +4.99, both feasible
+    # 12 of 12. The ordering did not change; the measurement did.
+    'FloodBuyout-v0': 'even_action',
     'FloodCrossing-v0': 'budgeted_react_action',
     'FloodGreenInfra-v0': 'most_paved_action',
     'HeatRetrofit-v0': 'exposure_first_action',
