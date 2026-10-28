@@ -105,6 +105,21 @@ def main() -> int:
         for ckpt in sorted(root.glob(f"{env_id}/seed*/policy.pt")):
             sd = ckpt.parent.name.replace("seed", "")
             state = torch.load(ckpt, map_location="cpu", weights_only=False)
+            # A checkpoint whose normaliser has a different shape than the
+            # environment was trained on a different observation space, so it
+            # is not a policy for THIS environment and scoring it here would
+            # be a category error, not a weak result. `FloodEvacuate-v0` went
+            # from 4 channels to 6 when the forecast was exposed to the agent;
+            # its three saved runs predate that and have to be retrained.
+            saved = tuple(state["obs_norm"]["shape"])
+            live = tuple(env.observation_space.shape)
+            if saved != live:
+                rec["seeds"][sd] = {"stale": True, "saved_obs": list(saved),
+                                    "live_obs": list(live)}
+                print(f"{env_id:<22} s{sd}  STALE: trained on obs {saved},"
+                      f" environment is {live} -- retrain required",
+                      flush=True)
+                continue
             pol = load_policy(state, env.action_space.shape)
             r, c = episodes(env, pol, eval_seeds)
             m, t, n = paired_t(r, inc_r)

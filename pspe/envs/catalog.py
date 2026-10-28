@@ -204,9 +204,18 @@ class EnvSpec:
 
 #: Every score and ladder row below is 12 episodes of the stated policy on
 #: seeds 0-11, with BOTH the environment and the action space seeded, measured
-#: 2026-10-16 by `scripts/score_gym.py`. `feasible` counts the episodes whose
-#: SUMMED cost cleared the limit -- per episode, never a mean across them.
+#: by `scripts/score_gym.py`. `feasible` counts the episodes whose SUMMED cost
+#: cleared the limit -- per episode, never a mean across them.
+#:
+#: Each entry carries its OWN date, because two of them have been re-measured
+#: since and a single constant would have the catalog claim numbers were taken
+#: before the measurement that produced them. `--ladder --check` re-rolls every
+#: rung against these rows whatever date they carry, so the date is a record
+#: rather than a guarantee.
 MEASURED = "2026-10-16"
+
+#: `FloodEvacuate-v0` (the sixteen-member ensemble and the `jit` ladder, §5.14ah).
+REMEASURED = "2026-10-27"
 
 SPECS: "tuple[EnvSpec, ...]" = (
     EnvSpec(
@@ -339,7 +348,7 @@ SPECS: "tuple[EnvSpec, ...]" = (
             {"label": 'The harm', "real": False,
              "text": "Nobody has ever evacuated on our say-so, and in half the forecasts nothing floods. This is an estimate, never something that happened."},
         ),
-        pool='6 forecast members: 4 train, 2 eval',
+        pool='16 forecast members: 12 train, 4 eval',
         cost_limit=32.0,
         plain_title='Call the evacuation',
         plain_decision='Every half hour for a day, decide which of eight neighbourhoods to tell to leave. Driving times come from the real Austin street map.',
@@ -406,35 +415,40 @@ SPECS: "tuple[EnvSpec, ...]" = (
                "estimate of exposure and never a measured outcome.",
         needs="the cached Onion Creek egress table (eight minutes of routing to "
               "build on first use)",
-        # `incumbent` is doing nothing, because that is the best feasible
-        # policy known here. The trigger's own numbers are in the ladder.
-        scores={"random": {"return": -1749.244, "cost": 44.6273, "feasible": 0, "of": 12},
-                "incumbent": {"return": -3726.852, "cost": 0.0, "feasible": 12, "of": 12}},
+        # `incumbent` is `jit_action` as of 2026-10-27. It was doing nothing,
+        # because on the six-member ensemble nothing feasible beat it; the
+        # sixteen-member ensemble samples the band where partial evacuation
+        # both fits the budget and helps, and a per-zone rule beats never by
+        # 3995 there. The trigger family's numbers are in the ladder.
+        scores={"random": {"return": -1677.133, "cost": 44.6273,
+                           "feasible": 0, "of": 12},
+                "incumbent": {"return": -1863.426, "cost": 27.2626,
+                              "feasible": 12, "of": 12}},
         ladder=(
-        {"key": 'never', "plain": 'never tell anyone to leave', "policy": 'never order', "return": -3726.852, "cost": 0.0, "feasible": 12, "of": 12,
-         "note": 'the best FEASIBLE policy known here, and still the incumbent'},
-        {"key": 'jit', "plain": 'warn each neighbourhood as its own streets wet', "policy": '`jit_action`, per-zone water 0.02', "return": -3726.852, "cost": 14.6111, "feasible": 12, "of": 12,
-         "note": 'the rung the family was missing: it decides zone by zone rather than ordering everyone at once, which the four-channel observation could not express. On the TRAIN split it returns -1863.4 feasible 12/12 against never-ordering -4206.0, a 2343 gain no global threshold reaches at any setting. On eval it spends 14.6 and saves nobody, because here the severe member needs 48'},
-        {"key": 'jit_early', "plain": 'warn each neighbourhood a little sooner', "policy": '`jit_action`, per-zone water 0.01', "return": -3726.852, "cost": 29.2104, "feasible": 12, "of": 12,
-         "note": 'twice the spend of `jit` for the same return; the eval split has no middle ground a threshold can reach'},
-        {"key": 'trigger_90', "plain": 'warn only at the very last moment', "policy": 'trigger at 0.90', "return": -3726.852, "cost": 0.0, "feasible": 12, "of": 12,
-         "note": 'never fires: the eval signal peaks at 0.8392, so this is never-ordering under another name'},
-        {"key": 'trigger_55', "plain": 'warn when the river rises', "policy": 'trigger at 0.55 (`trigger_action`)', "return": 0.0, "cost": 24.0, "feasible": 6, "of": 12,
-         "note": 'INFEASIBLE. Gets everyone out -- the return is a perfect 0.00 -- and the cost is bimodal by member, about 0 on the mild one and about 48 on the severe one, so a 24.0 mean describes no episode that exists. 1.5x the budget where it matters'},
-        {"key": 'trigger_45', "plain": 'warn a little earlier', "policy": 'trigger at 0.45', "return": 0.0, "cost": 24.0, "feasible": 6, "of": 12,
-         "note": 'INFEASIBLE, identically to 0.55: between them the eval signal has no crossing'},
-        {"key": 'trigger_40', "plain": 'warn earlier still', "policy": 'trigger at 0.40', "return": 0.0, "cost": 24.0, "feasible": 6, "of": 12,
-         "note": 'INFEASIBLE, same crossing as 0.45 and 0.55'},
-        {"key": 'trigger_33', "plain": 'warn on the first sign', "policy": 'trigger at 0.33', "return": 0.0, "cost": 40.0, "feasible": 6, "of": 12,
-         "note": 'INFEASIBLE, and now firing on the mild member too: 40.0 against a limit of 32'},
-        {"key": 'trigger_70', "plain": 'warn very late', "policy": 'trigger at 0.70', "return": -3726.852, "cost": 23.5, "feasible": 6, "of": 12,
-         "note": 'INFEASIBLE and useless: it fires late enough to spend 23.5 and save nobody. The worst of both'},
+        {"key": 'jit', "plain": 'warn each neighbourhood as its own streets wet', "policy": '`jit_action`, per-zone water 0.02', "return": -1863.426, "cost": 27.2626, "feasible": 12, "of": 12,
+         "note": 'THE INCUMBENT. Decides zone by zone rather than ordering everyone at once, and beats never-ordering by 3995 on held-out members while staying inside the budget on every episode. It could not exist before 2026-10-27: the observation carried no per-zone hazard, so one global threshold was the only thing expressible'},
+        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -1677.133, "cost": 44.6273, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE in every episode. Its return reads better than the incumbent only because it spends 44.6 of a 32 budget'},
+        {"key": 'never', "plain": 'never tell anyone to leave', "policy": 'never order', "return": -5858.803, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": 'was the incumbent until 2026-10-27, because on the six-member ensemble nothing feasible beat it'},
+        {"key": 'trigger_90', "plain": 'warn only at the very last moment', "policy": 'trigger at 0.90', "return": -5858.803, "cost": 0.0, "feasible": 12, "of": 12,
+         "note": 'never fires on these members, so it is never-ordering under another name'},
+        {"key": 'trigger_70', "plain": 'warn very late', "policy": 'trigger at 0.70', "return": -5858.803, "cost": 11.75, "feasible": 9, "of": 12,
+         "note": 'INFEASIBLE and useless: late enough to spend 11.8 and save nobody'},
+        {"key": 'jit_early', "plain": 'warn each neighbourhood a little sooner', "policy": '`jit_action`, per-zone water 0.01', "return": -1863.426, "cost": 34.6447, "feasible": 3, "of": 12,
+         "note": 'INFEASIBLE. Same return as the incumbent for 27% more spend, which is what the budget is there to stop'},
+        {"key": 'trigger_55', "plain": 'warn when the river rises', "policy": 'trigger at 0.55', "return": -1652.778, "cost": 44.75, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE in every episode at 1.4x the budget'},
+        {"key": 'trigger_45', "plain": 'warn a little earlier', "policy": 'trigger at 0.45', "return": 0.0, "cost": 47.6667, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE. Gets everyone out -- a perfect 0.00 -- for 1.5x the budget. The whole difficulty of this environment is that the perfect policy is unaffordable'},
+        {"key": 'trigger_40', "plain": 'warn earlier still', "policy": 'trigger at 0.40', "return": 0.0, "cost": 48.0, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, and now ordering everyone everywhere'},
+        {"key": 'trigger_33', "plain": 'warn on the first sign', "policy": 'trigger at 0.33', "return": 0.0, "cost": 48.0, "feasible": 0, "of": 12,
+         "note": 'INFEASIBLE, identical to ordering everyone at once'},
         {"key": 'always', "plain": 'tell everyone to leave straight away', "policy": 'order everyone at once', "return": 0.0, "cost": 48.0, "feasible": 0, "of": 12,
          "note": 'INFEASIBLE, 1.5x the budget in every episode'},
-        {"key": 'random', "plain": 'decide at random', "policy": 'random', "return": -1749.244, "cost": 44.6273, "feasible": 0, "of": 12,
-         "note": 'INFEASIBLE in every episode'},
         ),
-        measured_on=MEASURED,
+        measured_on=REMEASURED,
     ),
     EnvSpec(
         env_id="Firebreak-v0",

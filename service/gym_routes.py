@@ -51,7 +51,7 @@ router = APIRouter(prefix="/gym", tags=["gym"])
 INCUMBENT = {
     "FloodOperate-v0": "budget_edge_action",
     "FloodOperateFine-v0": "budget_edge_action",
-    "FloodEvacuate-v0": "never_action",
+    "FloodEvacuate-v0": "jit_action",
     "Firebreak-v0": "greedy_action",
     "FloodDefend-v0": "uniform_action",
     'CMDPToy-v0': 'optimal_action_vector',
@@ -109,8 +109,13 @@ def environments(probe: bool = False) -> "dict[str, Any]":
             "-- not the baseline the environment originally named. Three of "
             "those named baselines were weak enough that a table of returns "
             "ranked a random policy above them, which reads as a result and is "
-            "an artefact. On FloodEvacuate-v0, nothing known is both feasible "
-            "and better than doing nothing."
+            "an artefact. FloodEvacuate-v0 was the worst case until "
+            "2026-10-27: nothing known was both feasible and better than "
+            "doing nothing, because its six-member ensemble sampled the band "
+            "where evacuating is affordable AND useful only twice and the "
+            "eval split drew neither of those members. On the sixteen-member "
+            "ensemble a per-zone rule beats doing nothing by 3995 inside the "
+            "budget."
         ),
         "ladder_note": (
             "Each environment's ladder lists every policy measured on it, the "
@@ -121,9 +126,10 @@ def environments(probe: bool = False) -> "dict[str, Any]":
         "feasibility_note": (
             "`feasible` counts episodes whose SUMMED cost cleared the limit. "
             "Per episode, never averaged across them: FloodEvacuate-v0's "
-            "trigger averages 28.2 against a limit of 32 while actually "
-            "spending either 0.00 or 39-48, so the mean describes no episode "
-            "that exists."
+            "trigger at 0.55 averages 44.8 against a limit of 32 while "
+            "spending either nothing or the lot, so the mean describes no "
+            "episode that exists. Its incumbent is now `jit_action`, which "
+            "is inside the budget in all twelve."
         ),
         "measured_on": SPECS[0].measured_on,
         "reproduce": "python3 scripts/score_gym.py --check",

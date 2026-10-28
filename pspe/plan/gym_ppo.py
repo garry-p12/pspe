@@ -595,7 +595,18 @@ def load_policy(state: dict, action_shape, device: str = "cpu"):
     """
     pi = GaussianPolicy(tuple(state["obs_shape"]), int(state["act_dim"]),
                         int(state["hidden"]), 0.0).to(device)
-    pi.load_state_dict(state["policy"])
+    # Checkpoints written before the sigma anneal existed have no
+    # `log_std_cap`, and `load_state_dict` rejects the whole dict over one
+    # missing buffer. The 42 runs of the first sweep are all of that vintage,
+    # and they are the only record of what the learner did before the anneal,
+    # so refusing to load them would delete the baseline this change is
+    # measured against. A checkpoint with no cap was trained with no cap, so
+    # the honest default is one that caps nothing: `log_std` itself, which
+    # leaves `effective_log_std` equal to the spread that was actually used.
+    sd = dict(state["policy"])
+    if "log_std_cap" not in sd:
+        sd["log_std_cap"] = sd["log_std"].detach().max().clone()
+    pi.load_state_dict(sd)
     pi.eval()
     norm = ObsNorm.load(state["obs_norm"])
     dev = torch.device(device)

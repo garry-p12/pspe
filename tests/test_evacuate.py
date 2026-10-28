@@ -76,7 +76,15 @@ def test_matches_the_batched_field_env_protocol():
     # raster by their real lon/lat. `(4, 1, K)` is what this used to be, and
     # it failed in `GaussianFieldPolicy` before the first update -- the
     # encoder strides by two three times, so eight is the floor in both axes.
-    assert env.obs_shape == (4, env.grid, env.grid)
+    #
+    # Six channels, not four, since 2026-10-27: the last two carry the water
+    # and the open-road state AT THE CURRENT STEP, which is what `jit_action`
+    # reads to decide one zone at a time. Without them the agent could only
+    # see a scalar trigger signal and no policy in the catalog's ladder could
+    # be both feasible and useful -- see §5.14ah. Any checkpoint trained on
+    # the 4-channel space is not a policy for this environment and
+    # `paired_gym.py` refuses to score one.
+    assert env.obs_shape == (6, env.grid, env.grid)
     assert env.grid >= 8
     s = env.reset(16, generator=torch.Generator().manual_seed(0))
     assert s.shape == (16, *env.obs_shape)

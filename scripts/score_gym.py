@@ -39,7 +39,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 INCUMBENT = {
     "FloodOperate-v0": "budget_edge_action",
     "FloodOperateFine-v0": "budget_edge_action",
-    "FloodEvacuate-v0": "never_action",
+    # Was `never_action`, which was the best FEASIBLE policy on the
+    # six-member ensemble because no threshold could both fit the budget and
+    # help. On the sixteen-member ensemble `jit_action` returns -1863.4 on
+    # eval feasible 12/12 against never-ordering's -5858.8 -- a 3995 gain on
+    # held-out scenarios -- so the bar is a policy that acts.
+    "FloodEvacuate-v0": "jit_action",
     "Firebreak-v0": "greedy_action",
     "FloodDefend-v0": "uniform_action",
     'CMDPToy-v0': 'optimal_action_vector',
@@ -241,6 +246,19 @@ def learned_rungs(env, env_id: str, seeds, limit, root: str) -> "dict[str, dict]
     for ckpt in sorted(Path(root).glob(f"{env_id}/seed*/policy.pt")):
         seed = ckpt.parent.name.replace("seed", "")
         state = torch.load(ckpt, map_location="cpu", weights_only=False)
+        # Skip a checkpoint whose observation space no longer matches, the
+        # same test `paired_gym.py` applies and for the same reason: it is
+        # not a policy for this environment. `FloodEvacuate-v0` went from 4
+        # channels to 6, so its three saved runs would raise here and take
+        # the whole ladder down with them. A missing rung is a true statement
+        # about what has been measured; a rung scored across a changed
+        # observation space is not.
+        saved = tuple(state["obs_norm"]["shape"])
+        live = tuple(env.observation_space.shape)
+        if saved != live:
+            print(f"  learned(s{seed})   SKIPPED: trained on obs {saved}, "
+                  f"environment is {live} -- retrain required", flush=True)
+            continue
         policy = load_policy(state, env.action_space.shape)
         out[f"learned(s{seed})"] = score(env, policy, seeds, limit)
     return out

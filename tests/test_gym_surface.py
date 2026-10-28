@@ -27,7 +27,7 @@ from pspe.envs import BY_ID, SPECS, catalog, register_all      # noqa: E402
 INCUMBENTS = {
     "FloodOperate-v0": "budget_edge_action",
     "FloodOperateFine-v0": "budget_edge_action",
-    "FloodEvacuate-v0": "never_action",
+    "FloodEvacuate-v0": "jit_action",
     "Firebreak-v0": "greedy_action",
     "FloodDefend-v0": "uniform_action",
     'CMDPToy-v0': 'optimal_action_vector',

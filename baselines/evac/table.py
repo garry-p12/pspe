@@ -53,7 +53,17 @@ def cache_paths(lead: int = LEAD) -> tuple[Path, Path]:
 
 
 def build(lead: int = LEAD) -> EgressTable:
-    """Route the whole ensemble. Deterministic given the two input files."""
+    """Route the whole ensemble.
+
+    Deterministic given the two input files AND the DEM cache. That third
+    condition was missing from this docstring and is not a technicality:
+    `prepare.py` builds `schedules.npy` through
+    `build_domain(source="auto")`, which reads `data/dem_cache/`, and tiles
+    there were rewritten on 2026-10-16 after the 2026-10-11 ensemble.
+    Regenerating from the same `roads.json` afterwards moved every member by
+    about 1e-3 relative. The routing below is deterministic; the flood it
+    routes over is only as pinned as that cache.
+    """
     g = routes.build_graph(
         json.loads(_need(DATA / "roads.json", "the road network").read_text())
         ["features"])

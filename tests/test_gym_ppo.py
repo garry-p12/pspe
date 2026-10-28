@@ -297,3 +297,30 @@ def test_pde_env_never_returns_a_non_finite_reward_or_cost():
             if term or trunc:
                 break
     env.close()
+
+
+def test_load_policy_accepts_a_checkpoint_from_before_the_anneal():
+    """`log_std_cap` was added with the sigma schedule, and `load_state_dict`
+    rejects a whole checkpoint over one missing buffer. The 42 runs of the
+    first sweep predate it and are the only record of the learner's behaviour
+    BEFORE the anneal, so refusing them would delete the baseline the change
+    is measured against."""
+    from pspe.envs import register_all
+
+    register_all()
+    env = gymnasium.make("CMDPToy-v0", split="train")
+    agent = GymPPOLagrangian(env, GymPPOConfig(total_steps=1, seed=0))
+    state = agent.state()
+    obs, _ = env.reset(seed=0)
+    want = agent.deterministic(obs)
+
+    legacy = dict(state)
+    legacy["policy"] = {k: v for k, v in state["policy"].items()
+                        if k != "log_std_cap"}
+    assert "log_std_cap" not in legacy["policy"]
+    got = load_policy(legacy, env.action_space.shape)(obs)
+    # The cap defaults to the spread the checkpoint was trained with, so the
+    # deterministic action -- which does not read the spread at all -- is
+    # unchanged either way.
+    assert np.array_equal(want, got)
+    env.close()

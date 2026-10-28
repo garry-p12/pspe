@@ -25,9 +25,22 @@ Two choices here are load-bearing and were each wrong once:
   means more spurious canopy.
 
 The ensemble is multiples of the SHIPPED DESIGN STORM -- rain on the box at
-50 mm/h for 6 h -- not of the 2013 river peak. The portal's Roads tab reports
-117 of 891 km unusable on that storm, so the x1.00 member is checkable
-against a published figure, and the print below does exactly that check.
+50 mm/h for 6 h -- not of the 2013 river peak. The x1.00 member is checkable
+against a published figure and the print below does that check: the portal's
+Roads tab reports 117 km unusable on that storm, against 120 of 894.5 km here.
+
+**This is not reproducible from the two input files alone**, which
+`table.py` claims and which is wrong. `build_domain(source="auto")` reads a
+DEM from `data/dem_cache/`, and that cache is neither an input file nor
+version-pinned: tiles in it were rewritten on 2026-10-16, after the
+2026-10-11 `schedules.npy`, and regenerating from the same `roads.json`
+afterwards moved every member by about 1e-3 relative -- 77% of cells differ,
+peak depth 13.0344 m against 13.0340 m. The solver itself IS deterministic
+(identical state and identical adaptive-dt sequences across runs, at one
+thread or four), and the road graph builds deterministically at 894.542 km.
+The drift is entirely the third, undeclared input. Anyone comparing a
+regenerated ensemble against committed numbers should expect that much and no
+more; anyone needing bit-identical output has to pin the DEM cache too.
 """
 from __future__ import annotations
 
@@ -47,7 +60,29 @@ from . import table as T
 BOX = dict(west=-97.82, south=30.11, east=-97.69, north=30.21)
 DX = 40.0
 SNAP_H = [t * T.INTERVAL / 60.0 for t in range(T.T)]
-MEMBERS = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0]
+#: Multiples of the shipped design storm. Sixteen, not six, and ten of them
+#: between 0.65x and 1.25x, because that band is where the decision lives and
+#: the six-member version sampled it twice.
+#:
+#: Below about 0.65x nothing floods and no evacuation is worth its cost; above
+#: about 1.25x getting everyone out costs 48 intervals against a limit of 32,
+#: so the budget forbids the only policy that helps. Between them, partial
+#: staggered evacuation both fits and helps. The old list put exactly TWO
+#: members (0.75x, 1.0x) in that band, a quarter of six is two members, and
+#: the split drew neither: on eval every feasible rung of an eleven-rung
+#: ladder scored identically on all twelve scenarios, so the environment could
+#: not rank two policies at all. With this list eval draws 0.70x, 0.90x, 1.00x
+#: and 1.50x, seven of twelve scenarios discriminate, and `jit_action` beats
+#: never-ordering by 3995 while staying inside the budget on every episode.
+#:
+#: Severity stratification was tried first and does not fix it -- the band is
+#: a narrow middle, so walking the severity order picks the extremes and steps
+#: over it. The ensemble has to sample the band.
+#:
+#: Sixteen members cost about 55 minutes of solver time here, plus four
+#: minutes of routing in `table.py`.
+MEMBERS = [0.25, 0.40, 0.55, 0.65, 0.70, 0.75, 0.80, 0.85,
+           0.90, 0.95, 1.00, 1.05, 1.15, 1.25, 1.50, 2.00]
 RAIN_MM_H = 50.0
 STORM_H = 6.0
 

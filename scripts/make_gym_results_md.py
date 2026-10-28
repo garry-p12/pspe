@@ -134,6 +134,10 @@ def main() -> int:
                 oracle[env] = cand
     ladder = json.loads((root / "ladder.json").read_text())
     paired = json.loads((root / "paired.json").read_text())
+    disc = {}
+    dp = root / "discrimination.json"
+    if dp.exists():
+        disc = json.loads(dp.read_text())
     runs: "dict[str, list]" = {}
     for p in sorted(root.glob("*/seed*/result.json")):
         d = json.loads(p.read_text())
@@ -237,29 +241,55 @@ def main() -> int:
            "finding about the environment, not about any policy."))
     w("")
 
-    w("## How many effective samples each eval split carries\n")
-    w(wrap("`of: 12` counts seeds, not information. Before reading any t or "
-           "standard deviation below, check how many DISTINCT values the "
-           "twelve scenarios actually produce. Where that is two or three, "
-           "the twelve-seed spread and every t computed on it overstate "
-           "their own n, and the row is a weaker measurement than its format "
-           "suggests."))
+    w("## How many eval scenarios can tell two policies apart\n")
+    w(wrap("`of: 12` counts seeds. It does not count information. A scenario "
+           "DISCRIMINATES when the feasible policies on the ladder do not all "
+           "score the same on it; one where they do is a constant that "
+           "contributes nothing but a smaller standard error. The span is "
+           "taken over policies FEASIBLE on that scenario, because a better "
+           "outcome bought by overspending does not show the scenario can be "
+           "improved within budget. Measured by "
+           "`scripts/gym_discrimination.py`."))
     w("")
-    w("| environment | distinct incumbent returns / 12 | reading |")
-    w("|---|---|---|")
-    for env in order:
-        p = paired.get(env)
-        if not p:
-            continue
-        n = len(set(p["incumbent_returns"]))
-        if n == 1:
-            note = "**1 -- exact, no test applies**"
-        elif n <= 3:
-            note = "**" + str(n) + " effective samples -- degenerate split**"
-        else:
-            note = "usable"
-        w("| `" + env + "` | " + str(n) + " | " + note + " |")
+    w(wrap("This replaces an earlier count of distinct incumbent returns, "
+           "which measured the wrong thing -- how much ONE policy's score "
+           "varied, not whether the split separates policies. That metric "
+           "called `CMDPToy-v0` and `FloodCrossing-v0` degenerate when both "
+           "discriminate on all twelve scenarios, and it understated "
+           "`FloodEvacuate-v0`, whose feasible rungs are identical on every "
+           "scenario."))
     w("")
+    if disc:
+        w("| environment | discriminating | largest feasible span | reading |")
+        w("|---|---|---|---|")
+        for env in order:
+            dd = disc.get(env)
+            if not dd:
+                continue
+            n, of = dd["discriminating"], dd["of"]
+            if n == 0:
+                note = "**no eval scenario separates any two feasible policies**"
+            elif n <= of // 4:
+                note = f"**only {n} of {of} carries signal**"
+            elif n < of:
+                note = f"{of - n} scenarios are constant"
+            else:
+                note = "every scenario carries signal"
+            w("| `" + env + "` | " + f"{n}/{of}" + " | "
+              + fnum(dd["largest_span"]) + " | " + note + " |")
+        w("")
+        bad = [e for e, dd in disc.items()
+               if dd["discriminating"] <= dd["of"] // 4]
+        if bad:
+            w(wrap("Rows to read with care: " + ", ".join("`" + b + "`" for b in bad)
+                   + ". A standard deviation over twelve seeds on those is not "
+                     "a standard deviation over twelve observations, and any t "
+                     "computed from it overstates its own n."))
+            w("")
+    else:
+        w(wrap("Not measured -- run `scripts/gym_discrimination.py`."))
+        w("")
+
     w("---\n")
 
     for env in order:
