@@ -69,6 +69,13 @@ STEP_BUDGET = {"FloodGreenInfra-v0": 6_000}
 #: and below it.
 EVAL_SEEDS = tuple(range(12))
 
+#: Relative tolerance when comparing a run's saved `cost_limit` to the live
+#: one. A saved limit is a float32 round-trip of the live float64, so an exact
+#: comparison reports a changed budget where none changed: `HeatRetrofit-v0`
+#: stores 1480464.5 against a live 1480464.375, which is 8.4e-8 apart and the
+#: same budget. The same 1e-6 relative tolerance feasibility uses.
+LIMIT_TOL = 1e-6
+
 #: Training-split probe episodes for checkpoint selection. Deliberately few --
 #: it is a selection signal, not a reported number.
 PROBE_SEEDS = tuple(range(90_000, 90_008))
@@ -172,6 +179,54 @@ def train_one(env_id: str, seed: int, steps: int, root: str,
     return result
 
 
+def stale_against_live(env_id: str, results: "list[dict]",
+                       seeds: "list[Path]") -> "dict | None":
+    """Why these runs no longer describe the environment of that name.
+
+    A finished run records the budget it was trained against and leaves a
+    checkpoint whose normaliser records the observation space it saw. When
+    either has since moved, the saved eval return is a number about a
+    different problem, and putting it in a column headed by the current
+    incumbent compares two environments and calls the difference a result.
+    Both of the fourteen that moved on 2026-10-27 are caught here:
+    `FloodBuyout-v0` by its budget (17.803 houses on the 33-window pool
+    against 8.3125 on the eight wet ones) and `FloodEvacuate-v0` by its
+    observation space (4 channels before the forecast was exposed, 6 after).
+    """
+    import gymnasium as gym
+    import torch
+
+    from pspe.envs import register_all
+
+    register_all()
+    env = gym.make(env_id, split="eval")
+    try:
+        live_limit = float(env.unwrapped.task.cost_limit)
+        live_obs = tuple(env.observation_space.shape)
+    finally:
+        env.close()
+
+    why: "dict[str, dict]" = {}
+    saved_limit = float(results[0]["cost_limit"])
+    if abs(saved_limit - live_limit) > LIMIT_TOL * max(abs(live_limit), 1e-9):
+        why["limit"] = {"saved": saved_limit, "live": live_limit}
+    for p in seeds:
+        ckpt = p.parent / "policy.pt"
+        if not ckpt.exists():
+            continue
+        state = torch.load(ckpt, map_location="cpu", weights_only=False)
+        shape = (state.get("obs_norm") or {}).get("shape")
+        if shape is None:
+            # Nothing recorded the observation space, so this check cannot
+            # answer either way. Silence is the honest result: the limit
+            # comparison above still stands on its own.
+            break
+        if tuple(shape) != live_obs:
+            why["obs"] = {"saved": list(shape), "live": list(live_obs)}
+        break
+    return why or None
+
+
 def report(root: str, env_ids: "list[str]") -> int:
     """Aggregate every seed that finished into one table."""
     import numpy as np
@@ -194,8 +249,10 @@ def report(root: str, env_ids: "list[str]") -> int:
         inc = rec.get("incumbent", {})
         rnd = rec.get("random", {})
         unt = np.array([r["eval_untrained"]["return"] for r in results])
+        stale = stale_against_live(env_id, results, seeds)
         rows.append({
             "env_id": env_id, "n_seeds": len(results),
+            "stale": stale,
             "limit": results[0]["cost_limit"],
             "steps": results[0]["steps_budget"],
             "learned_return": float(ret.mean()), "learned_return_sd": float(ret.std()),
@@ -219,17 +276,24 @@ def report(root: str, env_ids: "list[str]") -> int:
     print(f"\n{'environment':22s} {'learned return':>22s} {'cost/limit':>21s} "
           f"{'feas':>8s} {'incumbent':>13s} {'verdict':>10s}")
     print("-" * 104)
-    beats = clears = 0
+    beats = clears = stale_rows = 0
     for r in rows:
         feasible = r["learned_feasible_seeds"] == r["n_seeds"]
         better = (r["incumbent_return"] is not None
                   and r["learned_return"] > r["incumbent_return"])
-        verdict = ("beats" if feasible and better else
+        # `STALE` is not a rank. The saved return is a true number about the
+        # environment as it was when the run finished, and the incumbent
+        # column is the environment as it is now, so there is no comparison
+        # to make and the row is excluded from both counters below.
+        verdict = ("STALE" if r["stale"] else
+                   "beats" if feasible and better else
                    "ties" if feasible and r["incumbent_return"] is not None
                    and abs(r["learned_return"] - r["incumbent_return"])
                    <= 0.02 * max(abs(r["incumbent_return"]), 1e-9) else
                    "below" if feasible else "INFEASIBLE")
-        if feasible:
+        if r["stale"]:
+            stale_rows += 1
+        elif feasible:
             clears += 1
             if better:
                 beats += 1
@@ -241,6 +305,16 @@ def report(root: str, env_ids: "list[str]") -> int:
     print("-" * 104)
     print(f"{len(rows)} environments measured; {clears} feasible on every seed; "
           f"{beats} of those beat the incumbent")
+    if stale_rows:
+        print(f"{stale_rows} of the {len(rows)} are STALE -- the environment "
+              "changed under the saved run, so no verdict is reported for "
+              "them. Retrain to fill those rows:")
+        for r in rows:
+            if not r["stale"]:
+                continue
+            for what, v in r["stale"].items():
+                print(f"  {r['env_id']:22s} {what}: trained on {v['saved']}, "
+                      f"environment is now {v['live']}")
     Path(root, "summary.json").write_text(json.dumps(rows, indent=1))
     print(f"wrote {Path(root, 'summary.json')}")
     return 0

@@ -441,6 +441,20 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
+    # `runs/gym/summary.json` belongs to `scripts/train_gym_policy.py
+    # --summary`, which writes a LIST of learner rows there and is the file
+    # `make_gym_results_md.py` reads. This script writes a DICT of baseline
+    # scores, so pointing `--json` at that name replaces one artifact with a
+    # differently shaped one under the same path, and the generator fails on
+    # `string indices must be integers`. That is how `docs/GYM_RESULTS.md`
+    # became ungenerable on 2026-10-27.
+    if args.json and Path(args.json).name == "summary.json":
+        print("--json would overwrite the learner summary that "
+              "`train_gym_policy.py --summary` owns, with a different shape. "
+              "These are baseline scores: write them to `baselines.json`.",
+              file=sys.stderr)
+        return 2
+
     results = measure(env_ids, list(range(args.seeds)),
                       ladder=args.ladder, split=args.split,
                       learned_root=args.learned)

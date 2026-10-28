@@ -69,12 +69,26 @@ def rung_order(v):
     return (0 if v["feasible"] == v["of"] else 1, -v["return"])
 
 
-def verdict_for(env, paired):
+def verdict_for(env, paired, summary=None):
     """(verdict, reason) from the paired test rather than the point estimate."""
+    # A run whose environment has since changed has no verdict on THIS
+    # environment, and the saved numbers are not a weak result on it. Checked
+    # before the paired record, because `paired_gym.py` writes `{"stale":
+    # true}` for those seeds and never rolls them, so there are no episodes
+    # to pair.
+    srow = (summary or {}).get(env) or {}
+    if srow.get("stale"):
+        what = ", ".join(
+            f"{k} was {v['saved']}, is now {v['live']}"
+            for k, v in srow["stale"].items())
+        return "STALE", what
     p = paired.get(env)
     if not p:
         return "no data", ""
-    seeds = [p["seeds"][k] for k in sorted(p["seeds"])]
+    seeds = [p["seeds"][k] for k in sorted(p["seeds"])
+             if not p["seeds"][k].get("stale")]
+    if not seeds:
+        return "STALE", "no checkpoint matches the current observation space"
     n_feas = sum(s["feasible"] == s["of"] for s in seeds)
     if n_feas < len(seeds):
         return "INFEASIBLE", f"{n_feas} of {len(seeds)} seeds feasible on all 12"
@@ -176,7 +190,7 @@ def main() -> int:
         s = summary.get(env)
         if not s:
             continue
-        v, why = verdict_for(env, paired)
+        v, why = verdict_for(env, paired, summary)
         verdicts[env] = (v, why)
         fe = f"{s['learned_feasible_episodes']}/{s['episodes']}"
         if s["learned_feasible_episodes"] != s["episodes"]:
@@ -197,10 +211,24 @@ def main() -> int:
         counts[v] = counts.get(v, 0) + 1
     w("| verdict | count |")
     w("|---|---|")
+    # Every verdict the table above can produce has to appear here, or the
+    # counts sum to fewer environments than the catalog holds and the
+    # difference is invisible. `STALE` and `no data` are the two that are
+    # easy to forget, because they are the rows with no result in them.
     for v in ("BEATS", "deterministic", "identical", "tie", "mixed",
-              "LOSS", "INFEASIBLE"):
+              "LOSS", "INFEASIBLE", "STALE", "no data"):
         if v in counts:
             w("| " + v + " | " + str(counts[v]) + " |")
+    missing = set(counts) - {"BEATS", "deterministic", "identical", "tie",
+                             "mixed", "LOSS", "INFEASIBLE", "STALE", "no data"}
+    if missing:
+        raise SystemExit(f"verdicts not in the count table: {sorted(missing)}")
+    total = sum(counts.values())
+    w("")
+    w(wrap(f"{total} environments, which is every row in the catalog. A "
+           "verdict that went uncounted here would make this table sum to "
+           "fewer than the catalog holds, so it is asserted rather than "
+           "trusted."))
     w("")
 
     w("## Headroom: what the hindsight oracle leaves on the table\n")
@@ -221,8 +249,10 @@ def main() -> int:
         srow = summary.get(env)
         if not o:
             if srow:
+                lr = ("stale" if srow.get("stale")
+                      else num(srow["learned_return"]))
                 w("| `" + env + "` | not run | " + num(srow["incumbent_return"])
-                  + " | --- | " + num(srow["learned_return"]) + " | --- |")
+                  + " | --- | " + lr + " | --- |")
             continue
         inc = o["incumbent"] if o["incumbent"] is not None else (
             srow["incumbent_return"] if srow else None)
@@ -230,7 +260,8 @@ def main() -> int:
         hs = sign(head) if head is not None else "---"
         if head is not None and abs(head) < 0.05:
             hs = "**" + hs + "**"
-        lr = num(srow["learned_return"]) if srow else "---"
+        lr = ("stale" if (srow or {}).get("stale")
+              else num(srow["learned_return"]) if srow else "---")
         note = "" if o["finite"] == o["of"] else f" ({o['finite']}/{o['of']} finite)"
         w("| `" + env + "` | " + num(o["oracle"]) + note + " | "
           + (num(inc) if inc is not None else "---") + " | " + hs
@@ -332,6 +363,13 @@ def main() -> int:
             w("|---|---|---|---|---|")
             for k in sorted(p["seeds"]):
                 sd = p["seeds"][k]
+                # `paired_gym.py` records a checkpoint it refused to roll as
+                # `{"stale": true}` plus the two shapes. There are no
+                # episodes behind it, so there is no difference to pair and
+                # nothing to put in the numeric columns.
+                if sd.get("stale"):
+                    w("| s" + k + " | --- | --- | not rolled | --- |")
+                    continue
                 ts = "n/a" if sd["t"] is None else f"{sd['t']:+.2f}".replace("-", MINUS)
                 mc = sum(sd["costs"]) / len(sd["costs"])
                 w("| s" + k + " | " + sign(sd["paired_diff"], 4) + " | " + ts
