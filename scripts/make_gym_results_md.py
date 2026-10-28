@@ -69,6 +69,14 @@ def rung_order(v):
     return (0 if v["feasible"] == v["of"] else 1, -v["return"])
 
 
+#: Verdict names, in the order the count table lists them. Also the set the
+#: table is checked against, so a new verdict cannot be counted without being
+#: shown. `STALE` and `no data` are easy to forget: they are the rows with no
+#: result in them.
+VERDICT_ORDER = ("BEATS", "trend", "deterministic", "identical", "tie",
+                 "mixed", "LOSS", "INFEASIBLE", "STALE", "no data")
+
+
 def verdict_for(env, paired, summary=None):
     """(verdict, reason) from the paired test rather than the point estimate."""
     # A run whose environment has since changed has no verdict on THIS
@@ -112,7 +120,20 @@ def verdict_for(env, paired, summary=None):
         return "LOSS", f"every seed t < {MINUS}{T_CRIT_11}, mean {sign(mean)}"
     if max(abs(t) for t in ts) < 1.0:
         return "tie", "no |t| reaches 1"
-    return "mixed", "seeds disagree in sign or in significance"
+    # Every seed pointing the same way but none of them clearing the critical
+    # value is not disagreement, and calling it "mixed" asserts a conflict the
+    # seeds do not have. `FloodEvacuate-v0` is the row that matters: three
+    # seeds improve by +898.0, +890.1 and +1200.8 with |t| of 1.18, 1.16 and
+    # 1.50. They agree on the direction AND on falling short of it. The gap is
+    # large and the environment is loud -- 12 scenarios cannot resolve it --
+    # which is a statement about the power of the test, not about the policy.
+    if all(t > 0 for t in ts) or all(t < 0 for t in ts):
+        word = "improves" if mean > 0 else "loses"
+        return "trend", (
+            f"every seed {word}, none reaches |t| = {T_CRIT_11} "
+            f"(max {max(abs(t) for t in ts):.2f}); mean {sign(mean)}, "
+            f"underpowered at 12 scenarios")
+    return "mixed", "seeds disagree in sign"
 
 
 def main() -> int:
@@ -215,12 +236,14 @@ def main() -> int:
     # counts sum to fewer environments than the catalog holds and the
     # difference is invisible. `STALE` and `no data` are the two that are
     # easy to forget, because they are the rows with no result in them.
-    for v in ("BEATS", "deterministic", "identical", "tie", "mixed",
-              "LOSS", "INFEASIBLE", "STALE", "no data"):
+    # One tuple, used both to order the rows and to check that nothing is
+    # missing from them. These were two parallel literals until adding `trend`
+    # updated one and not the other, which is exactly the drift the check
+    # below exists to catch -- so the check now cannot disagree with the rows.
+    for v in VERDICT_ORDER:
         if v in counts:
             w("| " + v + " | " + str(counts[v]) + " |")
-    missing = set(counts) - {"BEATS", "deterministic", "identical", "tie",
-                             "mixed", "LOSS", "INFEASIBLE", "STALE", "no data"}
+    missing = set(counts) - set(VERDICT_ORDER)
     if missing:
         raise SystemExit(f"verdicts not in the count table: {sorted(missing)}")
     total = sum(counts.values())
