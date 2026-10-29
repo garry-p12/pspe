@@ -124,15 +124,31 @@ def verdict_for(env, paired, summary=None):
     # value is not disagreement, and calling it "mixed" asserts a conflict the
     # seeds do not have. `FloodEvacuate-v0` is the row that matters: three
     # seeds improve by +898.0, +890.1 and +1200.8 with |t| of 1.18, 1.16 and
-    # 1.50. They agree on the direction AND on falling short of it. The gap is
-    # large and the environment is loud -- 12 scenarios cannot resolve it --
-    # which is a statement about the power of the test, not about the policy.
+    # 1.50, agreeing on the direction AND on falling short of it.
+    #
+    # The reason this said "underpowered at 12 scenarios" for an hour, and why
+    # that was wrong: the seeds agree, the SCENARIOS do not. Evacuate wins 3 of
+    # 12 and loses 7, and the mean is positive only because the catastrophe
+    # avoided on those 3 is worth ~5256 against ~700 lost on the common case.
+    # A `t` near 1 is then the correct report of an inconsistent sign, not a
+    # sample-size complaint, and a larger pool would sharpen the split rather
+    # than resolve it. So the reason string carries the per-scenario counts,
+    # which are the actual diagnostic, instead of a verdict on the pool size.
     if all(t > 0 for t in ts) or all(t < 0 for t in ts):
         word = "improves" if mean > 0 else "loses"
+        inc = p.get("incumbent_returns") or []
+        better = worse = same = 0
+        for sd in seeds:
+            for a, b in zip(sd.get("returns") or [], inc):
+                d = a - b
+                better += d > 1e-9
+                worse += d < -1e-9
+                same += abs(d) <= 1e-9
+        split = (f"; per scenario {better} better / {worse} worse / "
+                 f"{same} equal" if better + worse + same else "")
         return "trend", (
             f"every seed {word}, none reaches |t| = {T_CRIT_11} "
-            f"(max {max(abs(t) for t in ts):.2f}); mean {sign(mean)}, "
-            f"underpowered at 12 scenarios")
+            f"(max {max(abs(t) for t in ts):.2f}); mean {sign(mean)}{split}")
     return "mixed", "seeds disagree in sign"
 
 
